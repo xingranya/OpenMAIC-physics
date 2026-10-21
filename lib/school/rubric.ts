@@ -77,7 +77,12 @@ export const RUBRIC: readonly RubricDimension[] = [
     question: '能否在团队中分工、汇报与反思？',
     evidence: '任务第五关检查项、答辩记录与个人反思',
     anchors: [
-      { band: '扎实', min: 85, max: 100, criterion: '贡献边界清晰，能区分个人与团队成果并提出下一轮方向。' },
+      {
+        band: '扎实',
+        min: 85,
+        max: 100,
+        criterion: '贡献边界清晰，能区分个人与团队成果并提出下一轮方向。',
+      },
       { band: '基本掌握', min: 70, max: 84, criterion: '完成分工与汇报，反思较笼统。' },
       { band: '有缺口', min: 55, max: 69, criterion: '参与度不足或汇报与实际工作脱节。' },
       { band: '需重建', min: 0, max: 54, criterion: '缺少团队协作记录。' },
@@ -105,6 +110,8 @@ export function buildRubricSummary(): string {
   return RUBRIC.map(
     (dimension) =>
       `【${dimension.label}】${dimension.question}（证据：${dimension.evidence}）` +
-      dimension.anchors.map((anchor) => `${anchor.min}-${anchor.max}：${anchor.criterion}`).join(' '),
+      dimension.anchors
+        .map((anchor) => `${anchor.min}-${anchor.max}：${anchor.criterion}`)
+        .join(' '),
   ).join('\n');
 }

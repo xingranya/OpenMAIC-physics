@@ -40,9 +40,7 @@ export const PRESET_CLASSROOMS: readonly PresetClassroom[] = [
           '第三步：定坐标系与正方向，再写方程',
         ],
         formula: 'ΣF = ma',
-        whiteboard: [
-          { latex: '\\sum \\vec{F} = m\\vec{a}', note: '矢量式，先定正方向再代数值' },
-        ],
+        whiteboard: [{ latex: '\\sum \\vec{F} = m\\vec{a}', note: '矢量式，先定正方向再代数值' }],
         narration:
           '受力分析只有三步，但初学者几乎都在第二步出错：把"运动方向"当成力，把"惯性"当成力。记住：只有物体间的相互作用才是力。',
       },
@@ -149,9 +147,7 @@ export const PRESET_CLASSROOMS: readonly PresetClassroom[] = [
           '量纲检查：m/s = m × 1/s ✓',
         ],
         formula: 'v = λ · f',
-        whiteboard: [
-          { latex: 'v = \\lambda f', note: '量纲检查：m/s = m × 1/s ✓' },
-        ],
+        whiteboard: [{ latex: 'v = \\lambda f', note: '量纲检查：m/s = m × 1/s ✓' }],
         narration:
           '先复习波速、波长、频率的关系，顺手做一次量纲检查。记住这个动作，后面每个公式都做一遍。',
       },
@@ -186,8 +182,7 @@ export const PRESET_CLASSROOMS: readonly PresetClassroom[] = [
         question: '超声波测距中，测得回波时延 t、声速 v，则被测距离为：',
         options: ['d = v·t', 'd = v·t/2', 'd = 2v·t', 'd = t/(2v)'],
         correctIndex: 1,
-        analysis:
-          '脉冲往返总路程为 2d，故 2d = v·t，解得 d = v·t/2。漏掉 2 是最常见错误。',
+        analysis: '脉冲往返总路程为 2d，故 2d = v·t，解得 d = v·t/2。漏掉 2 是最常见错误。',
       },
       {
         question: '关于波，下列说法正确的是：',
@@ -244,8 +239,7 @@ export const PRESET_CLASSROOMS: readonly PresetClassroom[] = [
           '电流表内阻极小 → 串联；电压表内阻极大 → 并联',
           '理由：内阻决定了它对被测电路的"打扰"',
         ],
-        narration:
-          '先别背口诀，我们从"电表对电路有多大打扰"这个角度想，结论自己就出来了。',
+        narration: '先别背口诀，我们从"电表对电路有多大打扰"这个角度想，结论自己就出来了。',
       },
       {
         title: '欧姆定律的适用边界',
@@ -255,9 +249,7 @@ export const PRESET_CLASSROOMS: readonly PresetClassroom[] = [
           '适用条件：温度等物理量近似不变',
         ],
         formula: 'U = I · R',
-        whiteboard: [
-          { latex: 'U = I R', note: '描述电阻性元件的伏安特性，灯丝不满足' },
-        ],
+        whiteboard: [{ latex: 'U = I R', note: '描述电阻性元件的伏安特性，灯丝不满足' }],
         narration:
           '欧姆定律常被说成"永远成立"。更准确的说法是：它描述特定元件的伏安特性，灯丝这类元件的 R 随温度变化，模型不成立。',
       },
@@ -285,7 +277,10 @@ export const PRESET_CLASSROOMS: readonly PresetClassroom[] = [
         ],
         formula: 'P = U · I = I²R',
         whiteboard: [
-          { latex: 'P = U I = I^2 R = \\frac{U^2}{R}', note: '同一元件三式等价，换算前先看用哪个更省事' },
+          {
+            latex: 'P = U I = I^2 R = \\frac{U^2}{R}',
+            note: '同一元件三式等价，换算前先看用哪个更省事',
+          },
         ],
         narration:
           '最后落到安全：过载会烧保险丝，短路会引燃。额定值和实际值的区别，是这一节最该带走的东西。',
@@ -447,11 +442,7 @@ export const PRESET_CLASSROOMS: readonly PresetClassroom[] = [
       },
       {
         title: '光电效应方程',
-        bullets: [
-          'hν = W₀ + Ek_max',
-          'Ek_max = e·U_c，U_c 是截止电压',
-          '量纲检查：J = J + J ✓',
-        ],
+        bullets: ['hν = W₀ + Ek_max', 'Ek_max = e·U_c，U_c 是截止电压', '量纲检查：J = J + J ✓'],
         formula: 'hν = W₀ + eU_c',
         whiteboard: [
           { latex: 'h\\nu = W_0 + E_{k,max}', note: '光子能量减去逸出功，剩下的就是最大动能' },
@@ -478,12 +469,7 @@ export const PRESET_CLASSROOMS: readonly PresetClassroom[] = [
     quiz: [
       {
         question: '光电效应中，光电子的最大初动能取决于：',
-        options: [
-          '入射光强度',
-          '入射光频率与金属逸出功',
-          '照射时间',
-          '单位面积上的光子数',
-        ],
+        options: ['入射光强度', '入射光频率与金属逸出功', '照射时间', '单位面积上的光子数'],
         correctIndex: 1,
         analysis:
           'Ek_max = hν − W₀，只与频率和逸出功有关。光强只影响光电流大小，不影响最大初动能。',
@@ -562,7 +548,10 @@ export const PRESET_CLASSROOMS: readonly PresetClassroom[] = [
         ],
         formula: 'η = W_useful / Q_in',
         whiteboard: [
-          { latex: '\\eta = \\frac{W_{useful}}{Q_{in}}', note: '先画能量流图找到最大损耗环节，再谈优化' },
+          {
+            latex: '\\eta = \\frac{W_{useful}}{Q_{in}}',
+            note: '先画能量流图找到最大损耗环节，再谈优化',
+          },
         ],
         narration:
           '把效率讲清楚之后，请大家自己判断：一个"不消耗能量却持续输出能量"的装置，在能量流图上会画成什么样？',
@@ -577,15 +566,9 @@ export const PRESET_CLASSROOMS: readonly PresetClassroom[] = [
       },
       {
         question: '提高热机效率的途径中，正确的是：',
-        options: [
-          '增大冷热源之间的温差',
-          '减少工质的比热容',
-          '增加散热面积',
-          '让工质质量更大',
-        ],
+        options: ['增大冷热源之间的温差', '减少工质的比热容', '增加散热面积', '让工质质量更大'],
         correctIndex: 0,
-        analysis:
-          '卡诺效率 η = 1 − T₂/T₁ 只取决于冷热源温度；其他选项要么无关，要么会增加损耗。',
+        analysis: '卡诺效率 η = 1 − T₂/T₁ 只取决于冷热源温度；其他选项要么无关，要么会增加损耗。',
       },
     ],
     discussion: [

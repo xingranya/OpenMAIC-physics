@@ -29,6 +29,16 @@ import {
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { CommandPalette } from '@/components/physics/command-palette';
 import { usePhysicsState } from '@/components/physics/state-provider';
 import { BRAND_FULL_NAME, CONTEXT_LABEL, COURSE, DEMO, PLATFORM, SCHOOL } from '@/lib/school';
@@ -89,16 +99,14 @@ export function parseWorkbenchPath(
   return null;
 }
 
-export function WorkbenchShell({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export function WorkbenchShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { session, hydrated, signOut, reset, rollback, lastUndo } = usePhysicsState();
+  const { session, hydrated, signOut, reset, resetStudent, rollback, lastUndo } = usePhysicsState();
   const [paletteOpen, setPaletteOpen] = React.useState(false);
   const [helpOpen, setHelpOpen] = React.useState(false);
+  // 破坏性动作先确认再执行：命令面板一按回车就清库的体验既危险又无法撤回。
+  const [resetTarget, setResetTarget] = React.useState<'student' | 'all' | null>(null);
 
   const parsed = parseWorkbenchPath(pathname);
   const role = session?.role ?? null;
@@ -118,8 +126,12 @@ export function WorkbenchShell({
         router.push('/login');
         return;
       }
-      if (id === 'reset') {
-        reset('从命令面板重置学习记录');
+      if (id === 'reset-student') {
+        setResetTarget('student');
+        return;
+      }
+      if (id === 'reset-all') {
+        setResetTarget('all');
         return;
       }
       if (id === 'open-shortcuts-help') {
@@ -133,6 +145,15 @@ export function WorkbenchShell({
     },
     [reset, router, signOut],
   );
+
+  const confirmReset = React.useCallback(() => {
+    if (resetTarget === 'student') {
+      resetStudent('从命令面板重置我的学习记录');
+    } else if (resetTarget === 'all') {
+      reset('从命令面板清空本地全部数据');
+    }
+    setResetTarget(null);
+  }, [reset, resetStudent, resetTarget]);
 
   const { open, setOpen, shortcuts } = useShortcuts({
     role,
@@ -175,8 +196,7 @@ export function WorkbenchShell({
     );
   }
 
-  const displayName =
-    role === 'student' ? DEMO.studentName : COURSE.teacher;
+  const displayName = role === 'student' ? DEMO.studentName : COURSE.teacher;
 
   const paletteItems = findShortcutsForPalette(role);
 
@@ -200,7 +220,9 @@ export function WorkbenchShell({
             className="h-8 w-auto shrink-0 object-contain"
           />
           <div className="min-w-0">
-            <p className="truncate text-[12px] font-semibold text-white">{PLATFORM.systemShortName}</p>
+            <p className="truncate text-[12px] font-semibold text-white">
+              {PLATFORM.systemShortName}
+            </p>
             <p className="truncate text-[10px] text-[var(--school-sidebar-muted)]">
               {SCHOOL.collegeShort} · {COURSE.name}
             </p>
@@ -362,6 +384,28 @@ export function WorkbenchShell({
         }}
       />
 
+      <AlertDialog
+        open={resetTarget !== null}
+        onOpenChange={(open) => !open && setResetTarget(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {resetTarget === 'all' ? '清空本地全部数据？' : '重置我的学习记录？'}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {resetTarget === 'all'
+                ? '将清空浏览器本地的全部工作台数据，包括学情诊断、闯关记录、实验数据与教师复核记录。操作前会自动生成 24 小时可恢复快照，你可以在工作台顶部横幅中一键撤销。'
+                : '将清空你本人的诊断结果、闯关进度、实验记录与笔记，并回到未选择项目的状态。教师的复核记录与学情画像都会保留。操作前会自动生成 24 小时可恢复快照，你可以在工作台顶部横幅中一键撤销。'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmReset}>确认重置</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {helpOpen ? (
         <div
           className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-6"
@@ -370,6 +414,7 @@ export function WorkbenchShell({
           aria-label="快捷键帮助"
           onClick={() => setHelpOpen(false)}
         >
+          {' '}
           <div
             className="max-h-[80dvh] w-full max-w-lg overflow-y-auto rounded-xl border border-border bg-background p-5 shadow-2xl"
             onClick={(event) => event.stopPropagation()}
@@ -388,9 +433,13 @@ export function WorkbenchShell({
                 ))}
             </ul>
             <p className="mt-4 text-[12px] text-muted-foreground">
-              <kbd className="rounded border border-border bg-muted px-1 font-mono text-[10px]">⌘K</kbd>{' '}
+              <kbd className="rounded border border-border bg-muted px-1 font-mono text-[10px]">
+                ⌘K
+              </kbd>{' '}
               打开命令面板 ·
-              <kbd className="ml-1 rounded border border-border bg-muted px-1 font-mono text-[10px]">?</kbd>{' '}
+              <kbd className="ml-1 rounded border border-border bg-muted px-1 font-mono text-[10px]">
+                ?
+              </kbd>{' '}
               打开本帮助
             </p>
             <Button className="mt-4 w-full" variant="outline" onClick={() => setHelpOpen(false)}>

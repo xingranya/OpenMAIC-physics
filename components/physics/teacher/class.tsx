@@ -32,9 +32,7 @@ export function TeacherClass() {
   const [editing, setEditing] = React.useState<Project | null>(null);
   const [creating, setCreating] = React.useState(false);
 
-  const students = DEMO_STUDENTS.filter(
-    (student) => filter === '全部' || student.risk === filter,
-  );
+  const students = DEMO_STUDENTS.filter((student) => filter === '全部' || student.risk === filter);
   const projects = [...PROJECTS, ...state.localProjects];
 
   return (

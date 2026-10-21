@@ -18,11 +18,5 @@
   // `.next/dev/types/**`，两套 validator.ts 的全局路由类型互相覆盖会让
   // `Route` 退化为 `never`，使构建在"先 dev 后 build"时失败。
   // 详见 tsconfig.typecheck.json 的说明。
-  "include": [
-    "next-env.d.ts",
-    "**/*.ts",
-    "**/*.tsx",
-    "**/*.mts",
-    ".next/types/**/*.ts"
-  ]
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", "**/*.mts", ".next/types/**/*.ts"]
 }

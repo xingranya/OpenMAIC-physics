@@ -123,13 +123,19 @@ OpenMAIC-physics/
 
 本项目是 OpenMAIC 的**二次开发**，不是独立实现。改动集中在：
 
-1. 物理教学域移植（`lib/physics/`，4 045 行；其中纯领域层 3 091 行）
+1. 物理教学域移植（`lib/physics/`，其中纯领域层 11 个文件）
 2. 物理领域约束注入生成管线（`lib/physics/prompts/`，不改动上游模板）
 3. 校本内容层（`lib/school/`）与品牌层
 4. 无数据库边缘部署改造（移除 render-service 与 persistence 路由、部署形态断言、
    跨平台原生模块配置、`build:packages` 修正）
 
 详见 `NOTICE` 与 `docs/参赛/作品说明书.md` §3。
+
+> **口径勘误**：上游自带的 `README-zh.md` 与 `skills/openmaic/references/` 里
+> 仍完整介绍 `NEXT_PUBLIC_PERSISTENCE=1` + `DATABASE_URL` 的服务端持久化模式。
+> 那是上游的默认形态，**本项目不启用**：相关路由已移除、运行时不可达，
+> 部署形态由 `lib/config/deployment-mode.ts` 在启动时断言。
+> 以本文件与 `deploy/README.md` 为准。
 
 ---
 

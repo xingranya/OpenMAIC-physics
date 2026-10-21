@@ -107,7 +107,8 @@ export function TeacherCurriculum() {
                       </Badge>
                     </p>
                     <p className="mt-1 text-[11.5px] text-muted-foreground">
-                      {chapter.volume} · {chapter.module} · {chapter.hours} 学时 · 产出「{chapter.output}」
+                      {chapter.volume} · {chapter.module} · {chapter.hours} 学时 · 产出「
+                      {chapter.output}」
                     </p>
                   </div>
                   <div className="flex shrink-0 flex-wrap gap-1.5">
@@ -138,9 +139,7 @@ export function TeacherCurriculum() {
                     </span>
                   ) : null}
                   {ideology ? (
-                    <span className="inline-flex items-center gap-1">
-                      思政 · {ideology.theme}
-                    </span>
+                    <span className="inline-flex items-center gap-1">思政 · {ideology.theme}</span>
                   ) : null}
                 </div>
               </li>

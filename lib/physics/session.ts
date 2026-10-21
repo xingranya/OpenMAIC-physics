@@ -70,7 +70,9 @@ export function authenticate(
   username: string,
   password: string,
 ): { role: UserRole; displayName: string } | null {
-  const normalized = String(username ?? '').trim().toLowerCase();
+  const normalized = String(username ?? '')
+    .trim()
+    .toLowerCase();
   if (!normalized || password !== DEMO.password) return null;
   const account = DEMO_ACCOUNTS.find(
     (item) => item.username.toLowerCase() === normalized && item.password === password,
@@ -81,6 +83,11 @@ export function authenticate(
 
 /** 演示账号提示（登录页展示）。 */
 export const DEMO_HINT = [
-  { role: 'student' as const, label: '学生', username: DEMO.studentUsername, name: DEMO.studentName },
+  {
+    role: 'student' as const,
+    label: '学生',
+    username: DEMO.studentUsername,
+    name: DEMO.studentName,
+  },
   { role: 'teacher' as const, label: '教师', username: DEMO.teacherUsername, name: COURSE.teacher },
 ];

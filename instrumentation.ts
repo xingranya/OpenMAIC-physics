@@ -26,9 +26,8 @@ export async function register(): Promise<void> {
   // 只在生产环境强制：单元测试会直接调用 register()，并在进程内设置
   // 各种开关组合来验证其它行为，那不是一次真实部署。
   if (process.env.NODE_ENV === 'production') {
-    const { assertDeploymentConfig, detectDeploymentMode } = await import(
-      '@/lib/config/deployment-mode'
-    );
+    const { assertDeploymentConfig, detectDeploymentMode } =
+      await import('@/lib/config/deployment-mode');
     assertDeploymentConfig(detectDeploymentMode());
   }
 

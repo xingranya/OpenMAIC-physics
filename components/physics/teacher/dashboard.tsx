@@ -138,13 +138,17 @@ export function TeacherDashboard() {
                   <RiskBadge risk={student.risk} />
                 </p>
                 <p className="mt-0.5 text-[11.5px] text-muted-foreground">
-                  薄弱维度 {student.weakDimension} · 项目「{student.project}」· 进度 {student.progress}%
+                  薄弱维度 {student.weakDimension} · 项目「{student.project}」· 进度{' '}
+                  {student.progress}%
                 </p>
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 <span className="text-[15px] font-semibold tabular-nums">{student.score}</span>
                 {student.risk === '高风险' ? (
-                  <AlertTriangle className="size-4 text-[var(--school-danger)]" aria-hidden="true" />
+                  <AlertTriangle
+                    className="size-4 text-[var(--school-danger)]"
+                    aria-hidden="true"
+                  />
                 ) : null}
               </div>
             </li>
@@ -171,7 +175,9 @@ export function TeacherDashboard() {
                 <TrendingUp className="size-3.5 text-primary" aria-hidden="true" />
                 {plan.title}
               </p>
-              <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">{plan.content}</p>
+              <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">
+                {plan.content}
+              </p>
             </li>
           ))}
         </ul>

@@ -47,7 +47,8 @@ const iconMap: Record<string, React.ElementType> = {
   'open-shortcuts-help': FileText,
   'goto-ai-classroom': Sparkles,
   logout: LogOut,
-  reset: RotateCcw,
+  'reset-student': RotateCcw,
+  'reset-all': RotateCcw,
   default: ArrowRight,
 };
 
@@ -98,8 +99,7 @@ export function CommandPalette({
   }, [query, shortcuts]);
 
   // 列表变短时夹紧当前索引，而不是每次按键都重置。
-  const clampedActiveIndex =
-    filtered.length === 0 ? 0 : Math.min(activeIndex, filtered.length - 1);
+  const clampedActiveIndex = filtered.length === 0 ? 0 : Math.min(activeIndex, filtered.length - 1);
 
   const pick = (binding: ShortcutBinding) => {
     onOpenChange(false);

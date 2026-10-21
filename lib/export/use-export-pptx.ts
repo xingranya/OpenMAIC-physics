@@ -39,7 +39,8 @@ import {
   type MediaTaskState,
 } from '@/lib/media/resolve-media-ref';
 import { lookupMediaTask, resolveVideoMediaForElement } from '@/lib/media/media-task-resolution';
-import { COURSE, SCHOOL, buildSlideFooterSpec } from '@/lib/school';
+import { COURSE, SCHOOL } from '@/lib/school';
+import { buildBrandElements } from '@/lib/export/slide-branding';
 
 const log = createLogger('ExportPPTX');
 
@@ -1328,34 +1329,23 @@ export function useExportPPTX() {
   const slideScenes = scenes.filter((s) => s.content.type === 'slide');
   const slides = slideScenes.map((s) => (s.content as SlideContent).canvas);
 
-  // 校本导出页脚：每一页带上"学校 · 课程"标识。课件进讲台或传给学生时，
-  // 出处一眼可辨。装饰发生在导出副本上，不改动课堂存储里的原始画布。
+  // 校本导出页眉页脚：每一页贴顶一条"学校 · 课程 · 章节"、贴底一条
+  // "学校 · 课程 · 教师"，课件进讲台或传给学生时出处一眼可辨。
+  // 装饰发生在导出副本上，不改动课堂存储里的原始画布。
+  // 具体规则见 `@/lib/export/slide-branding`（纯函数，有单测覆盖）。
   const brandedSlides = slides.map((slide) => {
-    const spec = buildSlideFooterSpec(
-      slide.viewportSize || viewportSize,
-      slide.viewportRatio || viewportRatio,
-      slide.theme?.fontColor ?? '#94a3b8',
-      stage?.name,
-      COURSE.teacher,
-    );
+    const { header, footer } = buildBrandElements(slide, {
+      chapter: stage?.name,
+      teacher: COURSE.teacher,
+      viewportSize,
+      viewportRatio,
+    });
     return {
       ...slide,
       elements: [
         ...slide.elements,
-        {
-          id: `school-footer-${slide.id}`,
-          type: 'text',
-          content: spec.text,
-          left: spec.left,
-          top: spec.top,
-          width: spec.width,
-          height: spec.height,
-          rotate: 0,
-          defaultFontName: 'PingFang SC',
-          defaultColor: spec.color,
-          fontSize: spec.fontSize,
-          textAlign: 'left',
-        } as unknown as Slide['elements'][number],
+        header as unknown as Slide['elements'][number],
+        ...(footer ? [footer as unknown as Slide['elements'][number]] : []),
       ],
     };
   });

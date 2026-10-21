@@ -10,7 +10,12 @@
  * 一律标注为"示例"（见 `isVerified` 字段），界面上同步提示。
  */
 
-import type { ChapterStatus, DiagnosticDimension, ProjectLevel, QuizQuestion } from '@/lib/physics/types';
+import type {
+  ChapterStatus,
+  DiagnosticDimension,
+  ProjectLevel,
+  QuizQuestion,
+} from '@/lib/physics/types';
 import { QUIZ_QUESTIONS } from '@/lib/physics/data';
 
 /** 章节的校本扩展信息。 */
@@ -62,24 +67,150 @@ export interface SchoolModulePlan {
 
 /** 章节的校本扩展（按章号索引）。 */
 export const SCHOOL_CHAPTER_META: Readonly<Record<number, SchoolChapterMeta>> = {
-  1: { no: 1, textbookSection: '第 1 章（示例）', labIds: ['lab-error'], ideologyKey: 'rigor', weeks: '第 1-2 周', isVerified: false },
-  2: { no: 2, textbookSection: '第 2 章（示例）', labIds: [], ideologyKey: 'model', weeks: '第 3-4 周', isVerified: false },
-  3: { no: 3, textbookSection: '第 3 章（示例）', labIds: ['lab-incline'], ideologyKey: 'model', weeks: '第 5-7 周', isVerified: false },
-  4: { no: 4, textbookSection: '第 4 章（示例）', labIds: ['lab-energy'], ideologyKey: 'energy', weeks: '第 8-9 周', isVerified: false },
-  5: { no: 5, textbookSection: '第 5 章（示例）', labIds: [], ideologyKey: 'model', weeks: '第 10 周', isVerified: false },
-  6: { no: 6, textbookSection: '第 6 章（示例）', labIds: ['lab-rotation'], ideologyKey: 'craft', weeks: '第 11-12 周', isVerified: false },
-  7: { no: 7, textbookSection: '第 7 章（示例）', labIds: ['lab-oscillation'], ideologyKey: 'craft', weeks: '第 13-14 周', isVerified: false },
-  8: { no: 8, textbookSection: '第 8 章（示例）', labIds: ['lab-ultrasonic'], ideologyKey: 'service', weeks: '第 15-16 周', isVerified: false },
-  9: { no: 9, textbookSection: '第 9 章（示例）', labIds: ['lab-ideal-gas'], ideologyKey: 'rigor', weeks: '第 17 周', isVerified: false },
-  10: { no: 10, textbookSection: '第 10 章（示例）', labIds: [], ideologyKey: 'energy', weeks: '第 18 周', isVerified: false },
-  11: { no: 11, textbookSection: '第 11 章（示例）', labIds: ['lab-field'], ideologyKey: 'service', weeks: '第 19-20 周', isVerified: false },
-  12: { no: 12, textbookSection: '第 12 章（示例）', labIds: ['lab-circuit'], ideologyKey: 'craft', weeks: '第 21-22 周', isVerified: false },
-  13: { no: 13, textbookSection: '第 13 章（示例）', labIds: ['lab-magnetic'], ideologyKey: 'craft', weeks: '第 23 周', isVerified: false },
-  14: { no: 14, textbookSection: '第 14 章（示例）', labIds: [], ideologyKey: 'service', weeks: '第 24-25 周', isVerified: false },
-  15: { no: 15, textbookSection: '第 15 章（示例）', labIds: ['lab-lens'], ideologyKey: 'craft', weeks: '第 26 周', isVerified: false },
-  16: { no: 16, textbookSection: '第 16 章（示例）', labIds: ['lab-interference'], ideologyKey: 'rigor', weeks: '第 27-28 周', isVerified: false },
-  17: { no: 17, textbookSection: '第 17 章（示例）', labIds: ['lab-photoelectric'], ideologyKey: 'service', weeks: '第 29 周', isVerified: false },
-  18: { no: 18, textbookSection: '第 18 章（示例）', labIds: [], ideologyKey: 'model', weeks: '第 30 周', isVerified: false },
+  1: {
+    no: 1,
+    textbookSection: '第 1 章（示例）',
+    labIds: ['lab-error'],
+    ideologyKey: 'rigor',
+    weeks: '第 1-2 周',
+    isVerified: false,
+  },
+  2: {
+    no: 2,
+    textbookSection: '第 2 章（示例）',
+    labIds: [],
+    ideologyKey: 'model',
+    weeks: '第 3-4 周',
+    isVerified: false,
+  },
+  3: {
+    no: 3,
+    textbookSection: '第 3 章（示例）',
+    labIds: ['lab-incline'],
+    ideologyKey: 'model',
+    weeks: '第 5-7 周',
+    isVerified: false,
+  },
+  4: {
+    no: 4,
+    textbookSection: '第 4 章（示例）',
+    labIds: ['lab-energy'],
+    ideologyKey: 'energy',
+    weeks: '第 8-9 周',
+    isVerified: false,
+  },
+  5: {
+    no: 5,
+    textbookSection: '第 5 章（示例）',
+    labIds: [],
+    ideologyKey: 'model',
+    weeks: '第 10 周',
+    isVerified: false,
+  },
+  6: {
+    no: 6,
+    textbookSection: '第 6 章（示例）',
+    labIds: ['lab-rotation'],
+    ideologyKey: 'craft',
+    weeks: '第 11-12 周',
+    isVerified: false,
+  },
+  7: {
+    no: 7,
+    textbookSection: '第 7 章（示例）',
+    labIds: ['lab-oscillation'],
+    ideologyKey: 'craft',
+    weeks: '第 13-14 周',
+    isVerified: false,
+  },
+  8: {
+    no: 8,
+    textbookSection: '第 8 章（示例）',
+    labIds: ['lab-ultrasonic'],
+    ideologyKey: 'service',
+    weeks: '第 15-16 周',
+    isVerified: false,
+  },
+  9: {
+    no: 9,
+    textbookSection: '第 9 章（示例）',
+    labIds: ['lab-ideal-gas'],
+    ideologyKey: 'rigor',
+    weeks: '第 17 周',
+    isVerified: false,
+  },
+  10: {
+    no: 10,
+    textbookSection: '第 10 章（示例）',
+    labIds: [],
+    ideologyKey: 'energy',
+    weeks: '第 18 周',
+    isVerified: false,
+  },
+  11: {
+    no: 11,
+    textbookSection: '第 11 章（示例）',
+    labIds: ['lab-field'],
+    ideologyKey: 'service',
+    weeks: '第 19-20 周',
+    isVerified: false,
+  },
+  12: {
+    no: 12,
+    textbookSection: '第 12 章（示例）',
+    labIds: ['lab-circuit'],
+    ideologyKey: 'craft',
+    weeks: '第 21-22 周',
+    isVerified: false,
+  },
+  13: {
+    no: 13,
+    textbookSection: '第 13 章（示例）',
+    labIds: ['lab-magnetic'],
+    ideologyKey: 'craft',
+    weeks: '第 23 周',
+    isVerified: false,
+  },
+  14: {
+    no: 14,
+    textbookSection: '第 14 章（示例）',
+    labIds: [],
+    ideologyKey: 'service',
+    weeks: '第 24-25 周',
+    isVerified: false,
+  },
+  15: {
+    no: 15,
+    textbookSection: '第 15 章（示例）',
+    labIds: ['lab-lens'],
+    ideologyKey: 'craft',
+    weeks: '第 26 周',
+    isVerified: false,
+  },
+  16: {
+    no: 16,
+    textbookSection: '第 16 章（示例）',
+    labIds: ['lab-interference'],
+    ideologyKey: 'rigor',
+    weeks: '第 27-28 周',
+    isVerified: false,
+  },
+  17: {
+    no: 17,
+    textbookSection: '第 17 章（示例）',
+    labIds: ['lab-photoelectric'],
+    ideologyKey: 'service',
+    weeks: '第 29 周',
+    isVerified: false,
+  },
+  18: {
+    no: 18,
+    textbookSection: '第 18 章（示例）',
+    labIds: [],
+    ideologyKey: 'model',
+    weeks: '第 30 周',
+    isVerified: false,
+  },
 };
 
 /** 校内实验项目清单。 */
@@ -308,9 +439,7 @@ const SCHOOL_EXCLUDED_QUESTION_IDS: readonly string[] = ['energy-conservation', 
 
 /** 校本课前诊断题集（8 题 / 7 维）。 */
 export const SCHOOL_DIAGNOSIS_QUESTIONS: readonly QuizQuestion[] = [
-  ...QUIZ_QUESTIONS.filter(
-    (question) => !SCHOOL_EXCLUDED_QUESTION_IDS.includes(question.id),
-  ),
+  ...QUIZ_QUESTIONS.filter((question) => !SCHOOL_EXCLUDED_QUESTION_IDS.includes(question.id)),
   ...SCHOOL_OWNED_QUESTIONS,
 ];
 

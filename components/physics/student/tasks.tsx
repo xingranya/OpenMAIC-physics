@@ -61,9 +61,7 @@ export function StudentTasks() {
     });
   };
 
-  const ideology = project.dims.length
-    ? getIdeologyPointForDimension(project.dims[0])
-    : undefined;
+  const ideology = project.dims.length ? getIdeologyPointForDimension(project.dims[0]) : undefined;
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
@@ -82,8 +80,8 @@ export function StudentTasks() {
         <SectionCard title="五阶任务">
           <ol className="flex flex-col gap-1">
             {TASK_TEMPLATES.map((item, index) => {
-              const done = item.checks.filter((_, checkIndex) =>
-                state.taskChecks[`${index}-${checkIndex}`],
+              const done = item.checks.filter(
+                (_, checkIndex) => state.taskChecks[`${index}-${checkIndex}`],
               ).length;
               const complete = done === item.checks.length;
               const isActive = index === active;
@@ -104,7 +102,10 @@ export function StudentTasks() {
                     )}
                   >
                     {complete ? (
-                      <CheckCircle2 className="size-4 shrink-0 text-[var(--school-success)]" aria-hidden="true" />
+                      <CheckCircle2
+                        className="size-4 shrink-0 text-[var(--school-success)]"
+                        aria-hidden="true"
+                      />
                     ) : (
                       <Circle className="size-4 shrink-0" aria-hidden="true" />
                     )}
@@ -198,8 +199,8 @@ export function StudentTasks() {
       </div>
 
       <HintBar>
-        闯关进度与笔记会自动保存到浏览器本地，退出登录不会清除；重置学习记录需要二次确认，
-        且 24 小时内可撤销。
+        闯关进度与笔记会自动保存到浏览器本地，退出登录不会清除；重置学习记录需要二次确认， 且 24
+        小时内可撤销。
       </HintBar>
 
       <div className="flex flex-wrap gap-2">

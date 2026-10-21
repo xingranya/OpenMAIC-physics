@@ -5,31 +5,27 @@
  * 页面、服务端渲染和单元测试之间共享。
  */
 
-export type UserRole = "student" | "teacher";
+export type UserRole = 'student' | 'teacher';
 
-export type LearningStyle = "practice" | "visual" | "discussion" | "reading";
+export type LearningStyle = 'practice' | 'visual' | 'discussion' | 'reading';
 
-export type LearningTarget =
-  | "concept"
-  | "application"
-  | "innovation"
-  | "collaboration";
+export type LearningTarget = 'concept' | 'application' | 'innovation' | 'collaboration';
 
 /** 诊断题和项目使用的知识维度。实验是贯穿各模块的通用维度。 */
 export type DiagnosticDimension =
-  | "力学"
-  | "波动"
-  | "热学"
-  | "电磁学"
-  | "光学"
-  | "近代物理"
-  | "实验";
+  | '力学'
+  | '波动'
+  | '热学'
+  | '电磁学'
+  | '光学'
+  | '近代物理'
+  | '实验';
 
-export type PhysicsDimension = Exclude<DiagnosticDimension, "实验">;
+export type PhysicsDimension = Exclude<DiagnosticDimension, '实验'>;
 
-export type ProjectLevel = "基础" | "中等" | "较高";
+export type ProjectLevel = '基础' | '中等' | '较高';
 
-export type ChapterStatus = "成熟案例" | "重点建设" | "拓展案例";
+export type ChapterStatus = '成熟案例' | '重点建设' | '拓展案例';
 
 /** 诊断题的统一结构。q、opts、a、dim 是原型数据的兼容别名。 */
 export interface QuizQuestion {
@@ -96,7 +92,7 @@ export interface ProjectMatch {
 
 export interface ChapterMapping {
   no: number;
-  volume: "上册" | "下册";
+  volume: '上册' | '下册';
   module: string;
   title: string;
   concepts: readonly string[];
@@ -125,7 +121,7 @@ export interface TaskProgress {
   completedKeys: readonly string[];
 }
 
-export type SignalQuality = "良好" | "一般" | "较差";
+export type SignalQuality = '良好' | '一般' | '较差';
 
 export interface UltrasonicMeasurementInput {
   distanceM: number;
@@ -172,7 +168,7 @@ export interface LabRecord extends UltrasonicMeasurement {
 export interface EvaluationInputs {
   diagnosisScore?: number;
   taskProgress?: number;
-  labRecords?: readonly Pick<LabRecord, "errorPercent" | "error">[];
+  labRecords?: readonly Pick<LabRecord, 'errorPercent' | 'error'>[];
   chatCount?: number;
   participation?: number;
   teamwork?: number;
@@ -205,7 +201,7 @@ export interface EvaluationReview {
 }
 
 export interface ChatMessage {
-  role: "ai" | "user";
+  role: 'ai' | 'user';
   text: string;
 }
 
@@ -251,7 +247,7 @@ export interface DemoStudentSnapshot {
   weakDimension: DiagnosticDimension;
   project: string;
   progress: number;
-  risk: "正常" | "关注" | "高风险" | "优秀";
+  risk: '正常' | '关注' | '高风险' | '优秀';
 }
 
 export interface TeachingPlan {

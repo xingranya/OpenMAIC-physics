@@ -68,7 +68,8 @@
   /* 校本字体栈：中文优先苹方/微软雅黑，西文回落 Inter Variable。
      Inter 仍由 @fontsource 加载并保留逐子集 unicode-range，因此把中文字体
      放在前面不会影响西文与西里尔文、越南文的字形覆盖。 */
-  --font-sans: 'PingFang SC', 'Microsoft YaHei', 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-sans:
+    'PingFang SC', 'Microsoft YaHei', 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);

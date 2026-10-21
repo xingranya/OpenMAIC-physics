@@ -58,7 +58,9 @@ export function PhysicsLogin() {
     setUsername(demoHint.username);
     setPassword(DEMO.password);
     if (signIn(demoHint.username, DEMO.password)) {
-      router.replace(routeFor(demoHint.role, demoHint.role === 'student' ? 'overview' : 'dashboard'));
+      router.replace(
+        routeFor(demoHint.role, demoHint.role === 'student' ? 'overview' : 'dashboard'),
+      );
     }
   }, [demoHint, router, signIn]);
 
@@ -173,7 +175,10 @@ export function PhysicsLogin() {
                 <li key={hint.role} className="flex items-center justify-between gap-2 text-[12px]">
                   <span className="inline-flex items-center gap-1.5">
                     {hint.role === 'student' ? (
-                      <GraduationCap className="size-3.5 text-muted-foreground" aria-hidden="true" />
+                      <GraduationCap
+                        className="size-3.5 text-muted-foreground"
+                        aria-hidden="true"
+                      />
                     ) : (
                       <UserCog className="size-3.5 text-muted-foreground" aria-hidden="true" />
                     )}
@@ -190,8 +195,8 @@ export function PhysicsLogin() {
               ))}
             </ul>
             <p className="mt-2 text-[11px] text-muted-foreground">
-              统一密码 <code className="font-mono">{DEMO.password}</code> · 演示学生 {DEMO.studentName}
-              （{DEMO.studentClassName}）· 任课教师 {COURSE.teacher}
+              统一密码 <code className="font-mono">{DEMO.password}</code> · 演示学生{' '}
+              {DEMO.studentName}（{DEMO.studentClassName}）· 任课教师 {COURSE.teacher}
             </p>
             <div className="mt-3 flex flex-wrap gap-1.5 border-t border-dashed border-border pt-3">
               <span className="self-center text-[11px] text-muted-foreground">一键进入：</span>

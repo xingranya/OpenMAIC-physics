@@ -16,6 +16,7 @@ import {
   resolveProxy,
 } from '@/lib/server/provider-config';
 import { validateClientBaseUrl, validateUrlForSSRF } from '@/lib/server/ssrf-guard';
+import { resolveMakersDefaultModel } from '@/lib/config/makers-models';
 import { fetchWithRedirectValidation } from '@/lib/server/fetch-with-redirect-validation';
 import { clientBaseUrlLlmFetch } from '@/lib/server/llm-provider-fetch';
 import {
@@ -82,7 +83,8 @@ export async function resolveModel(params: {
   const userRoute = envRoute ? undefined : getUserStageRoute(params.userRoutes ?? {}, params.stage);
   const stageRoute: UserStageRoute | undefined = envRoute ?? userRoute;
   const stageModel = stageRoute?.model;
-  const modelString = stageModel || params.modelString || process.env.DEFAULT_MODEL;
+  const modelString =
+    stageModel || params.modelString || process.env.DEFAULT_MODEL || resolveMakersDefaultModel();
   if (!modelString) {
     throw new Error(
       'No model could be resolved. Configure DEFAULT_MODEL (and/or a MODEL_ROUTES entry for this stage), or send a model via x-model.',

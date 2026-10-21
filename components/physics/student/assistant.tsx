@@ -59,8 +59,14 @@ export function StudentAssistant() {
         <SectionCard title="助教人格" description={persona.persona}>
           <ul className="flex flex-col gap-1">
             {persona.guidelines.map((guideline) => (
-              <li key={guideline} className="flex items-start gap-1.5 text-[12.5px] text-muted-foreground">
-                <span className="mt-1.5 size-1 shrink-0 rounded-full bg-primary" aria-hidden="true" />
+              <li
+                key={guideline}
+                className="flex items-start gap-1.5 text-[12.5px] text-muted-foreground"
+              >
+                <span
+                  className="mt-1.5 size-1 shrink-0 rounded-full bg-primary"
+                  aria-hidden="true"
+                />
                 {guideline}
               </li>
             ))}
@@ -71,7 +77,10 @@ export function StudentAssistant() {
         </SectionCard>
       ) : null}
 
-      <SectionCard title="对话" description={`已提问 ${state.chat.filter((m) => m.role === 'user').length} 次`}>
+      <SectionCard
+        title="对话"
+        description={`已提问 ${state.chat.filter((m) => m.role === 'user').length} 次`}
+      >
         {state.chat.length === 0 ? (
           <div className="flex flex-col items-center gap-2 py-8 text-center">
             <Bot className="size-8 text-primary" aria-hidden="true" />
@@ -91,7 +100,9 @@ export function StudentAssistant() {
                     : 'border border-border/70 bg-muted/50',
                 )}
               >
-                <span className="sr-only">{message.role === 'user' ? '我的提问：' : '助教回答：'}</span>
+                <span className="sr-only">
+                  {message.role === 'user' ? '我的提问：' : '助教回答：'}
+                </span>
                 {message.text}
               </li>
             ))}
@@ -133,7 +144,10 @@ export function StudentAssistant() {
         </div>
       </SectionCard>
 
-      <SectionCard title="课堂里的多智能体" description="AI 智能课堂可让 AI 教师与同学参与讨论、圆桌辩论与白板演算">
+      <SectionCard
+        title="课堂里的多智能体"
+        description="AI 智能课堂可让 AI 教师与同学参与讨论、圆桌辩论与白板演算"
+      >
         <div className="flex flex-col gap-2">
           {AGENT_PERSONAS.map((item) => (
             <div key={item.id} className="rounded-lg border border-border/70 p-3">
@@ -141,7 +155,9 @@ export function StudentAssistant() {
                 <Sparkles className="size-3.5 text-primary" aria-hidden="true" />
                 {item.name}
               </p>
-              <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">{item.persona}</p>
+              <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
+                {item.persona}
+              </p>
             </div>
           ))}
         </div>

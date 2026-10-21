@@ -10,7 +10,12 @@
 - [ ] 构建命令为 `pnpm build:packages && pnpm build`
 - [ ] 构建成功，无原生模块（sharp / @napi-rs/canvas）加载错误
 - [ ] ⚠️ 已配置 `ACCESS_CODE`（≥16 位随机），且随机验证未授权访问被拦截
-- [ ] ⚠️ 已配置 `DEFAULT_MODEL` 与至少一个 `*_API_KEY`
+- [ ] ⚠️ 已配置模型供给，二选一：
+      - **（推荐）Makers Models**：只配 `MAKERS_MODELS_KEY` 即可，`DEFAULT_MODEL` 缺省时
+        由代码自动推导为 `openai:@makers/deepseek-v4-flash`（可用 `MAKERS_MODELS`
+        显式指定白名单，或用 `node scripts/check-makers-models.mjs` 查当前可用模型）；
+      - **自备厂商密钥**：显式配置 `DEFAULT_MODEL=openai:<model>` 与对应的
+        `OPENAI_API_KEY` / `*_API_KEY`（`DEFAULT_MODEL` 必须带 `openai:` 前缀，否则解析不出 provider）
 - [ ] 未设置 `DATABASE_URL` / `NEXT_PUBLIC_PERSISTENCE` / `NEXT_PUBLIC_PRO_WORKBENCH_ENABLED` / `OPENMAIC_AGENT_RUNTIME_ENABLED`
 - [ ] （可选）已绑定 KV / Blob 命名空间并记录绑定变量名
 
@@ -41,7 +46,7 @@
 - [ ] AI 助教：提问有回应（离线可用）
 - [ ] 虚拟实验：可运行仿真，波形与误差正确显示
 - [ ] 学习报告：可下载 Markdown / JSON，可打印
-- [ ] 报告导出内容含学校页眉与"示例数据"标注
+- [ ] 报告导出内容含学校页眉、班级与"示例数据"标注（Markdown 首行注释 + 末尾说明行都在）
 
 ## E. 教师端闭环（5 视图）
 
@@ -61,7 +66,7 @@
       导师与模拟角色，且点「开始项目」能进入协作工作区
 - [ ] 播放时白板演算与旁白正常（白板上能看到 LaTeX 公式被逐步画出）
 - [ ] 课堂讨论可提问并得到回应
-- [ ] 导出 PPTX，页眉含「长江大学文理学院 · 大学物理」
+- [ ] 导出 PPTX，每页**贴顶页眉**与**贴底页脚**都含「长江大学文理学院 · 大学物理」
 
 ## G. 降级与断网（评委现场保命项）
 
@@ -106,7 +111,11 @@
 > 若客户端 chunk 有任何一个非 200，React 不会水合，页面 SSR 文字完全正常，
 > 但**所有按钮静默失效**——现场就是"点了没反应"。
 
-- [ ] 跑一次自动化自检：`node scripts/check-physics-e2e.mjs --base-url <线上地址> [--access-code <口令>]` → **21 项全通过**
+- [ ] 跑一次自动化自检：`node scripts/check-physics-e2e.mjs --base-url <线上地址> [--access-code <口令>]` → **未启用口令 19 项 / 启用口令 22 项全通过**
+- [ ] ⚠️ **BUILD_ID 一致性核对**（本地/自托管必做）：页面 HTML 引用的客户端 chunk
+      与磁盘上的 `.next/BUILD_ID` 同源同版本。重建过产物却没重启服务时，
+      旧 HTML 会引用已被删除的 chunk → 页面文字正常但按钮全哑。
+      线上（EdgeOne 托管）无需此项，但**本地验证必须重启进程后再跑自检**
 - [ ] 线上首页能打开，浏览器 Console **无红色 error**
 - [ ] 点一下任意按钮（如首页「物理学习工作台」入口），**确认有反应**
 - [ ] 学生端一键入口（`/login?demo=student`）能进入工作台
@@ -117,7 +126,7 @@
 - [ ] 预置包的 **白板演算**能画出公式
 - [ ] 刷新页面**不会**被踢回登录页
 
-**一条命令跑完上面可自动化的部分**（路由 / chunk / 门禁 / 降级，共 21 项）：
+**一条命令跑完上面可自动化的部分**（路由 / chunk / BUILD_ID / 门禁 / 降级，共 19 项；启用口令时 22 项）：
 
 ```bash
 node scripts/check-physics-e2e.mjs --base-url <线上地址> --access-code "$ACCESS_CODE"

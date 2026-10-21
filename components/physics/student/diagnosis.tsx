@@ -23,9 +23,15 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { usePhysicsState } from '@/components/physics/state-provider';
-import { DimensionBars, HintBar, MetricTile, PageHeader, SectionCard } from '@/components/physics/shared';
+import {
+  DimensionBars,
+  HintBar,
+  MetricTile,
+  PageHeader,
+  SectionCard,
+} from '@/components/physics/shared';
 import { SCHOOL_DIAGNOSIS_DIMENSIONS, SCHOOL_DIAGNOSIS_QUESTIONS } from '@/lib/school';
-import { scoreDiagnosis } from '@/lib/physics/engine';
+import { pickCoveredDimensions, scoreDiagnosis } from '@/lib/physics/engine';
 import type { DiagnosticDimension } from '@/lib/physics/types';
 
 export function StudentDiagnosis() {
@@ -55,17 +61,10 @@ export function StudentDiagnosis() {
   // 只展示本次题集真正考查到的维度，避免把"未考查"显示成"得 0 分"。
   // 判定依据是"该维度在当前题集中有没有题"，而不是得分是否存在：
   // 得分对每个维度都有值（无题时记 0），按得分过滤等于没有过滤。
-  // SCHOOL_DIAGNOSIS_DIMENSIONS 即"题集实际覆盖到的维度"集合。
+  // SCHOOL_DIAGNOSIS_DIMENSIONS 即"题集实际覆盖到的维度"集合，
+  // 与结果求交集才是"未考查"与"得 0 分"的真正分界。
   const coveredDimensions = React.useMemo(
-    () =>
-      SCHOOL_DIAGNOSIS_DIMENSIONS.reduce<Partial<Record<DiagnosticDimension, number>>>(
-        (accumulator, dimension) => {
-          const score = result?.dimensions[dimension];
-          if (score !== undefined) accumulator[dimension] = score;
-          return accumulator;
-        },
-        {},
-      ),
+    () => pickCoveredDimensions(result?.dimensions, SCHOOL_DIAGNOSIS_DIMENSIONS),
     [result],
   );
 
@@ -145,7 +144,9 @@ export function StudentDiagnosis() {
               {result ? '重新计算' : '提交诊断'}
             </Button>
             <span className="text-[12px] text-muted-foreground">
-              {answered === total ? '已作答全部题目' : `还有 ${total - answered} 题未作答，未答题按错误计`}
+              {answered === total
+                ? '已作答全部题目'
+                : `还有 ${total - answered} 题未作答，未答题按错误计`}
             </span>
           </div>
         </SectionCard>
@@ -159,7 +160,9 @@ export function StudentDiagnosis() {
                   <MetricTile
                     label="等级"
                     value={result.level}
-                    tone={result.score >= 85 ? 'success' : result.score >= 60 ? 'warning' : 'danger'}
+                    tone={
+                      result.score >= 85 ? 'success' : result.score >= 60 ? 'warning' : 'danger'
+                    }
                   />
                 </div>
                 <DimensionBars dimensions={coveredDimensions} />
@@ -169,7 +172,9 @@ export function StudentDiagnosis() {
                     return (
                       <Badge
                         key={dimension}
-                        variant={score >= 80 ? 'default' : score >= 60 ? 'secondary' : 'destructive'}
+                        variant={
+                          score >= 80 ? 'default' : score >= 60 ? 'secondary' : 'destructive'
+                        }
                         className="font-normal"
                       >
                         {dimension} {score}
@@ -197,8 +202,8 @@ export function StudentDiagnosis() {
           <AlertDialogHeader>
             <AlertDialogTitle>重新进行学情诊断？</AlertDialogTitle>
             <AlertDialogDescription>
-              重新诊断只会清除当前诊断结果，任务进度、实验记录与学习画像都会保留。操作前会自动生成 24 小时可恢复快照，
-              你可以在工作台顶部横幅中一键撤销。
+              重新诊断只会清除当前诊断结果，任务进度、实验记录与学习画像都会保留。操作前会自动生成
+              24 小时可恢复快照， 你可以在工作台顶部横幅中一键撤销。
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

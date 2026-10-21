@@ -96,7 +96,10 @@ export function StudentReport() {
         description="报告汇总你的过程证据：诊断结果、闯关记录、实验数据与提问。AI 建议分只是其中一环，教师复核结果始终优先。"
         actions={
           <>
-            <Button onClick={downloadMd} disabled={!state.diagnosis && state.labRecords.length === 0}>
+            <Button
+              onClick={downloadMd}
+              disabled={!state.diagnosis && state.labRecords.length === 0}
+            >
               <Download className="size-4" />
               下载 Markdown
             </Button>
@@ -122,10 +125,17 @@ export function StudentReport() {
         />
         <MetricTile label="任务完成" value={progress.percentage} unit="%" />
         <MetricTile label="实验记录" value={state.labRecords.length} unit="次" />
-        <MetricTile label="提问次数" value={state.chat.filter((m) => m.role === 'user').length} unit="次" />
+        <MetricTile
+          label="提问次数"
+          value={state.chat.filter((m) => m.role === 'user').length}
+          unit="次"
+        />
       </div>
 
-      <SectionCard title="四阶能力" description="按校本量表评定（知识理解 / 专业应用 / 创新实践 / 协同创生）">
+      <SectionCard
+        title="四阶能力"
+        description="按校本量表评定（知识理解 / 专业应用 / 创新实践 / 协同创生）"
+      >
         <div className="flex flex-col gap-2.5">
           <ProgressRow label="知识理解" value={summary.knowledge} />
           <ProgressRow label="专业应用" value={summary.application} />

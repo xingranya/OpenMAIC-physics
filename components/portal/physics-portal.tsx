@@ -18,7 +18,11 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { CHAPTER_MAPPINGS } from '@/lib/physics/data';
-import { PRESET_CLASSROOMS, importPresetClassroom, type PresetClassroom } from '@/lib/physics/presets';
+import {
+  PRESET_CLASSROOMS,
+  importPresetClassroom,
+  type PresetClassroom,
+} from '@/lib/physics/presets';
 import { BRAND_FULL_NAME, COURSE, SCHOOL } from '@/lib/school';
 
 export interface PhysicsPortalProps {
@@ -27,9 +31,10 @@ export interface PhysicsPortalProps {
 }
 
 /** 门户上展示的快捷章节（取自教学矩阵，优先成熟案例）。 */
-const FEATURED_CHAPTERS = CHAPTER_MAPPINGS.filter(
-  (chapter) => chapter.status === '成熟案例',
-).slice(0, 6);
+const FEATURED_CHAPTERS = CHAPTER_MAPPINGS.filter((chapter) => chapter.status === '成熟案例').slice(
+  0,
+  6,
+);
 
 export function PhysicsPortal({ onTopic }: PhysicsPortalProps) {
   const router = useRouter();
@@ -42,10 +47,9 @@ export function PhysicsPortal({ onTopic }: PhysicsPortalProps) {
       toast.success(`已导入「${preset.title}」，共 ${result.sceneCount} 个场景。正在进入课堂…`);
       router.push(`/classroom/${result.stageId}`);
     } catch (error) {
-      toast.error(
-        `导入失败：${error instanceof Error ? error.message : '未知错误'}`,
-        { description: '预置课堂包保存在浏览器本地，请检查浏览器是否禁用了 IndexedDB。' },
-      );
+      toast.error(`导入失败：${error instanceof Error ? error.message : '未知错误'}`, {
+        description: '预置课堂包保存在浏览器本地，请检查浏览器是否禁用了 IndexedDB。',
+      });
     } finally {
       setImporting(null);
     }
@@ -77,7 +81,10 @@ export function PhysicsPortal({ onTopic }: PhysicsPortalProps) {
               学情诊断 → 项目匹配 → 任务闯关 → 虚拟实验 → 学习报告
             </span>
           </span>
-          <ArrowRight className="ml-auto mt-0.5 size-3.5 shrink-0 text-primary" aria-hidden="true" />
+          <ArrowRight
+            className="ml-auto mt-0.5 size-3.5 shrink-0 text-primary"
+            aria-hidden="true"
+          />
         </button>
 
         <div className="flex items-start gap-2.5 rounded-xl border border-border/70 p-3">
@@ -101,7 +108,9 @@ export function PhysicsPortal({ onTopic }: PhysicsPortalProps) {
               key={chapter.no}
               type="button"
               onClick={() =>
-                onTopic(`大学物理 ${chapter.volume} ${chapter.module}模块：${chapter.title}（第 ${chapter.no} 章）`)
+                onTopic(
+                  `大学物理 ${chapter.volume} ${chapter.module}模块：${chapter.title}（第 ${chapter.no} 章）`,
+                )
               }
               className="rounded-full border border-border px-2.5 py-1 text-[11.5px] text-muted-foreground transition-colors hover:border-primary hover:text-primary"
             >

@@ -121,7 +121,12 @@ export function buildPblProject(
       briefing: `完成「${milestone}」。要求：写清物理依据、保留可复核的过程记录。`,
       completionCriteria: '提交可复核的过程记录，并说明结论成立的边界条件。',
       debrief: '对照初始假设说明方案哪里被数据改进了、哪里仍然没有解释清楚。',
-      scenarioStage: index === 0 ? ('prep' as const) : index === pbl.milestones.length - 1 ? ('wrapup' as const) : ('roleplay' as const),
+      scenarioStage:
+        index === 0
+          ? ('prep' as const)
+          : index === pbl.milestones.length - 1
+            ? ('wrapup' as const)
+            : ('roleplay' as const),
     })),
     submissions: [],
     evaluations: [],

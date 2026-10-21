@@ -132,7 +132,8 @@ export function getPeerPersonas(): AgentPersona[] {
 /** 供 AI 课堂提示词使用的人格摘要。 */
 export function buildPersonaSummary(): string {
   return AGENT_PERSONAS.map(
-    (persona) => `【${persona.name}】${persona.persona}\n${persona.guidelines.map((g) => `  - ${g}`).join('\n')}`,
+    (persona) =>
+      `【${persona.name}】${persona.persona}\n${persona.guidelines.map((g) => `  - ${g}`).join('\n')}`,
   ).join('\n');
 }
 

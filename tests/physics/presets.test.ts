@@ -32,12 +32,12 @@ interface LoosePblScene {
   content: {
     type: string;
     projectV2?: {
-        title: string;
-        uiPhase: string;
-        status: string;
-        milestones: { status: string }[];
-        roles: { type: string }[];
-        scenario?: { characters: unknown[] };
+      title: string;
+      uiPhase: string;
+      status: string;
+      milestones: { status: string }[];
+      roles: { type: string }[];
+      scenario?: { characters: unknown[] };
     };
   };
 }
@@ -177,7 +177,8 @@ describe('课堂动作：旁白 / 白板演算 / 讨论', () => {
     const preset = PRESET_CLASSROOMS[0];
     const { scenes } = buildPresetClassroom(preset);
     const lectureScenes = scenes.filter(
-      (scene) => scene.type === 'slide' && (scene as { content: { type: string } }).content.type === 'slide',
+      (scene) =>
+        scene.type === 'slide' && (scene as { content: { type: string } }).content.type === 'slide',
     );
     expect(lectureScenes.length).toBeGreaterThan(0);
     lectureScenes.forEach((scene) => {
@@ -213,7 +214,8 @@ describe('课堂动作：旁白 / 白板演算 / 讨论', () => {
     const preset = PRESET_CLASSROOMS[0];
     const { scenes } = buildPresetClassroom(preset);
     const lectureScenes = scenes.filter(
-      (scene) => scene.type === 'slide' && (scene as { content: { type: string } }).content.type === 'slide',
+      (scene) =>
+        scene.type === 'slide' && (scene as { content: { type: string } }).content.type === 'slide',
     );
     const last = lectureScenes[lectureScenes.length - 1] as unknown as {
       actions?: { type: string }[];

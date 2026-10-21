@@ -9,7 +9,7 @@ import fs from 'fs';
 import path from 'path';
 import yaml from 'js-yaml';
 import { createLogger } from '@/lib/logger';
-import { readMakersModelsConfig } from '@/lib/config/makers-models';
+import { readMakersModelsConfig, resolveMakersDefaultModel } from '@/lib/config/makers-models';
 import {
   DEFAULT_QWEN_TTS_VOICE_CLONE_MODEL,
   isQwenCatalogVoice,
@@ -518,9 +518,16 @@ function applyBedrockProviderConfig(
  * Makers Models 对外是 OpenAI 兼容协议，因此直接映射到 `openai` provider：
  * 运维只需在 EdgeOne 控制台配置 `MAKERS_MODELS_KEY`（模板部署时平台可能自动注入），
  * 即可用 `DEFAULT_MODEL=openai:@makers/<model>` 走通，无需自备第三方厂商密钥。
+ * `DEFAULT_MODEL` 缺省时会自动推导为 `openai:<内置模型>`，见
+ * `resolveMakersDefaultModel()`。
  *
  * 显式配置的 `OPENAI_API_KEY` 优先级更高：运维既然自己给了 OpenAI 密钥，
  * 就不应被平台自动注入的 Makers Key 覆盖。
+ *
+ * 这里做的是**合并**而不是整体替换：把 `providers.openai` 整个换掉会连带
+ * 丢掉 `enabled: false` 这个运维侧的强制关闭开关，等于把运维明确关掉的
+ * provider 又打开了。
+ *
  * 官方文档：https://cloud.tencent.com/document/product/1552/132748
  */
 function applyMakersModelsProvider(
@@ -530,14 +537,68 @@ function applyMakersModelsProvider(
   if (!makers) return providers;
 
   const existing = providers.openai;
+  // 运维自备 OpenAI 密钥：Makers 不接管。
   if (existing?.apiKey) return providers;
+  // 运维显式关闭了 openai：Makers 不得把它重新打开。
+  if (existing?.enabled === false) return providers;
 
   providers.openai = {
+    ...existing,
     apiKey: makers.apiKey,
     baseUrl: makers.baseUrl,
     models: makers.models ?? existing?.models,
-    proxy: existing?.proxy,
   };
+  return providers;
+}
+
+/**
+ * LLM provider 的运维侧强制关闭开关。
+ *
+ * 上游原本只对**能力段**（tts / asr / image / video / webSearch）支持
+ * `providers.<id>.enabled: false`，LLM 段并没有这个开关。但 EdgeOne 场景下
+ * 平台会自动注入 `MAKERS_MODELS_KEY`，运维如果想"关掉某个 LLM provider"，
+ * 却没有一个真正生效的入口——上游的守卫是死代码。
+ *
+ * 这里补上两层：
+ *  1. **YAML**：`providers: { openai: { enabled: false } }`；
+ *  2. **环境变量**：`<PREFIX>_ENABLED=false`（例如 `OPENAI_ENABLED=false`）。
+ *     EdgeOne Pages 的控制台只能配环境变量，这一层才是现场真正用得上的。
+ *
+ * 语义与能力段一致：关闭优先于任何配置，被关掉的 provider 既不会拿到密钥，
+ * 也不会出现在客户端可选列表里；Makers 的自动注入也不会把它复活。
+ *
+ * @param wipe true = 连同已解析出的凭据一起清空（关闭后不允许任何密钥生效）
+ */
+function applyLlmProviderDisableSwitches(
+  providers: Record<string, ServerProviderEntry>,
+  yamlSection: Record<string, Partial<ServerProviderEntry>> | undefined,
+  { wipe = false }: { wipe?: boolean } = {},
+): Record<string, ServerProviderEntry> {
+  const disabled = new Set<string>();
+
+  if (yamlSection) {
+    for (const [id, entry] of Object.entries(yamlSection)) {
+      if (entry?.enabled === false) disabled.add(id);
+    }
+  }
+  for (const [prefix, providerId] of Object.entries(LLM_ENV_MAP)) {
+    const raw = process.env[`${prefix}_ENABLED`];
+    // 未设置 / 空值视为"没有意见"，不覆盖 YAML 里的显式关闭。
+    if (raw === undefined || raw.trim() === '') continue;
+    if (parseBooleanEnv(raw)) disabled.delete(providerId);
+    else disabled.add(providerId);
+  }
+
+  for (const id of disabled) {
+    const existing = providers[id];
+    providers[id] = {
+      apiKey: wipe ? '' : (existing?.apiKey ?? ''),
+      baseUrl: wipe ? undefined : existing?.baseUrl,
+      models: wipe ? undefined : existing?.models,
+      proxy: wipe ? undefined : existing?.proxy,
+      enabled: false,
+    };
+  }
   return providers;
 }
 
@@ -548,13 +609,24 @@ function buildConfig(yamlData: YamlData): ServerConfig {
     }),
     yamlData.image,
   );
-  const providers = applyMakersModelsProvider(
-    applyBedrockProviderConfig(
-      loadEnvSection(LLM_ENV_MAP, yamlData.providers, {
-        keylessProviders: new Set(['ollama', 'lemonade', BEDROCK_PROVIDER_ID]),
-      }),
+  // LLM provider 的运维侧关闭开关要跑**两遍**：
+  //  1. 先标记（保留已解析出的凭据），让 Makers 适配层看得见 `enabled:false`，
+  //     从而不会把运维明确关掉的 provider 重新打开；
+  //  2. 再清空凭据，保证关掉之后任何密钥都不再生效。
+  const providers = applyLlmProviderDisableSwitches(
+    applyLlmProviderDisableSwitches(
+      applyMakersModelsProvider(
+        applyBedrockProviderConfig(
+          loadEnvSection(LLM_ENV_MAP, yamlData.providers, {
+            keylessProviders: new Set(['ollama', 'lemonade', BEDROCK_PROVIDER_ID]),
+          }),
+          yamlData.providers,
+        ),
+      ),
       yamlData.providers,
     ),
+    yamlData.providers,
+    { wipe: true },
   );
 
   return {
@@ -688,11 +760,15 @@ function resolveSectionBaseUrl(
  * Returns server-configured LLM providers. Exposes only the allowed model list
  * and the "managed" flag (presence in this map) — never the API key or the
  * base URL, which can reveal internal gateway/proxy infrastructure.
+ *
+ * 被运维显式关闭（`enabled: false` / `<PREFIX>_ENABLED=false`）的 provider
+ * 不出现在这里——它已经不被本部署服务，不该出现在客户端的可选列表里。
  */
 export function getServerProviders(): Record<string, { models?: string[] }> {
   const cfg = getConfig();
   const result: Record<string, { models?: string[] }> = {};
   for (const [id, entry] of Object.entries(cfg.providers)) {
+    if (entry.enabled === false) continue;
     result[id] = {};
     if (entry.models && entry.models.length > 0) result[id].models = entry.models;
   }
@@ -1107,6 +1183,9 @@ function authorizedModels(
   if (section === 'providers') {
     const references = [
       process.env.DEFAULT_MODEL,
+      // 只配了 MAKERS_MODELS_KEY 时，DEFAULT_MODEL 缺省由 Makers 默认模型兜底，
+      // 这里一并纳入授权列表，客户端设置页才能看到可选模型。
+      resolveMakersDefaultModel(),
       ...LLM_STAGES.map((stage) => getStageRoute(stage)?.model),
     ];
     for (const reference of references) {

@@ -30,7 +30,9 @@ export function PageHeader({
   className?: string;
 }) {
   return (
-    <div className={cn('flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between', className)}>
+    <div
+      className={cn('flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between', className)}
+    >
       <div className="min-w-0">
         <h1 className="truncate text-xl font-semibold tracking-tight text-foreground">{title}</h1>
         {description ? (
@@ -108,7 +110,9 @@ export function MetricTile({
       </p>
       <p className={cn('mt-1 text-[26px] font-semibold leading-none tracking-tight', toneClass)}>
         {value}
-        {unit ? <span className="ml-1 text-[12px] font-normal text-muted-foreground">{unit}</span> : null}
+        {unit ? (
+          <span className="ml-1 text-[12px] font-normal text-muted-foreground">{unit}</span>
+        ) : null}
       </p>
       {hint ? <p className="mt-1.5 text-[11px] text-muted-foreground">{hint}</p> : null}
     </div>
@@ -140,7 +144,9 @@ export function DimensionBars({
           const ratio = Math.max(0, Math.min(1, row.value / max));
           return (
             <div key={row.dimension} className="flex items-center gap-3">
-              <span className="w-16 shrink-0 text-[12px] text-muted-foreground">{row.dimension}</span>
+              <span className="w-16 shrink-0 text-[12px] text-muted-foreground">
+                {row.dimension}
+              </span>
               <span className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
                 <span
                   className="block h-full rounded-full bg-primary"

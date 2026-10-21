@@ -41,9 +41,7 @@ export function TeacherEvaluation() {
   const [reason, setReason] = React.useState('');
   const [saved, setSaved] = React.useState(false);
 
-  const students = DEMO_STUDENTS.filter(
-    (student) => filter === '全部' || student.risk === filter,
-  );
+  const students = DEMO_STUDENTS.filter((student) => filter === '全部' || student.risk === filter);
   const current = DEMO_STUDENTS.find((student) => student.name === active) ?? null;
 
   // AI 建议分：由规则引擎基于诊断分、进度与实验记录生成（仅作参考）。

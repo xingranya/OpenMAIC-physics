@@ -11,13 +11,7 @@
   // 典型触发路径：先 `pnpm dev`，再 `pnpm typecheck`。
   // 这里单独提供一份配置给类型检查与生产构建使用，使两者结果稳定可复现；
   // 主 `tsconfig.json` 保持上游原样，IDE 里的 dev 路由类型提示不受影响。
-  "include": [
-    "next-env.d.ts",
-    "**/*.ts",
-    "**/*.tsx",
-    "**/*.mts",
-    ".next/types/**/*.ts"
-  ],
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", "**/*.mts", ".next/types/**/*.ts"],
   "exclude": [
     ".next/dev/**",
     "node_modules",

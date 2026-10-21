@@ -15,6 +15,7 @@ import {
   createInitialState,
   loadState,
   resetProjectProgress,
+  resetStudentProgress,
   saveState,
   updateState,
 } from '@/lib/physics/local-store';
@@ -45,6 +46,8 @@ interface PhysicsStateContextValue {
   resetProject: (reason: string, projectId: string | null) => void;
   /** 重新诊断：先写快照，再只清空诊断结果（保留项目进度与实验记录）。 */
   resetDiagnosis: (reason: string) => void;
+  /** 学生侧重置：先写快照，再只清空学生自己的学习过程（保留教师复核成果）。 */
+  resetStudent: (reason: string) => void;
   /** 回滚到最近一次快照。 */
   rollback: () => boolean;
   /** 最近一次可撤销操作的元信息。 */
@@ -116,6 +119,14 @@ export function PhysicsStateProvider({ children }: { children: React.ReactNode }
     });
   }, []);
 
+  const resetStudent = React.useCallback((reason: string) => {
+    setState((previous) => {
+      writeUndoSnapshot(previous, reason);
+      setLastUndo(readUndoMeta());
+      return resetStudentProgress(previous);
+    });
+  }, []);
+
   const rollback = React.useCallback(() => {
     const snapshot = readUndoSnapshot();
     if (!snapshot) return false;
@@ -139,8 +150,34 @@ export function PhysicsStateProvider({ children }: { children: React.ReactNode }
   }, []);
 
   const value = React.useMemo<PhysicsStateContextValue>(
-    () => ({ state, update, reset, resetProject, resetDiagnosis, rollback, lastUndo, session, signIn, signOut, hydrated }),
-    [state, update, reset, resetProject, resetDiagnosis, rollback, lastUndo, session, signIn, signOut, hydrated],
+    () => ({
+      state,
+      update,
+      reset,
+      resetProject,
+      resetDiagnosis,
+      resetStudent,
+      rollback,
+      lastUndo,
+      session,
+      signIn,
+      signOut,
+      hydrated,
+    }),
+    [
+      state,
+      update,
+      reset,
+      resetProject,
+      resetDiagnosis,
+      resetStudent,
+      rollback,
+      lastUndo,
+      session,
+      signIn,
+      signOut,
+      hydrated,
+    ],
   );
 
   return <PhysicsStateContext.Provider value={value}>{children}</PhysicsStateContext.Provider>;

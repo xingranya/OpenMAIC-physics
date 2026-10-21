@@ -10,17 +10,26 @@
  *   2. 页面引用的**每一个客户端 chunk 都返回 200**——
  *      chunk 500 会让 React 整站不水合，表现就是"文字正常、按钮全哑"；
  *   3. `ACCESS_CODE` 门禁真的拦得住未授权访问；
- *   4. 未配置模型时 provider 为空、生成路径优雅降级。
+ *   4. 未配置模型时 provider 为空、生成路径优雅降级；
+ *   5. **服务返回的 BUILD_ID 与目标产物一致**——
+ *      重建产物后若忘了重启服务，旧进程会按旧 BUILD_ID 返回 HTML，
+ *      而客户端 chunk 的文件名是**内容哈希**（源码没变 → 哈希没变 → 旧 chunk
+ *      仍在磁盘），所以"chunk 全 200"这一项在过期进程上依然会通过，
+ *      查不出问题。只有比对 BUILD_ID 才能识别过期进程。
  *
  * 用法：
  *   node scripts/check-physics-e2e.mjs --base-url http://127.0.0.1:3000
  *   node scripts/check-physics-e2e.mjs --base-url http://127.0.0.1:3000 \
  *        --access-code your-code          # 同时验证口令门禁
+ *   node scripts/check-physics-e2e.mjs --base-url https://your.site \
+ *        --expect-build-id <id>           # 线上部署：显式声明期望的 BUILD_ID
  *
  * 退出码：全部通过为 0，存在失败项为 1。
  */
 
 import process from 'node:process';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 const args = process.argv.slice(2);
 function argValue(name, fallback) {
@@ -32,6 +41,28 @@ function argValue(name, fallback) {
 const BASE_URL = argValue('--base-url', 'http://127.0.0.1:3000').replace(/\/$/, '');
 const ACCESS_CODE = argValue('--access-code', '');
 const TIMEOUT_MS = 15_000;
+
+/**
+ * 期望的 BUILD_ID。
+ *
+ * 优先级：命令行 `--expect-build-id` > 本地 `.next/BUILD_ID`（存在时）。
+ * 两者都没有就跳过这项检查（线上部署且未声明时）。
+ */
+function resolveExpectedBuildId() {
+  const explicit = argValue('--expect-build-id', '').trim();
+  if (explicit) return { buildId: explicit, source: '--expect-build-id' };
+
+  try {
+    const local = join(process.cwd(), '.next', 'BUILD_ID');
+    if (existsSync(local)) {
+      const value = readFileSync(local, 'utf-8').trim();
+      if (value) return { buildId: value, source: '.next/BUILD_ID' };
+    }
+  } catch {
+    // 读不到就当作"没有期望值"，跳过这项检查。
+  }
+  return { buildId: '', source: '' };
+}
 
 /** 关键路由：每条都要返回 200，且首帧与服务端一致。 */
 const ROUTES = [
@@ -72,7 +103,11 @@ async function fetchWithTimeout(path, init = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
-    return await fetch(`${BASE_URL}${path}`, { ...init, signal: controller.signal, redirect: 'manual' });
+    return await fetch(`${BASE_URL}${path}`, {
+      ...init,
+      signal: controller.signal,
+      redirect: 'manual',
+    });
   } finally {
     clearTimeout(timer);
   }
@@ -163,7 +198,11 @@ async function checkAccessCode() {
 
   const unauthorized = await fetchWithTimeout('/api/stages');
   if (unauthorized.status !== 401) {
-    record('ACCESS_CODE 未授权被拦截', false, `GET /api/stages 期望 401，实际 ${unauthorized.status}`);
+    record(
+      'ACCESS_CODE 未授权被拦截',
+      false,
+      `GET /api/stages 期望 401，实际 ${unauthorized.status}`,
+    );
   } else {
     record('ACCESS_CODE 未授权被拦截', true, 'GET /api/stages → 401');
   }
@@ -202,9 +241,17 @@ async function checkAccessCode() {
   });
   const authJson = await authenticated.json();
   if (authJson.authenticated === true) {
-    record('ACCESS_CODE 会话生效', true, '带 Cookie 后 /api/access-code/status → authenticated: true');
+    record(
+      'ACCESS_CODE 会话生效',
+      true,
+      '带 Cookie 后 /api/access-code/status → authenticated: true',
+    );
   } else {
-    record('ACCESS_CODE 会话生效', false, `带 Cookie 后 authenticated = ${String(authJson.authenticated)}`);
+    record(
+      'ACCESS_CODE 会话生效',
+      false,
+      `带 Cookie 后 authenticated = ${String(authJson.authenticated)}`,
+    );
   }
 }
 
@@ -228,6 +275,42 @@ async function checkProviderDegradation() {
   );
 }
 
+/**
+ * 校验服务返回的 BUILD_ID 与目标产物一致。
+ *
+ * 这一项专门用来抓「重建了产物却没重启服务」：旧进程按旧 BUILD_ID 返回 HTML，
+ * 而 chunk 文件名是内容哈希，源码没变就仍然存在磁盘上——所以"chunk 全 200"
+ * 在过期进程上照样通过。只有比对 BUILD_ID 才能识别。
+ */
+async function checkBuildId() {
+  const expected = resolveExpectedBuildId();
+  if (!expected.buildId) {
+    record('BUILD_ID 与目标产物一致', true, '未提供期望值（本地无 .next/BUILD_ID），跳过');
+    return;
+  }
+  try {
+    const response = await fetchWithTimeout('/');
+    const html = await response.text();
+    if (html.includes(expected.buildId)) {
+      record(
+        'BUILD_ID 与目标产物一致',
+        true,
+        `服务返回 ${expected.buildId}（期望值来自 ${expected.source}）`,
+      );
+      return;
+    }
+    const served = /\\?"b\\?":\\?"([A-Za-z0-9_-]+)/.exec(html)?.[1];
+    record(
+      'BUILD_ID 与目标产物一致',
+      false,
+      `服务返回的 BUILD_ID 是 ${served ?? '（未识别）'}，期望 ${expected.buildId}` +
+        `（来自 ${expected.source}）。多半是重建产物后没有重启服务进程。`,
+    );
+  } catch (error) {
+    record('BUILD_ID 与目标产物一致', false, String(error));
+  }
+}
+
 async function main() {
   process.stdout.write(`物理 AI 智慧课堂 · 端到端自检\n目标：${BASE_URL}\n\n`);
   try {
@@ -241,11 +324,14 @@ async function main() {
 
   await checkRoutes();
   await checkChunks();
+  await checkBuildId();
   await checkAccessCode();
   await checkProviderDegradation();
 
   const failed = results.filter((item) => !item.ok);
-  process.stdout.write(`\n合计 ${results.length} 项，通过 ${results.length - failed.length}，失败 ${failed.length}\n`);
+  process.stdout.write(
+    `\n合计 ${results.length} 项，通过 ${results.length - failed.length}，失败 ${failed.length}\n`,
+  );
   if (failed.length > 0) {
     process.stdout.write('失败项：\n');
     failed.forEach((item) => process.stdout.write(`  - ${item.name}：${item.detail ?? ''}\n`));

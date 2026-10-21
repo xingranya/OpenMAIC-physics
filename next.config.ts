@@ -11,8 +11,14 @@ const isVercelBuild = Boolean(process.env.VERCEL);
 // 重新求值本文件。EdgeOne / Vercel 控制台配置的环境变量在构建与运行两侧
 // 都能读到，所以平台上一致。但本地自检时若"构建带了 EDGEONE=1、运行没带"，
 // 运行期会判成 standalone，与产物形态不匹配，静态资源路由就会异常
-// （客户端 chunk 500 → React 不水合 → 整站按钮静默失效）。
+// （表现为路由 404 或静态资源缺失）。
 // 因此本地必须**构建与运行都带 EDGEONE=1**，见 deploy/README.md §8。
+//
+// 这是**另一条**独立的坑，别与上面那条混为一谈：重建产物后若没有重启服务
+// 进程，旧进程会按旧 BUILD_ID 返回 HTML，引用已被新构建删除的 chunk，
+// 于是 React 不水合、整站按钮静默失效（页面文字却完全正常）。
+// 排查步骤见 deploy/README.md §8.0 与 scripts/check-physics-e2e.mjs 的
+// 「BUILD_ID 与目标产物一致」检查项。
 const isEdgeOneBuild = Boolean(process.env.EDGEONE);
 
 const nextConfig: NextConfig = {

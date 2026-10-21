@@ -94,7 +94,9 @@ export function StudentProjects() {
               匹配度 {featured.score}
             </span>
           </div>
-          <h2 className="mt-2 text-[19px] font-semibold tracking-tight">{featured.project.title}</h2>
+          <h2 className="mt-2 text-[19px] font-semibold tracking-tight">
+            {featured.project.title}
+          </h2>
           <p className="mt-1.5 max-w-3xl text-[13px] leading-relaxed text-muted-foreground">
             {featured.project.intro}
           </p>
@@ -114,7 +116,10 @@ export function StudentProjects() {
           </p>
           <ul className="mt-3 flex flex-col gap-1">
             {featured.reasons.map((reason) => (
-              <li key={reason} className="flex items-start gap-1.5 text-[12.5px] text-muted-foreground">
+              <li
+                key={reason}
+                className="flex items-start gap-1.5 text-[12.5px] text-muted-foreground"
+              >
                 <Target className="mt-0.5 size-3.5 shrink-0 text-primary" aria-hidden="true" />
                 {reason}
               </li>
@@ -154,9 +159,7 @@ export function StudentProjects() {
                     size="sm"
                     variant={state.projectId === match.project.id ? 'ghost' : 'outline'}
                     disabled={state.projectId === match.project.id}
-                    onClick={() =>
-                      setPending({ id: match.project.id, title: match.project.title })
-                    }
+                    onClick={() => setPending({ id: match.project.id, title: match.project.title })}
                   >
                     {state.projectId === match.project.id ? '已选' : '选择'}
                   </Button>
@@ -192,7 +195,8 @@ export function StudentProjects() {
           <AlertDialogHeader>
             <AlertDialogTitle>切换到「{pending?.title}」？</AlertDialogTitle>
             <AlertDialogDescription>
-              切换项目会清空当前的任务进度、实验记录与 AI 助教对话，但会保留学情诊断与学习画像。操作前会自动生成 24 小时可恢复快照，
+              切换项目会清空当前的任务进度、实验记录与 AI
+              助教对话，但会保留学情诊断与学习画像。操作前会自动生成 24 小时可恢复快照，
               可在工作台顶部横幅中撤销。
             </AlertDialogDescription>
           </AlertDialogHeader>

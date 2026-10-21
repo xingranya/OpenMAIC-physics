@@ -26,11 +26,14 @@ export {
   RADIUS_SCALE,
   SCHOOL_SLIDE_THEMES,
   PRINT_STYLESHEET,
+  buildExportHeader,
   buildExportFooter,
+  buildSlideHeaderSpec,
   buildSlideFooterSpec,
   type BrandTokens,
   type SchoolSlideTheme,
-  type SlideFooterSpec,
+  type ExportBrandText,
+  type SlideBrandSpec,
 } from './branding';
 
 export {

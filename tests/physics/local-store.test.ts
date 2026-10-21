@@ -4,6 +4,7 @@ import {
   clearDiagnosisResult,
   createInitialState,
   resetProjectProgress,
+  resetStudentProgress,
   updateState,
 } from '@/lib/physics/local-store';
 import type { AppState } from '@/lib/physics/types';
@@ -48,7 +49,7 @@ function seededState(): AppState {
       },
     ],
     evaluationReviews: {
-      '陈思远': { score: 88, reason: '教师复核', updatedAt: '2026-01-01T00:00:00.000Z' },
+      陈思远: { score: 88, reason: '教师复核', updatedAt: '2026-01-01T00:00:00.000Z' },
     },
     localProjects: [
       {
@@ -113,5 +114,36 @@ describe('作用域化重置', () => {
     expect(before.projectId).toBe('project-a');
     expect(before.diagnosis?.score).toBe(88);
     expect(before.activeTask).toBe(3);
+  });
+
+  it('学生侧重置清空学习过程，但保留教师复核成果与教师自建项目', () => {
+    const before = seededState();
+    const after = resetStudentProgress(before);
+
+    // 学生自己的学习过程被清空
+    expect(after.diagnosis).toBeUndefined();
+    expect(after.projectId).toBeNull();
+    expect(after.activeTask).toBe(0);
+    expect(after.taskChecks).toEqual({});
+    expect(after.taskTexts).toEqual({});
+    expect(after.chat).toEqual([]);
+    expect(after.labRecords).toEqual([]);
+    expect(after.evaluation).toBeUndefined();
+
+    // 教师侧的复核成果绝不能被学生的重置清掉
+    expect(after.evaluationReviews['陈思远']?.score).toBe(88);
+    expect(after.localProjects).toHaveLength(1);
+
+    // 身份信息保留
+    expect(after.student?.name).toBe('陈思远');
+    expect(after.role).toBe('student');
+  });
+
+  it('学生侧重置不影响传入的旧状态（保持不可变）', () => {
+    const before = seededState();
+    resetStudentProgress(before);
+    expect(before.diagnosis?.score).toBe(88);
+    expect(before.projectId).toBe('project-a');
+    expect(before.labRecords).toHaveLength(1);
   });
 });

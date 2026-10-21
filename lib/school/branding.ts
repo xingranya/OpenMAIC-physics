@@ -8,6 +8,7 @@
  * 本文件是纯数据，不依赖 React / DOM，可被服务端导出链路（PPTX、离线 HTML）
  * 与客户端界面同时引用。
  */
+import { COURSE, SCHOOL } from './identity';
 
 /** 颜色令牌。 */
 export interface BrandTokens {
@@ -130,21 +131,36 @@ export const PRINT_STYLESHEET = `
 
 /**
  * 导出页眉页脚：PPTX 与离线 HTML 共用。
- * @param chapter 章节标题
- * @param teacher 授课教师
+ *
+ * 页眉贴顶、页脚贴底，两端都带"学校 · 课程"文字标识：课件进了讲台、
+ * 传给了学生，出处一眼可辨。
  */
-export function buildExportFooter(chapter?: string, teacher?: string): {
+export interface ExportBrandText {
+  /** 固定标识：学校 · 课程。 */
   left: string;
+  /** 场景信息：页眉为章节，页脚为授课教师；可为空。 */
   right: string;
-} {
-  const left = '长江大学文理学院 · 大学物理';
-  const parts = [chapter, teacher].filter(Boolean);
-  return { left, right: parts.join(' · ') };
 }
 
-/** 幻灯片页脚的排版规格（与 DSL 无关，由导出层转换）。 */
-export interface SlideFooterSpec {
-  /** 页脚文字。 */
+/**
+ * 导出页眉文案（贴顶）。
+ * @param chapter 章节标题
+ */
+export function buildExportHeader(chapter?: string): ExportBrandText {
+  return { left: `${SCHOOL.college} · ${COURSE.name}`, right: chapter ?? '' };
+}
+
+/**
+ * 导出页脚文案（贴底）。
+ * @param teacher 授课教师
+ */
+export function buildExportFooter(teacher?: string): ExportBrandText {
+  return { left: `${SCHOOL.college} · ${COURSE.name}`, right: teacher ?? '' };
+}
+
+/** 幻灯片页眉/页脚的排版规格（与 DSL 无关，由导出层转换）。 */
+export interface SlideBrandSpec {
+  /** 文字内容。 */
   text: string;
   /** 左边距（px）。 */
   left: number;
@@ -160,24 +176,49 @@ export interface SlideFooterSpec {
   color: string;
 }
 
+/** 把固定标识与场景信息拼成一行。 */
+function joinBrandText(brand: ExportBrandText): string {
+  return brand.right ? `${brand.left} · ${brand.right}` : brand.left;
+}
+
 /**
- * 生成幻灯片页脚规格。
+ * 生成幻灯片页眉规格（贴顶）。
  *
- * 导出的每一页都带上"学校 · 课程"标识：课件进了讲台、传给了学生，
- * 出处一眼可辨。位置按视口比例计算，因此在 16:9 与 4:3 下都贴底。
+ * 放在标题元素之上：预置课堂包的标题位于 top=56，页眉占 14~38，互不遮挡。
+ */
+export function buildSlideHeaderSpec(
+  viewportSize: number,
+  color: string,
+  chapter?: string,
+): SlideBrandSpec {
+  const margin = Math.round(viewportSize * 0.07);
+  const height = Math.round(viewportSize * 0.045);
+  return {
+    text: joinBrandText(buildExportHeader(chapter)),
+    left: margin,
+    top: Math.round(viewportSize * 0.015),
+    width: viewportSize - margin * 2,
+    height,
+    fontSize: Math.max(10, Math.round(viewportSize * 0.016)),
+    color,
+  };
+}
+
+/**
+ * 生成幻灯片页脚规格（贴底）。
+ *
+ * 位置按视口比例计算，因此在 16:9 与 4:3 下都贴底。
  */
 export function buildSlideFooterSpec(
   viewportSize: number,
   viewportRatio: number,
   color: string,
-  chapter?: string,
   teacher?: string,
-): SlideFooterSpec {
-  const footer = buildExportFooter(chapter, teacher);
+): SlideBrandSpec {
   const margin = Math.round(viewportSize * 0.07);
   const height = Math.round(viewportSize * 0.045);
   return {
-    text: footer.right ? `${footer.left} · ${footer.right}` : footer.left,
+    text: joinBrandText(buildExportFooter(teacher)),
     left: margin,
     top: Math.round(viewportSize * viewportRatio) - height - Math.round(viewportSize * 0.02),
     width: viewportSize - margin * 2,

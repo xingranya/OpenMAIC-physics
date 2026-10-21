@@ -46,12 +46,14 @@ export function StudentOverview() {
   const { state } = usePhysicsState();
   const diagnosis = state.diagnosis;
   const progress = calculateTaskProgress(state.taskChecks, TASK_TEMPLATES);
-  const evaluation = state.evaluation ?? summarizeEvaluation({
-    diagnosisScore: diagnosis?.score,
-    taskProgress: progress.percentage,
-    labRecords: state.labRecords,
-    chatCount: state.chat.length,
-  });
+  const evaluation =
+    state.evaluation ??
+    summarizeEvaluation({
+      diagnosisScore: diagnosis?.score,
+      taskProgress: progress.percentage,
+      labRecords: state.labRecords,
+      chatCount: state.chat.length,
+    });
 
   const currentStep = diagnosis
     ? state.projectId
@@ -118,7 +120,9 @@ export function StudentOverview() {
                     >
                       {step.label}
                     </span>
-                    <span className="block truncate text-[11px] text-muted-foreground">{step.hint}</span>
+                    <span className="block truncate text-[11px] text-muted-foreground">
+                      {step.hint}
+                    </span>
                   </span>
                 </li>
               );
@@ -180,8 +184,8 @@ export function StudentOverview() {
         <SectionCard title="任务进度" description="五阶闯关的完成情况">
           <div className="flex flex-col gap-2.5">
             {TASK_TEMPLATES.map((template, index) => {
-              const done = template.checks.filter((_, checkIndex) =>
-                state.taskChecks[`${index}-${checkIndex}`],
+              const done = template.checks.filter(
+                (_, checkIndex) => state.taskChecks[`${index}-${checkIndex}`],
               ).length;
               return (
                 <ProgressRow
@@ -215,8 +219,18 @@ export function StudentOverview() {
           {[
             { label: '项目匹配', hint: '按画像推荐案例', icon: Library, view: 'projects' as const },
             { label: '虚拟实验', hint: '超声测距实测', icon: FlaskConical, view: 'lab' as const },
-            { label: '学习报告', hint: '导出 Markdown / PDF', icon: FileBarChart, view: 'report' as const },
-            { label: 'AI 助教', hint: '随时追问知识点', icon: Sparkles, view: 'assistant' as const },
+            {
+              label: '学习报告',
+              hint: '导出 Markdown / PDF',
+              icon: FileBarChart,
+              view: 'report' as const,
+            },
+            {
+              label: 'AI 助教',
+              hint: '随时追问知识点',
+              icon: Sparkles,
+              view: 'assistant' as const,
+            },
           ].map((item) => {
             const Icon = item.icon;
             return (
@@ -233,8 +247,8 @@ export function StudentOverview() {
       </SectionCard>
 
       <HintBar>
-        本平台的班级画像、成绩与评价量表为<strong>课程示例数据</strong>，非真实教务数据；
-        AI 建议分由本地规则引擎生成，教师复核结果始终优先于建议分。
+        本平台的班级画像、成绩与评价量表为<strong>课程示例数据</strong>，非真实教务数据； AI
+        建议分由本地规则引擎生成，教师复核结果始终优先于建议分。
       </HintBar>
 
       <div className="flex flex-wrap items-center gap-2">

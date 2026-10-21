@@ -95,7 +95,9 @@ export function TeacherInsights() {
                   风险 {item.risk}
                 </Badge>
               </p>
-              <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">{item.note}</p>
+              <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">
+                {item.note}
+              </p>
             </li>
           ))}
         </ul>
@@ -105,15 +107,24 @@ export function TeacherInsights() {
         <SectionCard title="优势">
           <ul className="flex flex-col gap-2 text-[12.5px]">
             <li className="flex items-start gap-1.5">
-              <CheckCircle2 className="mt-0.5 size-3.5 shrink-0 text-[var(--school-success)]" aria-hidden="true" />
+              <CheckCircle2
+                className="mt-0.5 size-3.5 shrink-0 text-[var(--school-success)]"
+                aria-hidden="true"
+              />
               力学建模路径完整，受力图表达规范。
             </li>
             <li className="flex items-start gap-1.5">
-              <CheckCircle2 className="mt-0.5 size-3.5 shrink-0 text-[var(--school-success)]" aria-hidden="true" />
+              <CheckCircle2
+                className="mt-0.5 size-3.5 shrink-0 text-[var(--school-success)]"
+                aria-hidden="true"
+              />
               热学部分宏观—微观转换意识已建立。
             </li>
             <li className="flex items-start gap-1.5">
-              <CheckCircle2 className="mt-0.5 size-3.5 shrink-0 text-[var(--school-success)]" aria-hidden="true" />
+              <CheckCircle2
+                className="mt-0.5 size-3.5 shrink-0 text-[var(--school-success)]"
+                aria-hidden="true"
+              />
               项目实践参与度高，动手意愿强。
             </li>
           </ul>
@@ -122,15 +133,24 @@ export function TeacherInsights() {
         <SectionCard title="改进">
           <ul className="flex flex-col gap-2 text-[12.5px]">
             <li className="flex items-start gap-1.5">
-              <TrendingUp className="mt-0.5 size-3.5 shrink-0 text-[var(--school-warning)]" aria-hidden="true" />
+              <TrendingUp
+                className="mt-0.5 size-3.5 shrink-0 text-[var(--school-warning)]"
+                aria-hidden="true"
+              />
               电磁学概念混淆需要专项讲评与错题归因。
             </li>
             <li className="flex items-start gap-1.5">
-              <TrendingUp className="mt-0.5 size-3.5 shrink-0 text-[var(--school-warning)]" aria-hidden="true" />
+              <TrendingUp
+                className="mt-0.5 size-3.5 shrink-0 text-[var(--school-warning)]"
+                aria-hidden="true"
+              />
               误差分析深度不足，多数停留在「读数偏大」。
             </li>
             <li className="flex items-start gap-1.5">
-              <TrendingUp className="mt-0.5 size-3.5 shrink-0 text-[var(--school-warning)]" aria-hidden="true" />
+              <TrendingUp
+                className="mt-0.5 size-3.5 shrink-0 text-[var(--school-warning)]"
+                aria-hidden="true"
+              />
               跨尺度建模（经典→量子）经验不足。
             </li>
           </ul>
@@ -139,15 +159,25 @@ export function TeacherInsights() {
         <SectionCard title="风险">
           <ul className="flex flex-col gap-2 text-[12.5px]">
             <li className="flex items-start gap-1.5">
-              <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-[var(--school-danger)]" aria-hidden="true" />
-              {DEMO_STUDENTS.filter((student) => student.risk === '高风险').length} 名学生处于高风险层。
+              <AlertTriangle
+                className="mt-0.5 size-3.5 shrink-0 text-[var(--school-danger)]"
+                aria-hidden="true"
+              />
+              {DEMO_STUDENTS.filter((student) => student.risk === '高风险').length}{' '}
+              名学生处于高风险层。
             </li>
             <li className="flex items-start gap-1.5">
-              <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-[var(--school-danger)]" aria-hidden="true" />
+              <AlertTriangle
+                className="mt-0.5 size-3.5 shrink-0 text-[var(--school-danger)]"
+                aria-hidden="true"
+              />
               仅 {reviewed} / {DEMO_STUDENTS.length} 人完成人工复核，建议优先覆盖高风险学生。
             </li>
             <li className="flex items-start gap-1.5">
-              <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-[var(--school-danger)]" aria-hidden="true" />
+              <AlertTriangle
+                className="mt-0.5 size-3.5 shrink-0 text-[var(--school-danger)]"
+                aria-hidden="true"
+              />
               实验小组分工不均，存在「个人成果」替代团队成果的风险。
             </li>
           </ul>
@@ -162,7 +192,9 @@ export function TeacherInsights() {
                 <Lightbulb className="size-3.5 text-primary" aria-hidden="true" />
                 {plan.title}
               </p>
-              <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">{plan.content}</p>
+              <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">
+                {plan.content}
+              </p>
             </li>
           ))}
         </ul>
@@ -203,7 +235,10 @@ export function TeacherInsights() {
         </SectionCard>
       </div>
 
-      <SectionCard title="实验资源" description={`校内实验项目 ${SCHOOL_LABS.length} 个（示例清单）`}>
+      <SectionCard
+        title="实验资源"
+        description={`校内实验项目 ${SCHOOL_LABS.length} 个（示例清单）`}
+      >
         <ul className="grid gap-2 sm:grid-cols-2">
           {SCHOOL_LABS.map((lab) => (
             <li key={lab.id} className="rounded-lg border border-border/70 p-2.5">

@@ -76,9 +76,19 @@ export function buildUltrasonicLabHtml(): string {
   .note { font-size: 11.5px; color: var(--muted); margin-top: 12px; }
   .legend { display: flex; gap: 14px; font-size: 11.5px; color: var(--muted); margin-top: 6px; }
   .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; }
+  .brand-bar { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+    border-bottom: 2px solid var(--primary); padding-bottom: 8px; margin-bottom: 14px; }
+  .brand-bar strong { color: var(--primary-strong); font-size: 14px; }
+  .brand-bar span { color: var(--muted); font-size: 11.5px; }
+  .brand-foot { margin-top: 22px; padding-top: 8px; border-top: 1px solid var(--line);
+    color: var(--muted); font-size: 11px; line-height: 1.6; }
 </style>
 </head>
 <body>
+  <div class="brand-bar">
+    <strong>${SCHOOL.college} · ${COURSE.name}</strong>
+    <span>${COURSE.className} · ${COURSE.teacher}</span>
+  </div>
   <h1>超声波测距 · 虚拟仿真</h1>
   <p class="sub">发射脉冲 → 传播 → 反射 → 接收 → 计时。调节参数观察回波时延与测量误差如何变化。${SCHOOL.college} · ${COURSE.name}</p>
 
@@ -226,6 +236,10 @@ export function buildUltrasonicLabHtml(): string {
   run();
 })();
 </script>
+  <div class="brand-foot">
+    ${SCHOOL.college} · ${COURSE.name} · ${COURSE.className} —— 超声波测距虚拟仿真（离线自包含版）<br />
+    本页参数与测量结果为课程示例数据，非真实实验记录；仿真模型为教学近似，不作为工程计量依据。
+  </div>
 </body>
 </html>`;
 }

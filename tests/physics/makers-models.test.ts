@@ -2,21 +2,28 @@ import { describe, expect, it } from 'vitest';
 
 import {
   MAKERS_MODELS_BASE_URL,
+  MAKERS_MODELS_BUILTIN_MODEL,
   MAKERS_MODELS_KEY_ENV,
   readMakersModelsConfig,
+  resolveMakersDefaultModel,
 } from '@/lib/config/makers-models';
+import {
+  MAKERS_MODELS_BASE_URL as SCRIPT_BASE_URL,
+  MAKERS_MODELS_BUILTIN_MODEL as SCRIPT_BUILTIN_MODEL,
+  MAKERS_MODELS_PROVIDER_ID as SCRIPT_PROVIDER_ID,
+} from '../../scripts/makers-models.constants.mjs';
 
 describe('EdgeOne Makers Models 统一网关适配', () => {
   it('未配置 Makers Key 时不启用', () => {
     expect(readMakersModelsConfig({})).toBeUndefined();
     expect(readMakersModelsConfig({ [MAKERS_MODELS_KEY_ENV]: '   ' })).toBeUndefined();
+    expect(resolveMakersDefaultModel({})).toBeUndefined();
   });
 
   it('只配置 Key 时使用官方统一端点', () => {
     const config = readMakersModelsConfig({ [MAKERS_MODELS_KEY_ENV]: 'mk-123' });
     expect(config?.apiKey).toBe('mk-123');
     expect(config?.baseUrl).toBe(MAKERS_MODELS_BASE_URL);
-    expect(config?.models).toBeUndefined();
   });
 
   it('显式 baseUrl 优先于官方统一端点', () => {
@@ -46,5 +53,41 @@ describe('EdgeOne Makers Models 统一网关适配', () => {
 
   it('统一端点是 OpenAI 兼容协议路径', () => {
     expect(MAKERS_MODELS_BASE_URL).toBe('https://ai-gateway.edgeone.link/v1');
+  });
+
+  it('Node 脚本里的常量镜像与 TypeScript 模块保持一致', () => {
+    // scripts/check-makers-models.mjs 走 .mjs 镜像，避免 Node 直接 import TS。
+    expect(SCRIPT_BASE_URL).toBe(MAKERS_MODELS_BASE_URL);
+    expect(SCRIPT_BUILTIN_MODEL).toBe(MAKERS_MODELS_BUILTIN_MODEL);
+    expect(SCRIPT_PROVIDER_ID).toBe('openai');
+  });
+
+  it('只配 Key 也能推导出带 provider 前缀的默认模型', () => {
+    // 这是"配了 Key 却说没有可用模型"的修复点：
+    // DEFAULT_MODEL 必须带 provider 前缀，否则解析不出 providerId。
+    const config = readMakersModelsConfig({ [MAKERS_MODELS_KEY_ENV]: 'mk-123' });
+    expect(config?.models).toEqual([MAKERS_MODELS_BUILTIN_MODEL]);
+    expect(config?.defaultModel).toBe(`openai:${MAKERS_MODELS_BUILTIN_MODEL}`);
+    expect(resolveMakersDefaultModel({ [MAKERS_MODELS_KEY_ENV]: 'mk-123' })).toBe(
+      `openai:${MAKERS_MODELS_BUILTIN_MODEL}`,
+    );
+  });
+
+  it('白名单存在时默认模型取白名单第一项', () => {
+    expect(
+      resolveMakersDefaultModel({
+        [MAKERS_MODELS_KEY_ENV]: 'mk-123',
+        MAKERS_MODELS: '@makers/first, @makers/second',
+      }),
+    ).toBe('openai:@makers/first');
+  });
+
+  it('运维自备 OpenAI 密钥时 Makers 不接管默认模型', () => {
+    expect(
+      resolveMakersDefaultModel({
+        [MAKERS_MODELS_KEY_ENV]: 'mk-123',
+        OPENAI_API_KEY: 'sk-ops-own-key',
+      }),
+    ).toBeUndefined();
   });
 });

@@ -47,7 +47,9 @@ export function StudentCurriculum() {
   const labs = active ? getLabsForChapter(active) : [];
   const meta = active ? getSchoolChapterMeta(active) : undefined;
   const ideology = meta ? getIdeologyPoint(meta.ideologyKey) : undefined;
-  const matches = activeChapter ? projectMatchesForChapter(activeChapter, state.diagnosis) : undefined;
+  const matches = activeChapter
+    ? projectMatchesForChapter(activeChapter, state.diagnosis)
+    : undefined;
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
@@ -88,7 +90,8 @@ export function StudentCurriculum() {
                         </Badge>
                       </span>
                       <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
-                        {chapter.volume} · {chapter.module} · {chapter.hours} 学时 · 产出：{chapter.output}
+                        {chapter.volume} · {chapter.module} · {chapter.hours} 学时 · 产出：
+                        {chapter.output}
                       </span>
                     </span>
                     <span className="shrink-0 text-right">
@@ -118,9 +121,7 @@ export function StudentCurriculum() {
               <dl className="flex flex-col gap-2 text-[12.5px]">
                 <div className="flex gap-2">
                   <dt className="w-16 shrink-0 text-muted-foreground">核心概念</dt>
-                  <dd className="min-w-0 flex-1">
-                    {activeChapter.concepts.join(' · ')}
-                  </dd>
+                  <dd className="min-w-0 flex-1">{activeChapter.concepts.join(' · ')}</dd>
                 </div>
                 <div className="flex gap-2">
                   <dt className="w-16 shrink-0 text-muted-foreground">思政锚点</dt>
@@ -140,7 +141,9 @@ export function StudentCurriculum() {
                 {ideology ? (
                   <div className="flex gap-2">
                     <dt className="w-16 shrink-0 text-muted-foreground">讨论引导</dt>
-                    <dd className="min-w-0 flex-1 text-muted-foreground">{ideology.discussionPrompt}</dd>
+                    <dd className="min-w-0 flex-1 text-muted-foreground">
+                      {ideology.discussionPrompt}
+                    </dd>
                   </div>
                 ) : null}
                 <div className="flex gap-2">
@@ -212,8 +215,7 @@ export function StudentCurriculum() {
 
           <Button asChild variant="outline" className="w-full">
             <Link href="/">
-              <Sparkles className="size-4" />
-              用 AI 课堂讲这一章
+              <Sparkles className="size-4" />用 AI 课堂讲这一章
             </Link>
           </Button>
         </div>

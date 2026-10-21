@@ -276,10 +276,13 @@ DEFAULT_MODEL=openai:@makers/deepseek-v4-flash
 ```
 真实 LLM（多智能体课堂 / 课件生成 / 讨论）
    ↓ 429 限额 / 无 key / 断网
-预置课堂包（6 个物理章节，讲演页 + 测验 + 自包含交互仿真）
+本地确定性引擎（工作台：诊断 / 匹配 / 闯关 / 实验 / 报告，全部离线可用）
    ↓
-物理学习工作台（本地规则引擎，诊断 / 匹配 / 闯关 / 实验 / 报告 全部离线可用）
+预生成课程包（AI 课堂的"生成"环节：6 个物理章节，讲演页 + 测验 + 自包含交互仿真）
 ```
+
+后两档各管一段、互不替代：工作台没有模型也能完整跑；AI 课堂没有模型时，
+到首页「离线课堂包」一键导入已备好的课堂，播放、测验、导出与真实生成无差别。
 
 预置课堂包在首页「离线课堂包」区块一键导入，导入后与真实生成的课堂
 在播放、测验、导出上**没有任何差别**。
@@ -302,8 +305,33 @@ Vercel 作为灾备（EdgeOne 故障时切换）。
 
 ## 8. 提交前本地自检（建议每次部署前跑一遍）
 
-**构建形态必须与平台一致**，否则会出现"页面能打开、但所有按钮点不动"的假故障：
-客户端 chunk 返回 500 → React 不水合 → 所有 `onClick` 静默失效。
+**重建之后必须重启服务进程**，否则会出现"页面能打开、但所有按钮点不动"的假故障：
+旧进程返回的 HTML 按旧 BUILD_ID 引用客户端 chunk，而那些 chunk 文件已被新构建删除
+→ chunk 拉不到 → React 不水合 → 所有 `onClick` 静默失效。
+SSR 文字照常显示、构建日志也是 EXIT=0，**只有真的点一下才会暴露**。
+
+### 8.0 重建后的 BUILD_ID 一致性核对（先做这一步）
+
+> 为什么单独列一条：客户端 chunk 的文件名是**内容哈希**，源码没变 → 哈希没变 →
+> 旧 chunk 仍在磁盘上。所以"chunk 全 200"这一项在**过期进程**上照样会通过，
+> 查不出问题。唯一能识别"重建了产物却没重启服务"的办法是比对 BUILD_ID。
+
+```bash
+# 1) 磁盘上这份产物的 BUILD_ID
+cat .next/BUILD_ID
+
+# 2) 服务实际返回的 BUILD_ID（Next 把它嵌在首屏 HTML 的 flight 数据里）
+curl -s http://127.0.0.1:3434/ | grep -o '\\*"b\\*":\\*"[A-Za-z0-9_-]*' | head -1
+
+# 3) 两步输出的 ID 应当一致
+```
+
+不一致 ⇒ **进程还在服务旧产物**：停掉旧进程、用新端口重启，再跑下面的自检。
+本地演示若不便重启进程，**换一个新端口**也可以——但不能复用旧端口上的旧进程。
+
+> 自检脚本已经内建这一项：直接跑 `node scripts/check-physics-e2e.mjs --base-url <地址>`
+> 就会比对「服务返回的 BUILD_ID」与「本地 `.next/BUILD_ID`」，不一致即判失败。
+> 线上部署用 `--expect-build-id <id>` 显式声明期望值。
 
 ### 8.1 一条命令的端到端自检
 
@@ -312,10 +340,10 @@ Vercel 作为灾备（EdgeOne 故障时切换）。
 export EDGEONE=1
 pnpm build:packages && pnpm build      # 产物中不应出现 .next/standalone
 
-# 2) 启动（构建与运行都带 EDGEONE=1）
+# 2) 启动（构建与运行都带 EDGEONE=1）；**必须重启，不能复用旧进程**
 EDGEONE=1 pnpm start -- -p 3434        # 或 ./node_modules/.bin/next start -p 3434
 
-# 3) 跑自检脚本（21 项）
+# 3) 跑自检脚本（未启用口令 19 项 / 启用口令 22 项）
 node scripts/check-physics-e2e.mjs --base-url http://127.0.0.1:3434
 # 配置了口令时再加上 --access-code，并让服务带 ALLOW_INSECURE_ACCESS_COOKIE=1
 ```
@@ -325,7 +353,7 @@ node scripts/check-physics-e2e.mjs --base-url http://127.0.0.1:3434
 | 检查项 | 通过条件 |
 | --- | --- |
 | 15 条关键路由 | HTTP 200，且首帧含校名与「正在加载工作台」水合安全标记 |
-| 客户端 chunk | 页面引用的**每一个** chunk 都是 200（52 个） |
+| 客户端 chunk | 页面引用的**每一个** chunk 都是 200（本次 51 个） |
 | 口令门禁 | 未授权 401、错误口令 401、正确口令放行、带 Cookie 会话生效 |
 | 模型降级前提 | 未配置模型 Key 时 provider 为空，生成路径优雅降级 |
 
@@ -339,6 +367,16 @@ node scripts/typecheck.mjs              # 退出码 0（且会原样还原 next-
 ./node_modules/.bin/vitest run tests/physics/   # 全绿
 node scripts/check-physics-domain-purity.mjs   # 分层门禁
 ```
+
+模型供给自检（**在 EdgeOne 控制台拿到 Makers Key 之后跑**）：
+
+```bash
+MAKERS_MODELS_KEY=<your-key> node scripts/check-makers-models.mjs
+# 输出当前账号可用的模型 id，以及可直接粘进控制台的 DEFAULT_MODEL
+```
+
+这条命令直接解决"配了 Key 却说没有可用模型"：它会告诉你网关到底返回了哪些模型，
+以及 `DEFAULT_MODEL` 应该写成什么形式（必须带 `openai:` 前缀）。
 
 ### 8.3 口令门禁的本地形态
 
@@ -364,7 +402,8 @@ ALLOW_INSECURE_ACCESS_COOKIE=1 EDGEONE=1 ./node_modules/.bin/next start -p 3434
 
 | 能力 | 文档 | 与本项目的关系 |
 | --- | --- | --- |
-| **Makers Models** 统一模型网关 | `1552/132748` | 单一 Key 调多家厂商模型，OpenAI 兼容，SSE 原生支持；`MAKERS_MODELS_KEY` + `DEFAULT_MODEL=openai:@makers/deepseek-v4-flash` 即接入。免费版：20 万次执行/月、总内存时长 10 万 GB-s/月、单请求最长 3600 秒、会话最长空闲 300 秒、运行并发上限 40 |
+| **Makers Models** 统一模型网关 | `1552/132748`（能力）、`1552/132789`（配额） | 单一 Key 调多家厂商模型，OpenAI 兼容，SSE 原生支持，内置模型开箱即用。`MAKERS_MODELS_KEY` + `DEFAULT_MODEL=openai:@makers/deepseek-v4-flash` 即接入；`DEFAULT_MODEL` 缺省时由代码自动推导。**Models 免费版配额：内置模型免费额度 50 万 token/月、单个请求最大运行时间 300 秒、请求 body 上限 25 MB** |
+| **Makers Agents** 运行时 | `1552/132789` | 平台整体配额参考：执行次数 20 万/月、总内存时长 10 万 GB-s/月、单请求最长 3600 秒、会话最长空闲 300 秒、运行并发上限 40。**本项目未启用 Agent Workbench**（`OPENMAIC_AGENT_RUNTIME_ENABLED` 未设置），该配额不占用 |
 | **Makers Agents** | `1552/132759` | 托管运行时 + 沙箱 + 会话管理 + 内置模型，`AI_GATEWAY_API_KEY` / `AI_GATEWAY_BASE_URL`（默认 `https://ai-gateway.edgeone.link/v1`）。本项目**未使用**（见 §5 互斥项） |
 | **Makers Functions** | `1552/127415` | Edge Functions（边缘节点、毫秒级冷启动）与 Cloud Functions（云端、Node/Python/Go）两档；本项目的 Next.js API 路由由平台的 Next 适配器托管 |
 

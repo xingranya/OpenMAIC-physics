@@ -61,9 +61,14 @@ This product is a derivative work of OpenMAIC, developed by THU-MAIC.
                           物理域依赖分层门禁：纯领域层零 React / 零 DOM。
   scripts/check-physics-e2e.mjs
                           端到端自检：路由首帧水合安全性、客户端 chunk 全 200、
-                          口令门禁、模型降级前提（21 项）。
-  next.config.ts          output 判定按构建期固化，避免运行期误判为 standalone
-                          导致客户端 chunk 500、整站无法水合。
+                          BUILD_ID 与目标产物一致、口令门禁、模型降级前提
+                          （19 项；启用 ACCESS_CODE 时 22 项）。
+  scripts/check-makers-models.mjs
+                          查询 EdgeOne Makers Models 网关当前可用的模型，
+                          并给出可直接配置的 DEFAULT_MODEL。
+  next.config.ts          `output` 依 EDGEONE / VERCEL 环境变量判定：边缘平台
+                          不产出 standalone 产物，自托管场景保留。构建与运行
+                          必须看到同一份环境变量。
 
   从上游移除 / Removed from upstream:
     render-service/            Docker + Chromium 视频渲染服务（边缘部署不可用，

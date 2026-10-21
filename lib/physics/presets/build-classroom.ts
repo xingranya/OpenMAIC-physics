@@ -10,12 +10,7 @@
  * 可以在上游 DSL 升级时快速发现不兼容。
  */
 
-import type {
-  PPTElement,
-  Scene,
-  Slide,
-  Stage,
-} from '@openmaic/dsl';
+import type { PPTElement, Scene, Slide, Stage } from '@openmaic/dsl';
 
 import { BRAND_TOKENS, COURSE, FONT_STACK, SCHOOL, SCHOOL_SLIDE_THEMES } from '@/lib/school';
 import { AGENT_PERSONAS } from '@/lib/school';
@@ -273,7 +268,10 @@ export function buildPresetClassroom(
         id: discussion.agentId,
         name: discussion.agentId === 'physics-teacher' ? '物理教师' : '同学',
         // 课堂播放器的 PBL 可运行性校验要求至少一个 instructor 角色。
-        roleType: discussion.agentId === 'physics-teacher' ? ('instructor' as const) : ('collaborator' as const),
+        roleType:
+          discussion.agentId === 'physics-teacher'
+            ? ('instructor' as const)
+            : ('collaborator' as const),
         persona:
           discussion.agentId === 'physics-teacher'
             ? '你是本节课的物理教师，严谨、强调量纲自检与模型边界条件。'
@@ -340,7 +338,8 @@ function buildSchoolAgentRoster(preset: PresetClassroom) {
       role: 'student',
       persona: peer.persona,
       avatar: '/brand/college-brand.png',
-      color: SCHOOL_SLIDE_THEMES[0].colors[index % SCHOOL_SLIDE_THEMES[0].colors.length] ?? '#1c7c59',
+      color:
+        SCHOOL_SLIDE_THEMES[0].colors[index % SCHOOL_SLIDE_THEMES[0].colors.length] ?? '#1c7c59',
       priority: 7 - index,
     })),
   ];
