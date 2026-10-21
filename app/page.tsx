@@ -77,6 +77,8 @@ import { MoveToFolderMenu } from '@/components/discovery/move-to-folder-menu';
 import { SlideThumbnail } from '@/components/slide-renderer/SlideThumbnail';
 import type { Slide } from '@openmaic/dsl';
 import { useMediaGenerationStore } from '@/lib/store/media-generation';
+import { buildPhysicsRequirement } from '@/lib/physics/prompts/physics-constraints';
+import { PhysicsPortal } from '@/components/portal/physics-portal';
 import { toast } from 'sonner';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useDraftCache } from '@/lib/hooks/use-draft-cache';
@@ -598,7 +600,9 @@ function HomePage() {
     try {
       const userProfile = useUserProfileStore.getState();
       const requirements: UserRequirements = {
-        requirement: form.requirement,
+        // 物理领域约束（符号量纲 / 常见误区 / 实验安全 / 课程思政 / 校内上下文）
+        // 在应用层拼入，使一次约束贯穿全部场景类型，不改动上游生成模板。
+        requirement: buildPhysicsRequirement(form.requirement),
         userNickname: userProfile.nickname || undefined,
         userBio: userProfile.bio || undefined,
         // Course-level web search now lives in settings (课程模型配置 → 联网调研)
@@ -826,8 +830,8 @@ function HomePage() {
         {/* ── Logo ── */}
         <div className="relative" data-pro-morph="lockup">
           <motion.img
-            src="/logo-horizontal.png"
-            alt="OpenMAIC"
+            src="/brand/college-brand.png"
+            alt="长江大学文理学院"
             initial={heroEnter({ opacity: 0, scale: 0.9 })}
             animate={{ opacity: 1, scale: 1 }}
             transition={{
@@ -853,10 +857,18 @@ function HomePage() {
           initial={heroEnter({ opacity: 0 })}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.25 }}
-          className="text-sm text-muted-foreground/60 mb-8"
+          className="text-sm text-muted-foreground/60 mb-6"
         >
           {t('home.slogan')}
         </motion.p>
+
+        {/* ── 物理学习门户：双入口 + 快捷开讲 ── */}
+        <PhysicsPortal
+          onTopic={(topic) => {
+            setForm((prev) => ({ ...prev, requirement: topic }));
+            updateRequirementCache(topic);
+          }}
+        />
 
         {/* ── Unified input area ── */}
         <motion.div

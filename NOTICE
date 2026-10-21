@@ -1,0 +1,101 @@
+NOTICE
+======
+
+「大学物理 AI 智慧课堂」（长江大学文理学院 · 《大学物理》课程）
+University Physics AI Smart Classroom — Yangtze University, College of Liberal Arts
+
+本产品基于清华大学开源项目 OpenMAIC 二次开发。
+This product is a derivative work of OpenMAIC, developed by THU-MAIC.
+
+
+上游项目 / Upstream
+-------------------
+
+  项目 / Project : OpenMAIC — Open Multi-Agent Interactive Classroom
+  仓库 / Repo    : https://github.com/THU-MAIC/OpenMAIC
+  分支 / Branch  : release/1.1.x (v1.1.4)
+  许可 / License : MIT License (see ./LICENSE)
+  论文 / Paper   : From MOOC to MAIC: Reimagine Online Teaching and Learning
+                   through LLM-driven Agents.
+                   Journal of Computer Science and Technology, 2026.
+                   doi:10.1007/s11390-025-6000-0
+
+  致谢 / Acknowledgement:
+  感谢 OpenMAIC 团队与全体贡献者。本产品在界面、文档与演示中均保留对该项目的
+  明确署名，未对上游来源作任何掩盖。
+  We thank the OpenMAIC team and all its contributors. This derivative work
+  credits the upstream project explicitly in the UI, the documentation and the
+  demo materials.
+
+
+本项目二开内容 / Derivative work
+--------------------------------
+
+本项目新增或改写的部分（以 MIT License 发布，与上游保持一致）：
+
+  lib/physics/            物理教学域移植（types / data / engine / report /
+                          local-store / prompts / presets / session / undo /
+                          shortcuts），纯函数，零 React、零 DOM 依赖。
+  lib/school/             校本内容层：identity / branding / curriculum /
+                          ideology / rubric / campus。
+  lib/config/deployment-mode.ts
+                          边缘部署形态断言。
+  lib/brand/brand-config.ts
+                          品牌配置改为校色（长江大学文理学院 · 天蓝 #0369a1）。
+  components/physics/     物理工作台：外壳、登录、命令面板、学生 8 视图、教师 5 视图。
+  components/portal/      首页物理学习门户。
+  app/physics/ app/teacher/ app/login/
+                          工作台路由。
+  docs/参赛/              参赛材料：作品说明书、演示脚本、视频脚本、答辩预案、
+                          许可与致谢。
+  deploy/                 腾讯云 EdgeOne Pages 部署手册、环境变量模板、验收清单。
+  app/globals.css         校本色板、中文字体栈与打印样式。
+  pnpm-workspace.yaml     增加 supportedArchitectures（linux-x64 原生模块）。
+  package.json            build:packages 改为 pnpm -r --filter；新增 typecheck 脚本。
+
+  从上游移除 / Removed from upstream:
+    render-service/            Docker + Chromium 视频渲染服务（边缘部署不可用，
+                               导出自动降级为项目 ZIP）。
+    app/api/persistence/       服务端持久化路由（需要 PostgreSQL，与无状态边缘
+                               运行时互斥）。
+    相关的上游测试文件（测试上述已移除模块）。
+
+  保留但运行时禁用 / Retained but disabled at runtime:
+    Agent Workbench 与 /workspace：上游自带服务端门禁，
+      NEXT_PUBLIC_PRO_WORKBENCH_ENABLED 未设时中间件对 /workbench 返回 404，
+      /workspace 自动重定向。
+    pg / @electric-sql/pglite 依赖：lib/persistence/server-provider.ts 在类型层
+      静态引用 pg，删除依赖会破坏类型检查；运行时无 DATABASE_URL，该路径不可达。
+    app/api/export-video/：上游已实现优雅降级（未设 RENDER_SERVICE_URL 时导出
+      项目 ZIP），保留以维持降级路径。
+
+
+第三方组件 / Third-party components
+-----------------------------------
+
+  packages/mathml2omml    LGPL-3.0-or-later
+                          MathML → Office Math 转换，PPTX 公式导出需要。
+                          以未修改的原始形式使用，保留其 LICENSE 文件
+                          (packages/mathml2omml/LICENSE) 与对应源码路径。
+                          再分发本仓库时该包的条款独立适用。
+  packages/pptxgenjs      MIT License (third-party)
+  其余前端依赖 / Other frontend dependencies:
+                          各自许可见对应包内声明，均未作改动。
+
+  整仓再分发时，各第三方组件的条款分别适用。
+  When redistributing this repository as a whole, the terms of each bundled
+  package above apply to that package's files.
+
+
+数据与素材声明 / Data and asset notice
+--------------------------------------
+
+  班级名单、学生成绩、评价记录与诊断结果均为课程示例数据，非真实教务数据；
+  相关界面与导出文件中均已标注。
+  Chapter hours, textbook versions and the on-campus lab inventory are sample
+  content pending academic-affairs review; their verification state is tracked
+  by the `isVerified` field in lib/school/curriculum.ts.
+
+  校徽与登录页背景图 / College emblem and login background:
+  public/brand/college-brand.png, public/brand/teaching-login-bg.jpg
+  归长江大学文理学院所有。

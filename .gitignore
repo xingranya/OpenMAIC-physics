@@ -93,3 +93,8 @@ e2e/__screenshots-619/
 
 # Temporary render-service sources extracted by the mixed-pool regression test
 render-service/.owner-bound-parent-*/
+
+# 本地 pnpm 内容寻址存储（为跨平台原生模块解析而置于仓库内，不入版本控制）
+/.pnpm-store/
+# 本地构建临时目录
+/.tmp/

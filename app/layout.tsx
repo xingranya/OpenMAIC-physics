@@ -29,9 +29,9 @@ import { ProSwapWatcher } from '@/components/workbench/ProSwapWatcher';
 import '@fontsource-variable/inter';
 
 export const metadata: Metadata = {
-  title: 'OpenMAIC',
+  title: '大学物理 AI 智慧课堂 · 长江大学文理学院',
   description:
-    'The open-source AI interactive classroom. Upload a PDF to instantly generate an immersive, multi-agent learning experience.',
+    '长江大学文理学院大学物理课程智慧教学工作台。基于 OpenMAIC 二次开发，融合多智能体 AI 课堂与"诊断→匹配→闯关→实验→报告"教学闭环。',
 };
 
 export default function RootLayout({

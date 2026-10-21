@@ -18,6 +18,20 @@ export async function register(): Promise<void> {
   const { warnIfAccessCodeIsUnset } = await import('@/lib/server/access-code-warning');
   warnIfAccessCodeIsUnset(process.env.ACCESS_CODE);
 
+  // 部署形态断言：本项目部署到腾讯云 EdgeOne Pages（无状态边缘平台），
+  // 明确禁用 PostgreSQL 持久化、Agent Workbench 与后台 Agent runner。
+  // 这三者都需要长驻进程或固定数据库，与边缘运行时互斥；误配时在这里
+  // 大声失败，好过让评委在现场看到"点了没反应"。
+  //
+  // 只在生产环境强制：单元测试会直接调用 register()，并在进程内设置
+  // 各种开关组合来验证其它行为，那不是一次真实部署。
+  if (process.env.NODE_ENV === 'production') {
+    const { assertDeploymentConfig, detectDeploymentMode } = await import(
+      '@/lib/config/deployment-mode'
+    );
+    assertDeploymentConfig(detectDeploymentMode());
+  }
+
   // The asset quota, read here rather than at the first persistence request.
   // The provider that consumes it is lazy and memoised, so a malformed ceiling
   // would otherwise let the process boot, pass its health check, and then fail

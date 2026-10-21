@@ -39,6 +39,7 @@ import {
   type MediaTaskState,
 } from '@/lib/media/resolve-media-ref';
 import { lookupMediaTask, resolveVideoMediaForElement } from '@/lib/media/media-task-resolution';
+import { COURSE, SCHOOL, buildSlideFooterSpec } from '@/lib/school';
 
 const log = createLogger('ExportPPTX');
 
@@ -527,6 +528,12 @@ export async function buildPptxBlob(
   if (viewportRatio === 0.625) pptx.layout = 'LAYOUT_16x10';
   else if (viewportRatio === 0.75) pptx.layout = 'LAYOUT_4x3';
   else pptx.layout = 'LAYOUT_16x9';
+
+  // 校本导出元数据：导出的 PPTX 带着学校、课程与授课教师，
+  // 进讲台时一眼看得出出处。
+  pptx.author = `${COURSE.teacher} · ${SCHOOL.college}`;
+  pptx.company = SCHOOL.college;
+  pptx.subject = `${COURSE.name} · ${COURSE.className}`;
 
   for (let slideIdx = 0; slideIdx < slides.length; slideIdx++) {
     const slide = slides[slideIdx];
@@ -1321,6 +1328,37 @@ export function useExportPPTX() {
   const slideScenes = scenes.filter((s) => s.content.type === 'slide');
   const slides = slideScenes.map((s) => (s.content as SlideContent).canvas);
 
+  // 校本导出页脚：每一页带上"学校 · 课程"标识。课件进讲台或传给学生时，
+  // 出处一眼可辨。装饰发生在导出副本上，不改动课堂存储里的原始画布。
+  const brandedSlides = slides.map((slide) => {
+    const spec = buildSlideFooterSpec(
+      slide.viewportSize || viewportSize,
+      slide.viewportRatio || viewportRatio,
+      slide.theme?.fontColor ?? '#94a3b8',
+      stage?.name,
+      COURSE.teacher,
+    );
+    return {
+      ...slide,
+      elements: [
+        ...slide.elements,
+        {
+          id: `school-footer-${slide.id}`,
+          type: 'text',
+          content: spec.text,
+          left: spec.left,
+          top: spec.top,
+          width: spec.width,
+          height: spec.height,
+          rotate: 0,
+          defaultFontName: 'PingFang SC',
+          defaultColor: spec.color,
+          fontSize: spec.fontSize,
+          textAlign: 'left',
+        } as unknown as Slide['elements'][number],
+      ],
+    };
+  });
   // Shared guard + state wrapper for export actions.
   // `requireSlides` controls whether the guard rejects a deck with no slide
   // scenes (PPTX export needs them; the resource pack can ship interactive
@@ -1354,7 +1392,7 @@ export function useExportPPTX() {
     withExportGuard(async () => {
       const fileName = stage?.name || 'slides';
       const blob = await buildPptxBlob(
-        slides,
+        brandedSlides,
         slideScenes,
         viewportRatio,
         viewportSize,
@@ -1367,7 +1405,7 @@ export function useExportPPTX() {
     });
   }, [
     withExportGuard,
-    slides,
+    brandedSlides,
     slideScenes,
     stage,
     viewportSize,
@@ -1394,7 +1432,7 @@ export function useExportPPTX() {
         fetcher: sharedFetcher,
         getPptxBlob: () =>
           buildPptxBlob(
-            slides,
+            brandedSlides,
             slideScenes,
             viewportRatio,
             viewportSize,
@@ -1436,7 +1474,7 @@ export function useExportPPTX() {
     }, false);
   }, [
     withExportGuard,
-    slides,
+    brandedSlides,
     slideScenes,
     scenes,
     stage,

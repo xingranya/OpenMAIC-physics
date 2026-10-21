@@ -65,15 +65,29 @@
      @font-face per unicode subset. Previously this came from next/font wrapping
      a single latin-only file, which left Cyrillic and Vietnamese text to OS
      fallback fonts. */
-  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+  /* 校本字体栈：中文优先苹方/微软雅黑，西文回落 Inter Variable。
+     Inter 仍由 @fontsource 加载并保留逐子集 unicode-range，因此把中文字体
+     放在前面不会影响西文与西里尔文、越南文的字形覆盖。 */
+  --font-sans: 'PingFang SC', 'Microsoft YaHei', 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
-  --primary: #722ed1;
+  /* 校本主色：长江大学文理学院天蓝（学术理性），取代上游默认紫色。 */
+  --primary: #0369a1;
   --primary-foreground: oklch(0.985 0 0);
+  /* 校本状态色：与 lib/school/branding.ts 的 BRAND_TOKENS 保持一致。 */
+  --school-primary-strong: #075985;
+  --school-primary-soft: #e0f2fe;
+  --school-primary-softer: #f0f8fd;
+  --school-success: #1c7c59;
+  --school-warning: #a96519;
+  --school-danger: #b54444;
+  --school-sidebar: #082f49;
+  --school-sidebar-foreground: #e6f2fb;
+  --school-sidebar-muted: #9cc8e8;
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
   --muted: oklch(0.97 0 0);
@@ -107,7 +121,7 @@
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: #8b47ea;
+  --primary: #38bdf8;
   --primary-foreground: oklch(0.205 0 0);
   --secondary: oklch(0.269 0 0);
   --secondary-foreground: oklch(0.985 0 0);
@@ -575,4 +589,97 @@ body[data-maic-editor='true'] .editable-element-text li,
     color: var(--muted-foreground);
     -webkit-text-fill-color: var(--muted-foreground);
   }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   物理工作台 · 校本层
+   长江大学文理学院「大学物理 AI 智慧课堂」专用样式：
+   侧栏（深海军蓝）、上下文条、打印样式、可访问数据表。
+   ══════════════════════════════════════════════════════════════ */
+
+.physics-sidebar {
+  background: var(--school-sidebar);
+  color: var(--school-sidebar-foreground);
+}
+
+.physics-sidebar a,
+.physics-sidebar button {
+  color: inherit;
+}
+
+.physics-sidebar [data-nav-item]:hover {
+  background: rgb(255 255 255 / 8%);
+}
+
+.physics-sidebar [data-nav-item][aria-current='page'] {
+  background: rgb(255 255 255 / 13%);
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+
+.physics-context-bar {
+  background: var(--school-primary-softer);
+  border-bottom: 1px solid color-mix(in srgb, var(--school-primary-strong) 18%, transparent);
+}
+
+.dark .physics-context-bar {
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+}
+
+/* 图表的可访问数据表：默认隐藏，屏幕阅读器与打印时展开。 */
+.physics-data-table {
+  display: none;
+}
+
+@media print {
+  .no-print,
+  [data-physics-sidebar] {
+    display: none !important;
+  }
+
+  body {
+    background: #ffffff !important;
+  }
+
+  .physics-print-only {
+    display: block !important;
+  }
+
+  .physics-print-header {
+    display: flex !important;
+    align-items: center;
+    gap: 12px;
+    border-bottom: 1px solid #cbd5e1;
+    padding-bottom: 8px;
+    margin-bottom: 16px;
+  }
+
+  .physics-data-table {
+    display: table !important;
+    width: 100%;
+    font-size: 11px;
+    border-collapse: collapse;
+  }
+
+  .physics-data-table caption {
+    text-align: left;
+    font-weight: 600;
+    padding-bottom: 4px;
+  }
+
+  .physics-data-table th,
+  .physics-data-table td {
+    border: 1px solid #cbd5e1;
+    padding: 3px 6px;
+    text-align: left;
+  }
+
+  a {
+    color: inherit !important;
+    text-decoration: none !important;
+  }
+}
+
+.physics-print-only,
+.physics-print-header {
+  display: none;
 }

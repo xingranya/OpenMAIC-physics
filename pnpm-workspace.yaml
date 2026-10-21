@@ -2,3 +2,18 @@ packages:
   - "packages/*"
   - "packages/@openmaic/*"
   - "!packages/docs" # standalone docs sub-app: own lockfile, build, deploy
+
+# EdgeOne Pages 的构建环境是 linux-x64，而本地开发机可能是 darwin-arm64。
+# `sharp` 与 `@napi-rs/canvas` 是原生模块：不在这里声明目标架构时，
+# pnpm 只会安装与当前机器匹配的二进制，EdgeOne 构建期就会在
+# "Cannot find module" 或 dlopen 失败上中断。
+#
+# 该配置让 pnpm 在安装阶段同时解析 linux-x64 的预编译产物，
+# 从而本地与 EdgeOne 用同一份 lockfile、同一套命令。
+supportedArchitectures:
+  os:
+    - current
+    - linux
+  cpu:
+    - current
+    - x64

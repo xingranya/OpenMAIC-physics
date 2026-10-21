@@ -154,6 +154,12 @@ jobs:
             'tsc' 'npx tsc --noEmit' \
             'i18n' 'pnpm check:i18n-keys'
 
+      # 物理域依赖分层：纯领域层不得依赖 React / Next.js / DOM / 浏览器存储，
+      # 浏览器适配层不得依赖 Next.js 与 UI 组件。这条门禁让"领域逻辑可复用"
+      # 从约定变成可执行的事实。
+      - name: Physics domain dependency layering
+        run: pnpm check:physics-domain
+
       # Keep these sequential. Running root vitest alongside the storage
       # package on a 4-core runner made 5s-timeout tests flake (CPU
       # contention, not a product regression).
@@ -210,41 +216,9 @@ jobs:
       - name: Unit Tests (storage)
         run: pnpm --filter @openmaic/storage test
 
-  render-service:
-    name: Render Service (typecheck + tests)
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    # The producer dep bundles puppeteer; skip its Chromium download — the unit
-    # tests exercise the service's boundaries (unzip, admission, body caps) and
-    # never launch a browser.
-    env:
-      PUPPETEER_SKIP_DOWNLOAD: "true"
-    steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 22
-          # render-service is its own npm package (own lockfile, Node-only deps),
-          # excluded from the root eslint/tsc/pnpm workspace — so it gets its own
-          # install + quality gate here rather than riding on the `check` job.
-          cache: npm
-          cache-dependency-path: render-service/package-lock.json
-
-      - name: Install
-        working-directory: render-service
-        run: npm ci
-
-      - name: TypeScript
-        working-directory: render-service
-        run: npm run typecheck
-
-      - name: Unit Tests
-        working-directory: render-service
-        run: npm test
-
-      - name: Build container image
-        run: docker build --tag openmaic-render-service:ci render-service
+  # render-service 已从本 fork 移除：它需要 Docker + Chromium，
+  # 与腾讯云 EdgeOne Pages 的无状态边缘运行时互斥；MP4 导出在上游
+  # 本就实现了优雅降级（未设 RENDER_SERVICE_URL 时导出项目 ZIP）。
 
   e2e:
     name: E2E Tests

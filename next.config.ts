@@ -2,13 +2,19 @@ import type { NextConfig } from 'next';
 
 const isVercelBuild = Boolean(process.env.VERCEL);
 
+// EdgeOne Pages（Makers）与 Vercel 一样是无状态边缘平台：由平台托管
+// Next.js 运行时，应用不产出 standalone 服务端包。上游只在 VERCEL 时
+// 关闭 standalone；EdgeOne 部署若沿用 standalone，平台会拿到一份
+// 无人启动的服务器产物，表现为路由 404 或静态资源缺失。
+const isEdgeOneBuild = Boolean(process.env.EDGEONE);
+
 const nextConfig: NextConfig = {
   env: {
     // Pin even the unset/default value in both client and server bundles.
     // A runtime-only override must not disable the route the built client uses.
     NEXT_PUBLIC_PI_CHAT_ENABLED: process.env.NEXT_PUBLIC_PI_CHAT_ENABLED ?? '',
   },
-  output: process.env.VERCEL ? undefined : 'standalone',
+  output: isVercelBuild || isEdgeOneBuild ? undefined : 'standalone',
   outputFileTracingIncludes: {
     '/*': [
       'lib/server/agent-runtime/import-pptx-worker.mjs',

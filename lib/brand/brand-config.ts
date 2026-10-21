@@ -23,12 +23,12 @@ export interface BrandConfig {
   themeColor: string;
 }
 
-/** The default brand: the product itself, with no vendor overrides. */
+/** The default brand: 长江大学文理学院 · 大学物理 AI 智慧课堂. */
 export const DEFAULT_BRAND: BrandConfig = {
-  productName: 'OpenMAIC',
-  shortName: 'OpenMAIC',
-  logoSrc: '/logo-horizontal.png',
-  logoHasWordmark: true,
-  markSrc: '/openmaic-mark.png',
-  themeColor: '#722ed1',
+  productName: '大学物理 AI 智慧课堂',
+  shortName: '物理 AI 课堂',
+  logoSrc: '/brand/college-brand.png',
+  logoHasWordmark: false,
+  markSrc: '/brand/college-brand.png',
+  themeColor: '#0369a1',
 };
