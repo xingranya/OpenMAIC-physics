@@ -40,7 +40,7 @@ import {
 } from '@/lib/media/resolve-media-ref';
 import { lookupMediaTask, resolveVideoMediaForElement } from '@/lib/media/media-task-resolution';
 import { COURSE, SCHOOL } from '@/lib/school';
-import { buildBrandElements } from '@/lib/export/slide-branding';
+import { decorateSlidesWithBrand } from '@/lib/export/slide-branding';
 
 const log = createLogger('ExportPPTX');
 
@@ -1333,22 +1333,16 @@ export function useExportPPTX() {
   // "学校 · 课程 · 教师"，课件进讲台或传给学生时出处一眼可辨。
   // 装饰发生在导出副本上，不改动课堂存储里的原始画布。
   // 具体规则见 `@/lib/export/slide-branding`（纯函数，有单测覆盖）。
-  const brandedSlides = slides.map((slide) => {
-    const { header, footer } = buildBrandElements(slide, {
-      chapter: stage?.name,
-      teacher: COURSE.teacher,
-      viewportSize,
-      viewportRatio,
-    });
-    return {
-      ...slide,
-      elements: [
-        ...slide.elements,
-        header as unknown as Slide['elements'][number],
-        ...(footer ? [footer as unknown as Slide['elements'][number]] : []),
-      ],
-    };
-  });
+  //
+  // 这里刻意调用 `decorateSlidesWithBrand`（与测试共用同一份实现）：
+  // 早前测试自己手工拼了一遍装饰，于是"导出哪天不再调用装饰"这类回归
+  // 完全测不出来——测试照样绿，产物却没了页眉。
+  const brandedSlides = decorateSlidesWithBrand(slides, {
+    chapter: stage?.name,
+    teacher: COURSE.teacher,
+    viewportSize,
+    viewportRatio,
+  }) as unknown as Slide[];
   // Shared guard + state wrapper for export actions.
   // `requireSlides` controls whether the guard rejects a deck with no slide
   // scenes (PPTX export needs them; the resource pack can ship interactive

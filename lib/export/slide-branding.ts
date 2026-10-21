@@ -120,3 +120,33 @@ export function buildBrandElements(
 
   return { header, footer };
 }
+
+/** 一张待装饰画布的最小形状（保留元素类型，避免调用方到处强转）。 */
+export interface DecoratableSlide {
+  id: string;
+  /** 只需要元素 id——装饰逻辑据此判断画布是否已自带贴底标识。 */
+  elements: readonly { id: string }[];
+  viewportSize?: number;
+  viewportRatio?: number;
+  theme?: { fontColor?: string } | null;
+}
+
+/**
+ * 为一组画布补上校本页眉页脚（返回新数组，不改动原始画布）。
+ *
+ * 导出链路与测试**必须**走这一份实现：早前测试自己手工拼了一遍装饰，
+ * 于是"导出哪天不再调用装饰"这类回归完全测不出来——测试照样绿，
+ * 产物却没了页眉。抽成共享纯函数后，两边用的是同一段代码。
+ */
+export function decorateSlidesWithBrand<T extends DecoratableSlide>(
+  slides: readonly T[],
+  options: SlideBrandOptions,
+): Array<T & { elements: Array<T['elements'][number] | BrandTextElement> }> {
+  return slides.map((slide) => {
+    const { header, footer } = buildBrandElements(slide, options);
+    return {
+      ...slide,
+      elements: [...slide.elements, header, ...(footer ? [footer] : [])],
+    };
+  });
+}

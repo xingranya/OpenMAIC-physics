@@ -29,6 +29,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { useI18n } from '@/lib/hooks/use-i18n';
+import { SCHOOL } from '@/lib/school/identity';
 import { LanguageSwitcher } from '@/components/language-switcher';
 import { createLogger } from '@/lib/logger';
 import { Button } from '@/components/ui/button';
@@ -831,7 +832,7 @@ function HomePage() {
         <div className="relative" data-pro-morph="lockup">
           <motion.img
             src="/brand/college-brand.png"
-            alt="长江大学文理学院"
+            alt={SCHOOL.college}
             initial={heroEnter({ opacity: 0, scale: 0.9 })}
             animate={{ opacity: 1, scale: 1 }}
             transition={{

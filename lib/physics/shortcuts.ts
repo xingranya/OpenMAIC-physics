@@ -31,6 +31,19 @@ export interface ShortcutBinding {
   combo: string;
   /** 作用域，避免学生/教师混合 */
   scope: CommandScope;
+  /**
+   * 角色限定：仅在当前登录角色与之相同时可见。
+   *
+   * 与 `scope` 的区别：`scope` 决定这条绑定属于哪一端的**快捷键集合**，
+   * 而 `roleScope` 决定它作为**命令面板条目**时给谁看。
+   *
+   * 为什么需要它：「跳到学习报告」与「跳到评价复核」是跨角色跳转目标，
+   * 学生不该看到教师端的「评价复核」、教师也不该看到学生端的「学习报告」。
+   * 工作台的视图切换是**本地状态 + 原生 History API**（断网可用），
+   * 并不真的会换页——跨角色目标若被点下去，地址栏会变成 `/teacher/evaluation`
+   * 而内容仍是学生工作台，造成 URL 与内容错配。
+   */
+  roleScope?: UserRole;
   /** 是否需要当前登录态 */
   requiresSession?: boolean;
   /** 跳转或动作 */
@@ -187,12 +200,14 @@ const commandPaletteSet: Array<Omit<ShortcutBinding, 'scope' | 'combo'>> = [
     label: '跳到学习报告',
     hint: 'report',
     requiresSession: true,
+    roleScope: 'student',
     action: { type: 'navigate', role: 'student', view: 'report' },
   },
   {
     label: '跳到评价复核',
     hint: 'evaluation',
     requiresSession: true,
+    roleScope: 'teacher',
     action: { type: 'navigate', role: 'teacher', view: 'evaluation' },
   },
 ];
@@ -205,6 +220,33 @@ export const shortcuts: ShortcutBinding[] = [
     scope: 'global' as CommandScope,
     combo: '',
   })),
+];
+
+/**
+ * 学生端全部视图 id。
+ *
+ * 与 `components/physics/workbench.tsx` 的侧栏一一对应；放在这里是为了让
+ * 路由文件（`app/physics/[view]/page.tsx`）能拿到同一份清单做静态化，
+ * 而不必把整个工作台组件拖进服务端构建。
+ */
+export const STUDENT_VIEW_IDS: readonly StudentView[] = [
+  'overview',
+  'diagnosis',
+  'curriculum',
+  'projects',
+  'tasks',
+  'assistant',
+  'lab',
+  'report',
+];
+
+/** 教师端全部视图 id（与 `components/physics/workbench.tsx` 的侧栏一一对应）。 */
+export const TEACHER_VIEW_IDS: readonly TeacherView[] = [
+  'dashboard',
+  'class',
+  'curriculum',
+  'evaluation',
+  'insights',
 ];
 
 export function findShortcutByCombo(
@@ -220,7 +262,10 @@ export function findShortcutByCombo(
 
 export function findShortcutsForPalette(role: UserRole | null): ShortcutBinding[] {
   return shortcuts.filter(
-    (binding) => binding.scope === 'global' || (role !== null && binding.scope === role),
+    (binding) =>
+      (binding.scope === 'global' || (role !== null && binding.scope === role)) &&
+      // 角色限定的命令面板条目只给对应角色看（跨角色跳转会造成 URL 与内容错配）。
+      (binding.roleScope === undefined || (role !== null && binding.roleScope === role)),
   );
 }
 

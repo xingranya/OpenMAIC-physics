@@ -11,9 +11,11 @@
  *
  * 用法：node scripts/check-doc-metrics.mjs
  */
-import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync, existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const DOC = join(ROOT, 'docs', '参赛', '作品说明书.md');
@@ -35,6 +37,58 @@ function collect(dir, extension) {
   }
   return out;
 }
+
+/**
+ * 实测物理域单元测试的文件数与用例数。
+ *
+ * 第四轮独立复审发现：说明书里「104 / 104 通过（10 个文件）」在新增两个
+ * 测试文件后变成了 12 文件 109 例，文档却没跟着改。行数指标被门禁盯着，
+ * 测试数却没人管——这类数字漂移最容易被评委当场问住，所以也纳入门禁。
+ *
+ * 用 vitest 的 json reporter 拿权威数字，而不是去数 `it(` 的个数。
+ */
+function measurePhysicsTests() {
+  const vitestCli = join(ROOT, 'node_modules', 'vitest', 'vitest.mjs');
+  if (!existsSync(vitestCli)) {
+    throw new Error(`找不到 vitest（${vitestCli}）。请先执行 pnpm install 再跑本脚本。`);
+  }
+  const reportDir = mkdtempSync(join(tmpdir(), 'doc-metrics-vitest-'));
+  const reportPath = join(reportDir, 'report.json');
+  try {
+    const result = spawnSync(
+      process.execPath,
+      [vitestCli, 'run', 'tests/physics/', '--reporter=json', `--outputFile=${reportPath}`],
+      {
+        cwd: ROOT,
+        encoding: 'utf8',
+        env: { ...process.env, TMPDIR: process.env.TMPDIR ?? reportDir },
+      },
+    );
+    if (result.error) {
+      throw new Error(`vitest 启动失败：${result.error.message}`);
+    }
+    if (!existsSync(reportPath)) {
+      throw new Error(
+        `vitest 未产出报告（exit=${result.status}）：${(result.stderr || result.stdout || '').slice(0, 400)}`,
+      );
+    }
+    const report = JSON.parse(readFileSync(reportPath, 'utf8'));
+    const files = Array.isArray(report.testResults)
+      ? report.testResults.length
+      : Number(report.numTotalTestSuites ?? 0);
+    const tests = Number(report.numTotalTests ?? 0);
+    if (!Number.isFinite(tests) || tests === 0) {
+      throw new Error(
+        `vitest 报告里没有用例数（exit=${result.status}）：${(result.stderr || result.stdout || '').slice(0, 400)}`,
+      );
+    }
+    return { files, tests };
+  } finally {
+    rmSync(reportDir, { recursive: true, force: true });
+  }
+}
+
+let physicsTests = null;
 
 /** 一项指标：文档里的标签、文档里写的行数、实测行数。 */
 const METRICS = [
@@ -82,6 +136,21 @@ const METRICS = [
           .filter((path) => statSync(path).isFile()),
       ),
   },
+  {
+    // 「**N / N 通过**（M 个文件）」——两个数字都要对得上。
+    label: '物理域单元测试',
+    unit: '例',
+    pattern: /物理域单元测试\s*\|\s*\*\*(\d+)\s*\/\s*(\d+)\s*通过\*\*\s*（(\d+)\s*个文件）/,
+    measure: () => {
+      if (!physicsTests) physicsTests = measurePhysicsTests();
+      return physicsTests.tests;
+    },
+    // 额外校验测试文件数与用例数。
+    extra: () => {
+      if (!physicsTests) physicsTests = measurePhysicsTests();
+      return { files: physicsTests.files, tests: physicsTests.tests };
+    },
+  },
 ];
 
 if (!existsSync(DOC)) {
@@ -102,16 +171,39 @@ for (const metric of METRICS) {
   // 表格里的数字用窄空格（U+202F）或普通空格分隔，这里统一去掉所有空白。
   const declared = Number(match[1].replace(/[\s\u202f\u00a0]/g, ''));
   const actual = metric.measure();
-  rows.push({ label: metric.label, declared, actual });
+  rows.push({ label: metric.label, declared, actual, unit: metric.unit ?? '行' });
   if (declared !== actual) {
-    problems.push(`${metric.label}：说明书写 ${declared} 行，实测 ${actual} 行（请同步后重跑）`);
+    problems.push(
+      `${metric.label}：说明书写 ${declared} ${metric.unit ?? '行'}，实测 ${actual} ${
+        metric.unit ?? '行'
+      }（请同步后重跑）`,
+    );
+  }
+
+  if (metric.extra) {
+    const { files, tests } = metric.extra();
+    const declaredTests = Number(match[2]);
+    const declaredFiles = Number(match[3]);
+    rows[rows.length - 1].detail = `${declaredTests} 例 / ${declaredFiles} 个文件`;
+    rows[rows.length - 1].actualDetail = `${tests} 例 / ${files} 个文件`;
+    if (declaredTests !== tests) {
+      problems.push(
+        `${metric.label}：说明书写 ${declaredTests} 例，实测 ${tests} 例（请同步后重跑）`,
+      );
+    }
+    if (declaredFiles !== files) {
+      problems.push(
+        `${metric.label}：说明书写 ${declaredFiles} 个测试文件，实测 ${files} 个（请同步后重跑）`,
+      );
+    }
   }
 }
 
 for (const row of rows) {
   const ok = row.declared === row.actual;
+  const detail = row.detail ? ` — ${row.detail} / 实测 ${row.actualDetail}` : '';
   console.log(
-    `[${ok ? 'PASS' : 'FAIL'}] ${row.label} — 说明书 ${row.declared} 行 / 实测 ${row.actual} 行`,
+    `[${ok ? 'PASS' : 'FAIL'}] ${row.label} — 说明书 ${row.declared} ${row.unit} / 实测 ${row.actual} ${row.unit}${detail}`,
   );
 }
 

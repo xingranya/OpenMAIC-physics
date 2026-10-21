@@ -356,7 +356,7 @@ pnpm build:packages && pnpm build      # 产物中不应出现 .next/standalone
 # 2) 启动（构建与运行都带 EDGEONE=1）；**必须重启，不能复用旧进程**
 EDGEONE=1 pnpm start -- -p 3434        # 或 ./node_modules/.bin/next start -p 3434
 
-# 3) 跑自检脚本（未启用口令 19 项 / 启用口令 22 项）
+# 3) 跑自检脚本（未启用口令 20 项 / 启用口令 23 项）
 node scripts/check-physics-e2e.mjs --base-url http://127.0.0.1:3434
 # 配置了口令时再加上 --access-code，并让服务带 ALLOW_INSECURE_ACCESS_COOKIE=1
 ```
@@ -413,7 +413,36 @@ ALLOW_INSECURE_ACCESS_COOKIE=1 EDGEONE=1 ./node_modules/.bin/next start -p 3434
    运行期会按 standalone 处理非 standalone 产物，静态资源路由异常，
    表现为**路由 404 或静态资源缺失**——不是 chunk 500。
    （我们用对照实验确认过：同一份产物只改运行期判定值时，两种形态的
-   51 个客户端 chunk 全部 200。）
+   49 个客户端 chunk 全部 200。）
+
+### 8.5 清理残留的本地服务进程（现场演示前必做）
+
+反复调试会在本机留下一堆 `next start` 进程。它们不只是占端口，还会让验证
+**测到错误的实例**：
+
+| 残留类型 | 危害 |
+| --- | --- |
+| 指向**旧构建**的 `next start` | 返回的 HTML 引用已被新构建删除的 chunk → React 不水合 → **页面文字正常但按钮全哑**（§8.4 第 1 条） |
+| 改了 `BUILD_ID` 响应头的代理 | 自检脚本的「BUILD_ID 与目标产物一致」会**误判通过**，掩盖真实的版本不一致 |
+| 启用了 `ACCESS_CODE` 的实例 | 口令已知且会留在 shell 历史里；也容易让人误以为线上就是这个口令 |
+| 占用同一端口的旧实例 | 新实例起不来，验证其实跑在老代码上 |
+
+清理方式（受限沙箱禁止 `kill` 时，请在普通终端执行）：
+
+```bash
+# 1) 看看有哪些 node 进程在监听端口
+lsof -nP -iTCP -sTCP:LISTEN | grep node
+
+# 2) 逐个结束（先确认 PID 对应的是本项目的 next start 再动手）
+kill <PID>
+
+# 3) 确认已清干净
+lsof -nP -iTCP -sTCP:LISTEN | grep node || echo "已清空"
+```
+
+> 演示前请只保留**一个**实例，并确认它是用**当次构建产物**启动的：
+> `node scripts/check-physics-e2e.mjs --base-url http://127.0.0.1:<端口>` 里的
+> 「BUILD_ID 与目标产物一致」必须通过。
 
 ---
 

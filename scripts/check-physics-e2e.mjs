@@ -41,6 +41,8 @@ function argValue(name, fallback) {
 const BASE_URL = argValue('--base-url', 'http://127.0.0.1:3000').replace(/\/$/, '');
 const ACCESS_CODE = argValue('--access-code', '');
 const TIMEOUT_MS = 15_000;
+/** 仓库根目录（本脚本按仓库根运行）。 */
+const ROOT = process.cwd();
 
 /**
  * 期望的 BUILD_ID。
@@ -177,6 +179,41 @@ async function checkChunks() {
     broken.length === 0
       ? `${chunkPaths.size} 个 chunk 全部 200（chunk 非 200 会导致 React 不水合）`
       : `异常 ${broken.length} 个：${broken.slice(0, 5).join('；')}`,
+  );
+  checkDocChunkCount(chunkPaths.size);
+}
+
+/**
+ * 说明书自引的 chunk 数必须与实测一致。
+ *
+ * 第四轮独立复审发现：说明书里写着「51 个客户端 chunk 全部 200」，
+ * 而用本脚本实测是 49 —— 数字漂了但没人管。行数与用例数已经有门禁盯着，
+ * chunk 数同样要有一处能自证的地方。
+ *
+ * 注意 chunk 数随前端改动而变（新增/删除 chunk 都会动它），所以这是
+ * "必须同步文档"的提醒项，而不是"必须等于某个常量"的断言。
+ */
+function checkDocChunkCount(actual) {
+  const docPath = join(ROOT, 'docs', '参赛', '作品说明书.md');
+  let source;
+  try {
+    source = readFileSync(docPath, 'utf8');
+  } catch {
+    record('说明书自引 chunk 数', true, '找不到说明书，跳过');
+    return;
+  }
+  const match = /(\d+)\s*个客户端 chunk 全部 200/.exec(source);
+  if (!match) {
+    record('说明书自引 chunk 数', false, '说明书里找不到「N 个客户端 chunk 全部 200」');
+    return;
+  }
+  const declared = Number(match[1]);
+  record(
+    '说明书自引 chunk 数',
+    declared === actual,
+    declared === actual
+      ? `说明书 ${declared} 个 / 实测 ${actual} 个，一致`
+      : `说明书写 ${declared} 个，实测 ${actual} 个（请同步 docs/参赛/作品说明书.md）`,
   );
 }
 

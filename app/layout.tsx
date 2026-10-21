@@ -28,10 +28,11 @@ import { ProSwapWatcher } from '@/components/workbench/ProSwapWatcher';
 // next/font's generated class.
 import '@fontsource-variable/inter';
 
+import { COURSE, PLATFORM, SCHOOL } from '@/lib/school/identity';
+
 export const metadata: Metadata = {
-  title: '大学物理 AI 智慧课堂 · 长江大学文理学院',
-  description:
-    '长江大学文理学院大学物理课程智慧教学工作台。基于 OpenMAIC 二次开发，融合多智能体 AI 课堂与"诊断→匹配→闯关→实验→报告"教学闭环。',
+  title: `${PLATFORM.systemName} · ${SCHOOL.college}`,
+  description: `${SCHOOL.college}${COURSE.name}课程智慧教学工作台。基于 OpenMAIC 二次开发，融合多智能体 AI 课堂与"诊断→匹配→闯关→实验→报告"教学闭环。`,
 };
 
 export default function RootLayout({

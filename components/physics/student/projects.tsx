@@ -25,6 +25,7 @@ import {
 import { usePhysicsState } from '@/components/physics/state-provider';
 import { EmptyState, HintBar, PageHeader, SectionCard } from '@/components/physics/shared';
 import { LEARNING_STYLE_LABELS, LEARNING_TARGET_LABELS } from '@/lib/physics/data';
+import { DEMO } from '@/lib/school/identity';
 import { matchProjects } from '@/lib/physics/engine';
 import { getProjectById } from '@/lib/physics/data';
 import Link from 'next/link';
@@ -34,10 +35,10 @@ export function StudentProjects() {
   const [pending, setPending] = React.useState<{ id: string; title: string } | null>(null);
 
   const student = state.student ?? {
-    name: '陈思远',
+    name: DEMO.studentName,
     id: 'demo',
-    major: '物理学',
-    className: '物理学 2601 班',
+    major: DEMO.studentMajor,
+    className: DEMO.studentClassName,
     style: 'practice' as const,
     target: 'application' as const,
   };

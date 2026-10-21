@@ -1,14 +1,17 @@
 'use client';
 
 /**
- * 学生端视图路由：按当前路径渲染 8 个视图之一。
+ * 学生端视图路由：按当前视图渲染 8 个视图之一。
  *
- * 路由由 `WorkbenchShell` 的侧栏与快捷键驱动，这里只负责把路径映射到视图组件。
+ * 视图由 `WorkbenchShell` 的侧栏与快捷键驱动，这里只负责把视图 id 映射到
+ * 视图组件。视图 id 来自**本地状态**而不是路径：断网时 Next 的动态路由跳转
+ * 会失败，但工作台的内容全是客户端组件，不该被网络拖住。
+ * 详见 `components/physics/view-context.tsx`。
  */
 
 import * as React from 'react';
-import { usePathname } from 'next/navigation';
 
+import { usePhysicsView } from './view-context';
 import { StudentAssistant } from './student/assistant';
 import { StudentCurriculum } from './student/curriculum';
 import { StudentDiagnosis } from './student/diagnosis';
@@ -19,8 +22,7 @@ import { StudentReport } from './student/report';
 import { StudentTasks } from './student/tasks';
 
 export function StudentViewRouter() {
-  const pathname = usePathname();
-  const view = pathname.split('/').filter(Boolean)[1] ?? 'overview';
+  const { view } = usePhysicsView();
 
   switch (view) {
     case 'diagnosis':

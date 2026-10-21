@@ -24,6 +24,7 @@
     "check:physics-domain": "node scripts/check-physics-domain-purity.mjs",
     "check:physics-e2e": "node scripts/check-physics-e2e.mjs",
     "check:doc-metrics": "node scripts/check-doc-metrics.mjs",
+    "check:school-identity": "node scripts/check-school-identity-literals.mjs",
     "check:makers-models": "node scripts/check-makers-models.mjs",
     "check": "prettier . --check",
     "format": "prettier . --write",

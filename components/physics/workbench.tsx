@@ -40,6 +40,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { CommandPalette } from '@/components/physics/command-palette';
+import { PhysicsViewProvider } from '@/components/physics/view-context';
 import { usePhysicsState } from '@/components/physics/state-provider';
 import { BRAND_FULL_NAME, CONTEXT_LABEL, COURSE, DEMO, PLATFORM, SCHOOL } from '@/lib/school';
 import {
@@ -112,11 +113,34 @@ export function WorkbenchShell({ children }: { children: React.ReactNode }) {
   const role = session?.role ?? null;
   const nav = role === 'teacher' ? TEACHER_NAV : STUDENT_NAV;
 
+  // 当前视图放在本地状态里：断网时 Next 的动态路由跳转必然失败（要拉 RSC
+  // payload），但工作台的内容全是客户端组件，不该被网络拖住。
+  // 详见 `components/physics/view-context.tsx`。
+  const [view, setView] = React.useState<string>(parsed?.view ?? '');
+
+  // 路径被外部改变（首屏深链接、浏览器前进后退）时同步回来。
+  React.useEffect(() => {
+    if (parsed?.view) setView(parsed.view);
+  }, [parsed?.view]);
+
   const navigate = React.useCallback(
     (route: string) => {
-      router.push(route);
+      const nextView = route.split('/').filter(Boolean)[1];
+      // 只允许切到**当前角色**的视图。纵深防御：即便某天命令面板又混进了
+      // 跨角色条目，或目标路径拼错，也不能让地址栏与内容错配
+      // （URL 变成 /teacher/evaluation、内容仍是学生工作台）。
+      const allowed = role === 'teacher' ? TEACHER_VIEWS : STUDENT_VIEWS;
+      if (!nextView || !allowed.has(nextView)) return;
+      // 先切内容。
+      setView(nextView);
+      // 再更新地址栏——但**不走 Next 的路由跳转**。Next.js 15+ 的动态路由客户端
+      // 跳转一定要拉一次该路由的 RSC payload；断网时这次拉取失败，Next 会把
+      // 整页换成路由错误页（实测：页面直接白屏），而工作台的内容根本不需要网络。
+      // 这里用原生 History API 改地址栏：Next 的 App Router 会与之同步，
+      // 地址栏、深链接、前进后退都照常工作，只是不触发任何网络请求。
+      window.history.pushState(null, '', route);
     },
-    [router],
+    [role],
   );
 
   const onCommand = React.useCallback(
@@ -201,253 +225,264 @@ export function WorkbenchShell({ children }: { children: React.ReactNode }) {
   const paletteItems = findShortcutsForPalette(role);
 
   return (
-    <div className="flex min-h-[100dvh] w-full bg-muted/40">
-      {/* ═══ 侧栏 ═══ */}
-      <aside
-        data-physics-sidebar
-        data-sidebar
-        className={cn(
-          'physics-sidebar fixed inset-y-0 left-0 z-50 flex w-[248px] flex-col border-r border-white/5 transition-transform md:static md:translate-x-0',
-          mobileNavOpen ? 'translate-x-0' : '-translate-x-full',
-        )}
-      >
-        <div className="flex items-center gap-2.5 border-b border-white/8 px-4 py-4">
-          <img
-            src={SCHOOL.emblemSrc}
-            alt={`${SCHOOL.college} 校徽`}
-            width={260}
-            height={60}
-            className="h-8 w-auto shrink-0 object-contain"
-          />
-          <div className="min-w-0">
-            <p className="truncate text-[12px] font-semibold text-white">
-              {PLATFORM.systemShortName}
-            </p>
-            <p className="truncate text-[10px] text-[var(--school-sidebar-muted)]">
-              {SCHOOL.collegeShort} · {COURSE.name}
-            </p>
-          </div>
-        </div>
-
-        <nav className="flex-1 overflow-y-auto px-2.5 py-3" aria-label="工作台导航">
-          <ul className="flex flex-col gap-0.5">
-            {nav.map((item) => {
-              const active = parsed?.view === item.id;
-              const Icon = item.icon;
-              return (
-                <li key={item.id}>
-                  <Link
-                    href={routeFor(role === 'teacher' ? 'teacher' : 'student', item.id)}
-                    data-nav-item
-                    aria-current={active ? 'page' : undefined}
-                    className={cn(
-                      'flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] text-[var(--school-sidebar-muted)] transition-colors hover:text-white',
-                      active && 'text-white',
-                    )}
-                  >
-                    <Icon className="size-4 shrink-0" aria-hidden="true" />
-                    <span className="truncate">{item.label}</span>
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-
-          <div className="mt-5 border-t border-white/8 pt-3">
-            <p className="px-2.5 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--school-sidebar-muted)]">
-              AI 智能课堂
-            </p>
-            <Link
-              href="/"
-              data-nav-item
-              className="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] text-[var(--school-sidebar-muted)] transition-colors hover:text-white"
-            >
-              <Sparkles className="size-4 shrink-0" aria-hidden="true" />
-              <span className="truncate">生成 / 进入课堂</span>
-            </Link>
-          </div>
-        </nav>
-
-        <div className="border-t border-white/8 px-3 py-3 text-[11px] text-[var(--school-sidebar-muted)]">
-          <p className="truncate">{BRAND_FULL_NAME}</p>
-          <p className="mt-0.5 truncate">演示账号 · {displayName}</p>
-        </div>
-      </aside>
-
-      {mobileNavOpen ? (
-        <button
-          type="button"
-          aria-label="关闭导航"
-          className="fixed inset-0 z-40 bg-black/40 md:hidden"
-          onClick={() => setMobileNavOpen(false)}
-        />
-      ) : null}
-
-      {/* ═══ 主区域 ═══ */}
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 border-b border-border/70 bg-background/85 backdrop-blur">
-          <div className="flex items-center gap-3 px-4 py-3 md:px-6">
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className="md:hidden"
-              aria-label="打开导航"
-              onClick={() => setMobileNavOpen(true)}
-            >
-              <ListChecks className="size-4" />
-            </Button>
-            <div className="min-w-0 flex-1">
-              <p className="flex items-center gap-2 text-[13px] font-medium">
-                <Atom className="size-4 shrink-0 text-primary" aria-hidden="true" />
-                <span className="truncate">{BRAND_FULL_NAME}</span>
+    <PhysicsViewProvider value={{ view, setView: (next: string) => setView(next) }}>
+      <div className="flex min-h-[100dvh] w-full bg-muted/40">
+        {/* ═══ 侧栏 ═══ */}
+        <aside
+          data-physics-sidebar
+          data-sidebar
+          className={cn(
+            'physics-sidebar fixed inset-y-0 left-0 z-50 flex w-[248px] flex-col border-r border-white/5 transition-transform md:static md:translate-x-0',
+            mobileNavOpen ? 'translate-x-0' : '-translate-x-full',
+          )}
+        >
+          <div className="flex items-center gap-2.5 border-b border-white/8 px-4 py-4">
+            <img
+              src={SCHOOL.emblemSrc}
+              alt={`${SCHOOL.college} 校徽`}
+              width={260}
+              height={60}
+              className="h-8 w-auto shrink-0 object-contain"
+            />
+            <div className="min-w-0">
+              <p className="truncate text-[12px] font-semibold text-white">
+                {PLATFORM.systemShortName}
+              </p>
+              <p className="truncate text-[10px] text-[var(--school-sidebar-muted)]">
+                {SCHOOL.collegeShort} · {COURSE.name}
               </p>
             </div>
-            <div className="flex items-center gap-1.5">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setPaletteOpen(true)}
-                aria-label="打开命令面板"
+          </div>
+
+          <nav className="flex-1 overflow-y-auto px-2.5 py-3" aria-label="工作台导航">
+            <ul className="flex flex-col gap-0.5">
+              {nav.map((item) => {
+                const active = view === item.id;
+                const Icon = item.icon;
+                return (
+                  <li key={item.id}>
+                    {/* 用 button 而不是 Link：视图切换由本地状态驱动（断网也生效），
+                      避免原生跳转在断网时把整页换成浏览器的错误页。 */}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        navigate(routeFor(role === 'teacher' ? 'teacher' : 'student', item.id))
+                      }
+                      data-nav-item
+                      aria-current={active ? 'page' : undefined}
+                      className={cn(
+                        'flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[13px] text-[var(--school-sidebar-muted)] transition-colors hover:text-white',
+                        active && 'text-white',
+                      )}
+                    >
+                      <Icon className="size-4 shrink-0" aria-hidden="true" />
+                      <span className="truncate">{item.label}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+
+            <div className="mt-5 border-t border-white/8 pt-3">
+              <p className="px-2.5 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--school-sidebar-muted)]">
+                AI 智能课堂
+              </p>
+              <Link
+                href="/"
+                data-nav-item
+                className="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] text-[var(--school-sidebar-muted)] transition-colors hover:text-white"
               >
-                <span className="hidden sm:inline">命令面板</span>
-                <kbd className="ml-1 rounded border border-border bg-muted px-1 font-mono text-[10px]">
-                  ⌘K
-                </kbd>
-              </Button>
+                <Sparkles className="size-4 shrink-0" aria-hidden="true" />
+                <span className="truncate">生成 / 进入课堂</span>
+              </Link>
+            </div>
+          </nav>
+
+          <div className="border-t border-white/8 px-3 py-3 text-[11px] text-[var(--school-sidebar-muted)]">
+            <p className="truncate">{BRAND_FULL_NAME}</p>
+            <p className="mt-0.5 truncate">演示账号 · {displayName}</p>
+          </div>
+        </aside>
+
+        {mobileNavOpen ? (
+          <button
+            type="button"
+            aria-label="关闭导航"
+            className="fixed inset-0 z-40 bg-black/40 md:hidden"
+            onClick={() => setMobileNavOpen(false)}
+          />
+        ) : null}
+
+        {/* ═══ 主区域 ═══ */}
+        <div className="flex min-w-0 flex-1 flex-col">
+          <header className="sticky top-0 z-30 border-b border-border/70 bg-background/85 backdrop-blur">
+            <div className="flex items-center gap-3 px-4 py-3 md:px-6">
               <Button
                 variant="ghost"
                 size="icon-sm"
-                aria-label="退出登录"
+                className="md:hidden"
+                aria-label="打开导航"
+                onClick={() => setMobileNavOpen(true)}
+              >
+                <ListChecks className="size-4" />
+              </Button>
+              <div className="min-w-0 flex-1">
+                <p className="flex items-center gap-2 text-[13px] font-medium">
+                  <Atom className="size-4 shrink-0 text-primary" aria-hidden="true" />
+                  <span className="truncate">{BRAND_FULL_NAME}</span>
+                </p>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPaletteOpen(true)}
+                  aria-label="打开命令面板"
+                >
+                  <span className="hidden sm:inline">命令面板</span>
+                  <kbd className="ml-1 rounded border border-border bg-muted px-1 font-mono text-[10px]">
+                    ⌘K
+                  </kbd>
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="退出登录"
+                  onClick={() => {
+                    signOut();
+                    router.push('/login');
+                  }}
+                >
+                  <LogOut className="size-4" />
+                </Button>
+              </div>
+            </div>
+            <div className="physics-context-bar px-4 py-1.5 text-[11px] text-muted-foreground md:px-6">
+              <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                <span>{SCHOOL.college}</span>
+                <span aria-hidden="true">·</span>
+                <span>{COURSE.className}</span>
+                <span aria-hidden="true">·</span>
+                <span>{displayName}</span>
+                <span aria-hidden="true">·</span>
+                <span>{role === 'teacher' ? '教师工作台' : '学生工作台'}</span>
+              </span>
+            </div>
+          </header>
+
+          {lastUndo ? (
+            <div
+              role="status"
+              className="flex flex-wrap items-center gap-3 border-b border-primary/20 bg-[var(--school-primary-softer)] px-4 py-2 text-[12px] md:px-6 dark:bg-primary/10"
+            >
+              <span className="min-w-0 flex-1 truncate">
+                已执行「{lastUndo.reason}」，{formatUndoRemaining(lastUndo)}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => {
-                  signOut();
-                  router.push('/login');
+                  // 不调用 `router.refresh()`：撤销快照已经完全在本地
+                  // （`rollback()` 内部 `setState`，内容立刻重渲染），
+                  // 而 refresh 会向服务端要一次当前路由的 RSC payload——
+                  // 断网时这一步失败，Next 会把整页换成路由错误页。
+                  rollback();
                 }}
               >
-                <LogOut className="size-4" />
+                <RotateCcw className="size-3.5" />
+                撤销到上一状态
+              </Button>
+            </div>
+          ) : null}
+
+          <main className="flex-1 px-4 py-6 md:px-6 md:py-8">{children}</main>
+
+          <footer className="border-t border-border/70 px-4 py-4 text-[11px] text-muted-foreground md:px-6">
+            <p>
+              {BRAND_FULL_NAME} · 基于 OpenMAIC 二次开发 · 班级与成绩为课程示例数据，非真实教务数据
+            </p>
+          </footer>
+        </div>
+
+        <CommandPalette
+          open={paletteOpen}
+          onOpenChange={setPaletteOpen}
+          role={role}
+          shortcuts={paletteItems}
+          onSelect={(binding: ShortcutBinding) => {
+            if (binding.action.type === 'navigate') {
+              navigate(routeFor(binding.action.role, binding.action.view));
+            } else {
+              onCommand(binding.action.id);
+            }
+          }}
+        />
+
+        <AlertDialog
+          open={resetTarget !== null}
+          onOpenChange={(open) => !open && setResetTarget(null)}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {resetTarget === 'all' ? '清空本地全部数据？' : '重置我的学习记录？'}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {resetTarget === 'all'
+                  ? '将清空浏览器本地的全部工作台数据，包括学情诊断、闯关记录、实验数据与教师复核记录。操作前会自动生成 24 小时可恢复快照，你可以在工作台顶部横幅中一键撤销。'
+                  : '将清空你本人的诊断结果、闯关进度、实验记录与笔记，并回到未选择项目的状态。教师的复核记录与学情画像都会保留。操作前会自动生成 24 小时可恢复快照，你可以在工作台顶部横幅中一键撤销。'}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>取消</AlertDialogCancel>
+              <AlertDialogAction onClick={confirmReset}>确认重置</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {helpOpen ? (
+          <div
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-6"
+            role="dialog"
+            aria-modal="true"
+            aria-label="快捷键帮助"
+            onClick={() => setHelpOpen(false)}
+          >
+            {' '}
+            <div
+              className="max-h-[80dvh] w-full max-w-lg overflow-y-auto rounded-xl border border-border bg-background p-5 shadow-2xl"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <h2 className="text-[15px] font-semibold">键盘快捷键</h2>
+              <ul className="mt-3 flex flex-col gap-1.5 text-[13px]">
+                {shortcuts
+                  .filter((binding) => binding.combo)
+                  .map((binding) => (
+                    <li key={binding.label} className="flex items-center justify-between gap-3">
+                      <span>{binding.label}</span>
+                      <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[11px]">
+                        {binding.combo.split('').join(' ')}
+                      </kbd>
+                    </li>
+                  ))}
+              </ul>
+              <p className="mt-4 text-[12px] text-muted-foreground">
+                <kbd className="rounded border border-border bg-muted px-1 font-mono text-[10px]">
+                  ⌘K
+                </kbd>{' '}
+                打开命令面板 ·
+                <kbd className="ml-1 rounded border border-border bg-muted px-1 font-mono text-[10px]">
+                  ?
+                </kbd>{' '}
+                打开本帮助
+              </p>
+              <Button className="mt-4 w-full" variant="outline" onClick={() => setHelpOpen(false)}>
+                关闭
               </Button>
             </div>
           </div>
-          <div className="physics-context-bar px-4 py-1.5 text-[11px] text-muted-foreground md:px-6">
-            <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-              <span>{SCHOOL.college}</span>
-              <span aria-hidden="true">·</span>
-              <span>{COURSE.className}</span>
-              <span aria-hidden="true">·</span>
-              <span>{displayName}</span>
-              <span aria-hidden="true">·</span>
-              <span>{role === 'teacher' ? '教师工作台' : '学生工作台'}</span>
-            </span>
-          </div>
-        </header>
-
-        {lastUndo ? (
-          <div
-            role="status"
-            className="flex flex-wrap items-center gap-3 border-b border-primary/20 bg-[var(--school-primary-softer)] px-4 py-2 text-[12px] md:px-6 dark:bg-primary/10"
-          >
-            <span className="min-w-0 flex-1 truncate">
-              已执行「{lastUndo.reason}」，{formatUndoRemaining(lastUndo)}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                if (rollback()) router.refresh();
-              }}
-            >
-              <RotateCcw className="size-3.5" />
-              撤销到上一状态
-            </Button>
-          </div>
         ) : null}
-
-        <main className="flex-1 px-4 py-6 md:px-6 md:py-8">{children}</main>
-
-        <footer className="border-t border-border/70 px-4 py-4 text-[11px] text-muted-foreground md:px-6">
-          <p>
-            {BRAND_FULL_NAME} · 基于 OpenMAIC 二次开发 · 班级与成绩为课程示例数据，非真实教务数据
-          </p>
-        </footer>
       </div>
-
-      <CommandPalette
-        open={paletteOpen}
-        onOpenChange={setPaletteOpen}
-        role={role}
-        shortcuts={paletteItems}
-        onSelect={(binding: ShortcutBinding) => {
-          if (binding.action.type === 'navigate') {
-            navigate(routeFor(binding.action.role, binding.action.view));
-          } else {
-            onCommand(binding.action.id);
-          }
-        }}
-      />
-
-      <AlertDialog
-        open={resetTarget !== null}
-        onOpenChange={(open) => !open && setResetTarget(null)}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {resetTarget === 'all' ? '清空本地全部数据？' : '重置我的学习记录？'}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {resetTarget === 'all'
-                ? '将清空浏览器本地的全部工作台数据，包括学情诊断、闯关记录、实验数据与教师复核记录。操作前会自动生成 24 小时可恢复快照，你可以在工作台顶部横幅中一键撤销。'
-                : '将清空你本人的诊断结果、闯关进度、实验记录与笔记，并回到未选择项目的状态。教师的复核记录与学情画像都会保留。操作前会自动生成 24 小时可恢复快照，你可以在工作台顶部横幅中一键撤销。'}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>取消</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmReset}>确认重置</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {helpOpen ? (
-        <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-6"
-          role="dialog"
-          aria-modal="true"
-          aria-label="快捷键帮助"
-          onClick={() => setHelpOpen(false)}
-        >
-          {' '}
-          <div
-            className="max-h-[80dvh] w-full max-w-lg overflow-y-auto rounded-xl border border-border bg-background p-5 shadow-2xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <h2 className="text-[15px] font-semibold">键盘快捷键</h2>
-            <ul className="mt-3 flex flex-col gap-1.5 text-[13px]">
-              {shortcuts
-                .filter((binding) => binding.combo)
-                .map((binding) => (
-                  <li key={binding.label} className="flex items-center justify-between gap-3">
-                    <span>{binding.label}</span>
-                    <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[11px]">
-                      {binding.combo.split('').join(' ')}
-                    </kbd>
-                  </li>
-                ))}
-            </ul>
-            <p className="mt-4 text-[12px] text-muted-foreground">
-              <kbd className="rounded border border-border bg-muted px-1 font-mono text-[10px]">
-                ⌘K
-              </kbd>{' '}
-              打开命令面板 ·
-              <kbd className="ml-1 rounded border border-border bg-muted px-1 font-mono text-[10px]">
-                ?
-              </kbd>{' '}
-              打开本帮助
-            </p>
-            <Button className="mt-4 w-full" variant="outline" onClick={() => setHelpOpen(false)}>
-              关闭
-            </Button>
-          </div>
-        </div>
-      ) : null}
-    </div>
+    </PhysicsViewProvider>
   );
 }

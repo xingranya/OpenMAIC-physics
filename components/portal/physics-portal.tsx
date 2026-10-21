@@ -11,6 +11,7 @@
  */
 
 import * as React from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ArrowRight, GraduationCap, Sparkles } from 'lucide-react';
 
@@ -69,9 +70,13 @@ export function PhysicsPortal({ onTopic }: PhysicsPortalProps) {
 
       <h2 className="mt-2.5 text-[16px] font-semibold tracking-tight">两条学习动线</h2>
       <div className="mt-2.5 grid gap-2.5 sm:grid-cols-2">
-        <button
-          type="button"
-          onClick={() => router.push('/physics/overview')}
+        {/* 用 Link 而不是 button：Next 会顺手把目标路由的 RSC payload 预取进
+            客户端路由缓存。**但这不等于断网可用**——预取要是在点击前没完成，
+            断网时这次拉取仍然会失败（实测：断网后从首页点进工作台会失败）。
+            所以断网演示的动线是「先在联网状态下进入工作台 / 导入预置包，
+            再断网」，而不是「断网后再从首页跳过去」。 */}
+        <Link
+          href="/physics/overview"
           className="group flex items-start gap-2.5 rounded-xl border border-primary/30 bg-[var(--school-primary-softer)] p-3 text-left transition-colors hover:border-primary/60 dark:bg-primary/10"
         >
           <GraduationCap className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden="true" />
@@ -85,7 +90,7 @@ export function PhysicsPortal({ onTopic }: PhysicsPortalProps) {
             className="ml-auto mt-0.5 size-3.5 shrink-0 text-primary"
             aria-hidden="true"
           />
-        </button>
+        </Link>
 
         <div className="flex items-start gap-2.5 rounded-xl border border-border/70 p-3">
           <Sparkles className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden="true" />
@@ -141,8 +146,8 @@ export function PhysicsPortal({ onTopic }: PhysicsPortalProps) {
           ))}
         </div>
         <p className="mt-2 text-[11px] text-muted-foreground">
-          预置包内含讲演页、课堂测验与自包含交互仿真，无需模型 Key、无需网络，
-          导入后与真实生成的课堂一样可播放与导出。
+          预置包内含讲演页与课堂测验，部分预置包另含自包含交互仿真， 无需模型
+          Key、无需网络，导入后与真实生成的课堂一样可播放与导出。
         </p>
       </div>
     </section>
