@@ -211,7 +211,12 @@ function checkDocChunkCount(actual) {
       continue;
     }
     // 取第一个出现的数字；同一份文档里若出现多个不同数字，下面会一并报出。
-    const matches = [...source.matchAll(/(\d+)\s*个客户端 chunk 全部 200/g)];
+    // 两种措辞都要认：「N 个客户端 chunk 全部 200」与「本次 N 个」——
+    // 第六轮复审发现部署手册里后者仍写着 51，前一种正则看不见它。
+    const matches = [
+      ...source.matchAll(/(\d+)\s*个客户端 chunk 全部 200/g),
+      ...source.matchAll(/本次\s*(\d+)\s*个/g),
+    ];
     if (matches.length === 0) {
       record(
         `${doc.label}自引 chunk 数`,

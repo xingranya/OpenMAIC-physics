@@ -19,6 +19,7 @@
  * - 跳过当前脚本自己的进程。
  */
 import { execFileSync, spawnSync } from 'node:child_process';
+import { sep } from 'node:path';
 
 const ROOT = process.cwd();
 const args = process.argv.slice(2);
@@ -91,7 +92,10 @@ for (const entry of listListening()) {
   if (ONLY_PORT !== null && entry.port !== ONLY_PORT) continue;
   if (!/node/i.test(entry.command)) continue;
   const cwd = cwdOf(entry.pid);
-  if (!cwd.startsWith(ROOT)) continue;
+  // 注意不能用 `startsWith(ROOT)`：那样会把**兄弟目录**
+  // （例如 `.../openmaic-physics-e2e`）也算成仓库内进程，与本脚本的承诺矛盾。
+  // 必须要求"完全相同"或"仓库路径 + 分隔符"。
+  if (!(cwd === ROOT || cwd.startsWith(ROOT + sep))) continue;
   // ps 在受限环境里可能不可用；lsof 的 COMMAND 字段已经够用了。
   const command = commandOf(entry.pid) || entry.command || 'node';
   candidates.push({ ...entry, cwd, command });

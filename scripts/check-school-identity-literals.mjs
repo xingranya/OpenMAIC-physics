@@ -56,14 +56,15 @@ const ts = await (async () => {
  * 否则拼接写法（`'长江' + '大学文理学院'`）会绕过检查。
  *
  * `match: 'exact'` 用于「2601」这类**裸编号**——否则会误伤模型版本号
- * （`doubao-seedream-5-0-260128` 里也含 "2601"）。班级全称另有
- * `includes` 规则兜住（「物理学 2601 班」）。
+ * （`doubao-seedream-5-0-260128` 里也含 "2601"）。
+ *
+ * 班级号用**正则**而不是字面量：「2601 班」写成「2601班」「2601  班」
+ * （少一个空格）同样是要拦的，所以数字与"班"之间允许任意空白。
  */
 const FORBIDDEN = [
   { text: '长江', match: 'includes' },
   { text: '文理学院', match: 'includes' },
-  { text: '2601 班', match: 'includes' },
-  { text: '2601', match: 'exact' },
+  { text: '2601', match: 'class-number' },
   { text: '陈思远', match: 'includes' },
   { text: '顿老师', match: 'includes' },
   { text: 'dunzhongwan', match: 'includes' },
@@ -71,9 +72,32 @@ const FORBIDDEN = [
 
 /**
  * 词元白名单：某些合法的中文搭配会命中上面的词元（例如「长江流域」）。
- * 命中白名单时该字面量整体放行。
+ *
+ * 语义是「**只放行命中的那个片段**」，不是「整条字面量放行」——
+ * 否则 `'长江流域 长江大学'` 会因为前半截合法而整条被放行，
+ * 后半截的真校名就漏了（第六轮复审实测的绕过）。
  */
-const ALLOWED_LITERAL_PATTERNS = [/长江(流域|大桥|三角洲|水温|水位|经济带)/];
+const ALLOWED_LITERAL_PATTERNS = [
+  { token: '长江', pattern: /长江(流域|大桥|三角洲|水温|水位|经济带)/ },
+];
+
+/**
+ * 判断某个词元在字面量里的某次出现是否被白名单允许。
+ *
+ * @param {string} literal 字面量全文
+ * @param {string} token 词元（如 '长江'）
+ * @param {number} index 词元在该次命中中的起始位置
+ */
+function occurrenceAllowed(literal, token, index) {
+  for (const rule of ALLOWED_LITERAL_PATTERNS) {
+    if (rule.token !== token) continue;
+    // 取从命中位置开始的一段，让 pattern 有上下文可用。
+    const tail = literal.slice(index);
+    const matched = rule.pattern.exec(tail);
+    if (matched && matched.index === 0) return true;
+  }
+  return false;
+}
 
 /** 扫描根目录（相对仓库根）。 */
 const SCAN_ROOTS = ['app', 'components', 'lib'];
@@ -135,6 +159,35 @@ function staticStringOf(node, source) {
 }
 
 /**
+ * 词元是否在字面量里出现，且这次出现没有被白名单放行。
+ *
+ * `class-number` 规则要同时覆盖两种写法：
+ * - 裸编号：整个字面量就是 `2601`（不能误伤 `doubao-seedream-5-0-260128`）；
+ * - 班级号：数字与"班"之间允许任意空白（`2601 班` / `2601班` / `2601  班`）。
+ */
+function matchesRule(literal, rule) {
+  if (rule.match === 'exact') {
+    return literal === rule.text;
+  }
+  if (rule.match === 'class-number') {
+    if (literal === rule.text) return true;
+    const pattern = new RegExp(`${rule.text}\\s*班`);
+    let match;
+    while ((match = pattern.exec(literal)) !== null) {
+      if (!occurrenceAllowed(literal, rule.text, match.index)) return true;
+    }
+    return false;
+  }
+  // includes
+  let index = literal.indexOf(rule.text);
+  while (index !== -1) {
+    if (!occurrenceAllowed(literal, rule.text, index)) return true;
+    index = literal.indexOf(rule.text, index + rule.text.length);
+  }
+  return false;
+}
+
+/**
  * 扫描一个文件，返回违规记录。
  *
  * @returns {Array<{line:number, forbidden:string, literal:string}>}
@@ -154,11 +207,9 @@ function scanFile(file) {
 
   const record = (literal, node) => {
     if (!literal) return;
-    if (ALLOWED_LITERAL_PATTERNS.some((pattern) => pattern.test(literal))) return;
     const line = source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
     for (const rule of FORBIDDEN) {
-      const hit = rule.match === 'exact' ? literal === rule.text : literal.includes(rule.text);
-      if (!hit) continue;
+      if (!matchesRule(literal, rule)) continue;
       const key = `${line}:${rule.text}`;
       if (seen.has(key)) continue;
       seen.add(key);
