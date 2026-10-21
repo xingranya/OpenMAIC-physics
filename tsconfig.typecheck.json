@@ -1,0 +1,31 @@
+{
+  "extends": "./tsconfig.json",
+  // 只纳入构建产物类型，不纳入 `.next/dev/types`。
+  //
+  // Next.js 16 的 dev 与 build 会各生成一套 `validator.ts` / `routes.d.ts`，
+  // 两者都声明同名的全局路由类型。TypeScript 同时纳入两套时，后者会覆盖
+  // 前者，使 `LayoutRoutes` 退化为 `never`，于是报出
+  // "Type 'Route' does not satisfy the constraint 'never'" —— 与业务代码
+  // 毫无关系的假错误。
+  //
+  // 典型触发路径：先 `pnpm dev`，再 `pnpm typecheck`。
+  // 这里单独提供一份配置给类型检查与生产构建使用，使两者结果稳定可复现；
+  // 主 `tsconfig.json` 保持上游原样，IDE 里的 dev 路由类型提示不受影响。
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    "**/*.mts",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": [
+    ".next/dev/**",
+    "node_modules",
+    "dist",
+    "packages/*/src",
+    "packages/docs",
+    "openclaw",
+    "e2e",
+    "render-service"
+  ]
+}

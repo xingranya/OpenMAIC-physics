@@ -2,6 +2,7 @@
   "extends": "./tsconfig.json",
   // `exclude` replaces the inherited list; keep shared entries in sync with tsconfig.json.
   "exclude": [
+    ".next/dev/**",
     "node_modules",
     "dist",
     "packages/*/src",
@@ -12,5 +13,16 @@
     "tests",
     "eval",
     "packages/@openmaic/*/test"
+  ],
+  // 生产构建只纳入构建产物类型。Next.js 16 的 dev 会另生成一套
+  // `.next/dev/types/**`，两套 validator.ts 的全局路由类型互相覆盖会让
+  // `Route` 退化为 `never`，使构建在"先 dev 后 build"时失败。
+  // 详见 tsconfig.typecheck.json 的说明。
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    "**/*.mts",
+    ".next/types/**/*.ts"
   ]
 }

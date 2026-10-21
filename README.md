@@ -43,7 +43,7 @@ pnpm dev                # http://localhost:3000
 ```bash
 pnpm typecheck   # tsc --noEmit
 pnpm lint        # ESLint
-pnpm test        # Vitest（含物理域 19 个用例）
+pnpm test        # Vitest（含物理域 70 个用例）
 pnpm build       # Next.js 生产构建
 ```
 
@@ -123,7 +123,7 @@ OpenMAIC-physics/
 
 本项目是 OpenMAIC 的**二次开发**，不是独立实现。改动集中在：
 
-1. 物理教学域移植（`lib/physics/`，3 618 行；其中纯领域层 2 698 行）
+1. 物理教学域移植（`lib/physics/`，4 045 行；其中纯领域层 3 091 行）
 2. 物理领域约束注入生成管线（`lib/physics/prompts/`，不改动上游模板）
 3. 校本内容层（`lib/school/`）与品牌层
 4. 无数据库边缘部署改造（移除 render-service 与 persistence 路由、部署形态断言、

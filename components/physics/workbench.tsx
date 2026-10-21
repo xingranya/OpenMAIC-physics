@@ -96,7 +96,7 @@ export function WorkbenchShell({
 }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { session, signOut, reset, rollback, lastUndo } = usePhysicsState();
+  const { session, hydrated, signOut, reset, rollback, lastUndo } = usePhysicsState();
   const [paletteOpen, setPaletteOpen] = React.useState(false);
   const [helpOpen, setHelpOpen] = React.useState(false);
 
@@ -152,9 +152,20 @@ export function WorkbenchShell({
   }, [pathname]);
 
   // 未登录：引导到登录页。Effect 必须在早退之前声明，避免 Hooks 顺序违规。
+  // hydrated 之前不做判断：会话存在 sessionStorage 里，挂载前读不到，
+  // 此时跳转会误伤正常刷新。
   React.useEffect(() => {
+    if (!hydrated) return;
     if (!session) router.replace('/login');
-  }, [router, session]);
+  }, [router, session, hydrated]);
+
+  if (!hydrated) {
+    return (
+      <div className="flex min-h-[100dvh] items-center justify-center p-6 text-[13px] text-muted-foreground">
+        正在加载工作台…
+      </div>
+    );
+  }
 
   if (!session) {
     return (

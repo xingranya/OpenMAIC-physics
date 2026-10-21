@@ -68,12 +68,20 @@ export async function POST(request: Request) {
 
   const token = createAccessToken(accessCode);
   const cookieStore = await cookies();
+  // Secure 依据请求实际协议判定，而不是 NODE_ENV：边缘平台（EdgeOne Pages /
+  // Vercel）会带 `x-forwarded-proto: https`，生产部署的强度与按 NODE_ENV 判定
+  // 完全一致；而本地以 http:// 演示时若仍加 Secure，浏览器既不保存也不回传
+  // 该 Cookie，门禁就永远无法通过——现场演示会直接卡死在弹窗。
+  const forwardedProto = request.headers.get('x-forwarded-proto');
+  const requestProtocol = forwardedProto
+    ? forwardedProto.split(',')[0].trim()
+    : new URL(request.url).protocol.replace(/:$/, '');
   cookieStore.set('openmaic_access', token, {
     httpOnly: true,
     sameSite: 'lax',
     path: '/',
     maxAge: ACCESS_TOKEN_MAX_AGE_SECONDS,
-    secure: process.env.NODE_ENV === 'production',
+    secure: requestProtocol === 'https',
   });
 
   return apiSuccess({ valid: true });

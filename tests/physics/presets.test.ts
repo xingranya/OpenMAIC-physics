@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { isRunnablePBLProjectV2 } from '@/lib/pbl/v2/types';
 import {
   PHYSICS_CONSTRAINTS,
   buildPhysicsRequirement,
@@ -20,6 +21,25 @@ import {
 interface LooseScene {
   type: string;
   content: { type: string; html?: string };
+}
+
+/**
+ * PBL 场景的宽松形状：Scene 的默认泛型不覆盖 pbl，
+ * 测试按运行时形状读取 projectV2。
+ */
+interface LoosePblScene {
+  type: string;
+  content: {
+    type: string;
+    projectV2?: {
+        title: string;
+        uiPhase: string;
+        status: string;
+        milestones: { status: string }[];
+        roles: { type: string }[];
+        scenario?: { characters: unknown[] };
+    };
+  };
 }
 
 describe('物理领域约束', () => {
@@ -152,6 +172,99 @@ describe('课堂文档构建器', () => {
   });
 });
 
+describe('课堂动作：旁白 / 白板演算 / 讨论', () => {
+  it('每个讲授场景都带旁白动作', () => {
+    const preset = PRESET_CLASSROOMS[0];
+    const { scenes } = buildPresetClassroom(preset);
+    const lectureScenes = scenes.filter(
+      (scene) => scene.type === 'slide' && (scene as { content: { type: string } }).content.type === 'slide',
+    );
+    expect(lectureScenes.length).toBeGreaterThan(0);
+    lectureScenes.forEach((scene) => {
+      const actions = (scene as { actions?: { type: string }[] }).actions ?? [];
+      expect(actions.some((action) => action.type === 'speech')).toBe(true);
+    });
+  });
+
+  it('带白板步骤的场景按 开板→演算→关板 的顺序产出动作', () => {
+    const preset = PRESET_CLASSROOMS.find((item) =>
+      item.scenes.some((scene) => scene.whiteboard && scene.whiteboard.length > 0),
+    );
+    expect(preset).toBeDefined();
+    if (!preset) return;
+
+    const { scenes } = buildPresetClassroom(preset);
+    const withBoard = scenes.find((scene) => {
+      const actions = (scene as { actions?: { type: string }[] }).actions ?? [];
+      return actions.some((action) => action.type === 'wb_open');
+    });
+    expect(withBoard).toBeDefined();
+    if (!withBoard) return;
+
+    const actions = ((withBoard as { actions?: { type: string }[] }).actions ?? []).map(
+      (action) => action.type,
+    );
+    expect(actions[0]).toBe('speech');
+    expect(actions.indexOf('wb_open')).toBeLessThan(actions.indexOf('wb_close'));
+    expect(actions.filter((type) => type === 'wb_draw_latex').length).toBeGreaterThan(0);
+  });
+
+  it('最后一节讲授课带讨论动作与多智能体配置', () => {
+    const preset = PRESET_CLASSROOMS[0];
+    const { scenes } = buildPresetClassroom(preset);
+    const lectureScenes = scenes.filter(
+      (scene) => scene.type === 'slide' && (scene as { content: { type: string } }).content.type === 'slide',
+    );
+    const last = lectureScenes[lectureScenes.length - 1] as unknown as {
+      actions?: { type: string }[];
+      multiAgent?: { enabled: boolean; agentIds: string[] };
+    };
+    expect(last.multiAgent?.enabled).toBe(true);
+    expect(last.multiAgent?.agentIds.length).toBeGreaterThan(0);
+    expect(last.actions?.some((action) => action.type === 'discussion')).toBe(true);
+  });
+
+  it('课堂名册使用本校智能体人格', () => {
+    const preset = PRESET_CLASSROOMS[0];
+    const { stage } = buildPresetClassroom(preset);
+    const roster = stage.generatedAgentConfigs ?? [];
+    expect(roster.length).toBeGreaterThan(0);
+    expect(roster.some((agent) => agent.role === 'teacher')).toBe(true);
+    expect(roster.some((agent) => agent.role === 'student')).toBe(true);
+    expect(roster.every((agent) => agent.persona.length > 0)).toBe(true);
+  });
+});
+
+describe('PBL 项目场景', () => {
+  it('生成结构完整的 PBLProject', () => {
+    const preset = PRESET_CLASSROOMS.find((item) => item.pbl);
+    expect(preset).toBeDefined();
+    if (!preset) return;
+
+    const { scenes } = buildPresetClassroom(preset);
+    const pblScene = (scenes as unknown as LoosePblScene[]).find(
+      (scene) => scene.type === 'pbl' && scene.content.type === 'pbl',
+    );
+    expect(pblScene).toBeDefined();
+    if (!pblScene) return;
+
+    const project = pblScene.content.projectV2;
+    expect(project).toBeDefined();
+    if (!project) return;
+
+    expect(project.title).toBe(preset.pbl?.title);
+    expect(project.milestones.length).toBe(preset.pbl?.milestones.length);
+    expect(project.roles.length).toBeGreaterThan(0);
+    expect(project.roles.some((role) => role.type === 'user')).toBe(true);
+    expect(project.scenario?.characters.length).toBeGreaterThan(0);
+    expect(project.uiPhase).toBe('hero');
+    expect(project.status).toBe('active');
+    // 第一步里程碑激活，其余锁定。
+    expect(project.milestones[0].status).toBe('active');
+    expect(project.milestones[1]?.status).toBe('locked');
+  });
+});
+
 describe('自包含交互仿真', () => {
   it('不依赖任何外部脚本或样式', () => {
     const html = buildUltrasonicLabHtml();
@@ -164,5 +277,48 @@ describe('自包含交互仿真', () => {
     const html = buildUltrasonicLabHtml();
     expect(html).toContain('d = v·t / 2');
     expect(html).toContain('超声波测距');
+  });
+});
+
+describe('PBL 场景可运行性（与课堂播放器同一套校验）', () => {
+  function findPblProject(presetId: string) {
+    const preset = PRESET_CLASSROOMS.find((item) => item.id === presetId);
+    expect(preset, `找不到预置包 ${presetId}`).toBeTruthy();
+    const { scenes } = buildPresetClassroom(preset!);
+    const loose = scenes as unknown as LoosePblScene[];
+    const pblScene = loose.find((scene) => scene.type === 'pbl');
+    expect(pblScene, `${presetId} 缺少 PBL 场景`).toBeTruthy();
+    return pblScene!.content.projectV2;
+  }
+
+  it('所有带 PBL 的预置包，其 projectV2 都通过上游 isRunnablePBLProjectV2', () => {
+    const withPbl = PRESET_CLASSROOMS.filter((preset) => preset.pbl);
+    expect(withPbl.length).toBeGreaterThan(0);
+
+    withPbl.forEach((preset) => {
+      const project = findPblProject(preset.id);
+      expect(
+        isRunnablePBLProjectV2(project),
+        `${preset.id} 的 PBL 项目未通过可运行性校验（会被降级为「项目尚未生成」）`,
+      ).toBe(true);
+    });
+  });
+
+  it('PBL 项目里至少有一个 instructor 角色与带微任务的里程碑', () => {
+    const preset = PRESET_CLASSROOMS.find((item) => item.pbl);
+    expect(preset).toBeTruthy();
+    const project = findPblProject(preset!.id) as unknown as {
+      roles: { type: string }[];
+      milestones: { microtasks: { id: string; title: string }[] }[];
+    };
+
+    expect(project.roles.some((role) => role.type === 'instructor')).toBe(true);
+    project.milestones.forEach((milestone) => {
+      expect(milestone.microtasks.length).toBeGreaterThan(0);
+      milestone.microtasks.forEach((task) => {
+        expect(task.id.length).toBeGreaterThan(0);
+        expect(task.title.length).toBeGreaterThan(0);
+      });
+    });
   });
 });

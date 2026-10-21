@@ -24,30 +24,45 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { usePhysicsState } from '@/components/physics/state-provider';
 import { DimensionBars, HintBar, MetricTile, PageHeader, SectionCard } from '@/components/physics/shared';
-import { QUIZ_QUESTIONS } from '@/lib/physics/data';
+import { SCHOOL_DIAGNOSIS_DIMENSIONS, SCHOOL_DIAGNOSIS_QUESTIONS } from '@/lib/school';
 import { scoreDiagnosis } from '@/lib/physics/engine';
 import type { DiagnosticDimension } from '@/lib/physics/types';
 
 export function StudentDiagnosis() {
-  const { state, update, reset } = usePhysicsState();
+  const { state, update, resetDiagnosis } = usePhysicsState();
   const [answers, setAnswers] = React.useState<Record<string, number>>({});
   const [result, setResult] = React.useState(state.diagnosis ?? null);
   const [confirmOpen, setConfirmOpen] = React.useState(false);
 
   const answered = Object.keys(answers).length;
-  const total = QUIZ_QUESTIONS.length;
+  const total = SCHOOL_DIAGNOSIS_QUESTIONS.length;
 
   const submit = () => {
-    const next = scoreDiagnosis(answers, QUIZ_QUESTIONS);
+    const next = scoreDiagnosis(answers, SCHOOL_DIAGNOSIS_QUESTIONS);
     setResult(next);
     update({ diagnosis: next });
   };
 
-  const resetDiagnosis = () => {
+  const resetDiagnosisResult = () => {
     setAnswers({});
     setResult(null);
-    reset('重新进行学情诊断');
+    // 只清空诊断结果本身，项目进度、实验记录与学习画像都会保留。
+    resetDiagnosis('重新进行学情诊断');
   };
+
+  // 只展示本次题集真正考查到的维度，避免把"未考查"显示成"得 0 分"。
+  const coveredDimensions = React.useMemo(
+    () =>
+      SCHOOL_DIAGNOSIS_DIMENSIONS.reduce<Partial<Record<DiagnosticDimension, number>>>(
+        (accumulator, dimension) => {
+          const score = result?.dimensions[dimension];
+          if (score !== undefined) accumulator[dimension] = score;
+          return accumulator;
+        },
+        {},
+      ),
+    [result],
+  );
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
@@ -67,7 +82,7 @@ export function StudentDiagnosis() {
       <div className="grid gap-5 lg:grid-cols-[1.6fr_1fr]">
         <SectionCard title="课前诊断" description={`已作答 ${answered} / ${total}`}>
           <ol className="flex flex-col gap-5">
-            {QUIZ_QUESTIONS.map((question, index) => {
+            {SCHOOL_DIAGNOSIS_QUESTIONS.map((question, index) => {
               const selected = answers[question.id];
               return (
                 <li key={question.id}>
@@ -142,10 +157,10 @@ export function StudentDiagnosis() {
                     tone={result.score >= 85 ? 'success' : result.score >= 60 ? 'warning' : 'danger'}
                   />
                 </div>
-                <DimensionBars dimensions={result.dimensions} />
+                <DimensionBars dimensions={coveredDimensions} />
                 <div className="flex flex-wrap gap-1.5">
-                  {(Object.keys(result.dimensions) as DiagnosticDimension[]).map((dimension) => {
-                    const score = result.dimensions[dimension];
+                  {(Object.keys(coveredDimensions) as DiagnosticDimension[]).map((dimension) => {
+                    const score = coveredDimensions[dimension] ?? 0;
                     return (
                       <Badge
                         key={dimension}
@@ -177,13 +192,13 @@ export function StudentDiagnosis() {
           <AlertDialogHeader>
             <AlertDialogTitle>重新进行学情诊断？</AlertDialogTitle>
             <AlertDialogDescription>
-              重新诊断会清除当前诊断结果与已匹配的项目。操作前会自动生成 24 小时可恢复快照，
+              重新诊断只会清除当前诊断结果，任务进度、实验记录与学习画像都会保留。操作前会自动生成 24 小时可恢复快照，
               你可以在工作台顶部横幅中一键撤销。
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>取消</AlertDialogCancel>
-            <AlertDialogAction onClick={resetDiagnosis}>确认重置</AlertDialogAction>
+            <AlertDialogAction onClick={resetDiagnosisResult}>确认重置</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

@@ -67,7 +67,7 @@ export function StudentOverview() {
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
       {/* Hero */}
-      <section className="rounded-2xl border border-border/70 bg-gradient-to-br from-[var(--school-primary-softer)] to-card p-6">
+      <section className="rounded-2xl border border-border/70 bg-gradient-to-br from-[var(--school-primary-softer)] to-card p-6 dark:from-primary/10">
         <p className="text-[12px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
           {SCHOOL.collegeShort} · {COURSE.className} · {COURSE.name}
         </p>
@@ -85,7 +85,7 @@ export function StudentOverview() {
           <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
             学习路径
           </p>
-          <ol className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+          <ol className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
             {LEARNING_PATH.map((step, index) => {
               const done =
                 (step.key === 'diagnosis' && Boolean(diagnosis)) ||

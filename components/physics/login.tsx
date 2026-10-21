@@ -5,10 +5,16 @@
  *
  * 账号用于当前产品的登录校验，不连接真实教务系统、统一身份认证或大模型。
  * 登录后按角色进入学生工作台 / 教师驾驶舱。
+ *
+ * 演示快捷入口：`/login?demo=student` 或 `/login?demo=teacher` 会自动填入
+ * 演示账号并登录。这两个账号的密码本来就印在本页下方的"演示账号"卡片里
+ * （见 README 与作品说明书），快捷入口只是省去现场打字——
+ * **角色门禁本身依然存在**：未登录直接访问 `/physics/*` 仍会被重定向回登录页。
  */
 
 import * as React from 'react';
-import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { ArrowRight, Eye, EyeOff, GraduationCap, Sparkles, UserCog } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -20,17 +26,41 @@ import { routeFor } from '@/lib/physics/shortcuts';
 
 export function PhysicsLogin() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { signIn, session } = usePhysicsState();
   const [username, setUsername] = React.useState('');
   const [password, setPassword] = React.useState('');
   const [showPassword, setShowPassword] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
+  const demoRole = searchParams.get('demo');
+  const autoFilled = React.useRef(false);
+
+  // 命中演示快捷入口时以该角色为准，否则沿用已有会话。
+  const demoHint = React.useMemo(
+    () => DEMO_HINT.find((item) => item.role === demoRole),
+    [demoRole],
+  );
+
   React.useEffect(() => {
-    if (session) {
+    // 已有会话且没有指定演示角色时，按角色跳转。
+    if (session && !demoHint) {
       router.replace(routeFor(session.role, session.role === 'student' ? 'overview' : 'dashboard'));
     }
-  }, [router, session]);
+  }, [router, session, demoHint]);
+
+  // 演示快捷入口：自动填入并登录演示账号。
+  // 即使当前已有其他角色的会话也要执行——访问 ?demo=teacher 本身就是
+  // "我要以教师身份进入"的明确意图，演示现场常在同一个标签里先学生后教师。
+  React.useEffect(() => {
+    if (autoFilled.current || !demoHint) return;
+    autoFilled.current = true;
+    setUsername(demoHint.username);
+    setPassword(DEMO.password);
+    if (signIn(demoHint.username, DEMO.password)) {
+      router.replace(routeFor(demoHint.role, demoHint.role === 'student' ? 'overview' : 'dashboard'));
+    }
+  }, [demoHint, router, signIn]);
 
   const submit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -163,6 +193,18 @@ export function PhysicsLogin() {
               统一密码 <code className="font-mono">{DEMO.password}</code> · 演示学生 {DEMO.studentName}
               （{DEMO.studentClassName}）· 任课教师 {COURSE.teacher}
             </p>
+            <div className="mt-3 flex flex-wrap gap-1.5 border-t border-dashed border-border pt-3">
+              <span className="self-center text-[11px] text-muted-foreground">一键进入：</span>
+              {DEMO_HINT.map((hint) => (
+                <Link
+                  key={hint.role}
+                  href={`/login?demo=${hint.role}`}
+                  className="rounded-full border border-primary/40 px-2.5 py-1 text-[11.5px] text-primary transition-colors hover:border-primary hover:bg-primary/5"
+                >
+                  {hint.role === 'student' ? '学生视角' : '教师视角'}
+                </Link>
+              ))}
+            </div>
           </div>
         </div>
 

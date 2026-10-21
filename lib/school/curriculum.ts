@@ -10,7 +10,8 @@
  * 一律标注为"示例"（见 `isVerified` 字段），界面上同步提示。
  */
 
-import type { ChapterStatus, DiagnosticDimension, ProjectLevel } from '@/lib/physics/types';
+import type { ChapterStatus, DiagnosticDimension, ProjectLevel, QuizQuestion } from '@/lib/physics/types';
+import { QUIZ_QUESTIONS } from '@/lib/physics/data';
 
 /** 章节的校本扩展信息。 */
 export interface SchoolChapterMeta {
@@ -261,3 +262,59 @@ export const PROJECT_LEVEL_LABELS: Readonly<Record<ProjectLevel, string>> = {
   中等: '中等',
   较高: '较高',
 };
+
+/**
+ * 校本课前诊断题集：8 题覆盖全部 7 个知识维度。
+ *
+ * `lib/physics/data.ts` 的 QUIZ_QUESTIONS 是移植自教师既有闭环的原始题库，
+ * 本身保持逐字不变；它只考查 5 个维度，热学与近代物理没有题目，
+ * 因此"8 道题覆盖 7 个知识维度"这一产品口径在原始题库上并不成立。
+ *
+ * 本文件按学校"每学期第一周摸底"的实际需要重新选编：
+ *  - 保留 6 题原始题目（力学 / 波动 / 电磁学 / 光学 / 实验 ×2）；
+ *  - 校本补写 2 题（热学 / 近代物理），用于覆盖本校大纲中这两个模块；
+ *  - 8 题恰好覆盖 7 个维度，其中"实验"维度考查 2 题（多次测量与误差分析），
+ *    呼应本校超声测距实验对实验素养的要求。
+ *
+ * 题目内容为课程示例，用于课堂摸底，不作为成绩。
+ */
+const SCHOOL_OWNED_QUESTIONS: readonly QuizQuestion[] = [
+  {
+    id: 'ideal-gas-law',
+    question: '一定质量的理想气体在温度不变时体积增大，压强将如何变化？',
+    options: ['压强增大', '压强减小', '压强不变', '先增大后减小'],
+    correctIndex: 1,
+    dimension: '热学',
+    q: '一定质量的理想气体在温度不变时体积增大，压强将如何变化？',
+    opts: ['压强增大', '压强减小', '压强不变', '先增大后减小'],
+    a: 1,
+    dim: '热学',
+  },
+  {
+    id: 'photoelectric-effect',
+    question: '光电效应中，在入射光频率不变时增大光强，光电子的最大初动能？',
+    options: ['增大', '减小', '保持不变', '先增大后减小'],
+    correctIndex: 2,
+    dimension: '近代物理',
+    q: '光电效应中，在入射光频率不变时增大光强，光电子的最大初动能？',
+    opts: ['增大', '减小', '保持不变', '先增大后减小'],
+    a: 2,
+    dim: '近代物理',
+  },
+];
+
+/** 校本课前诊断题集中被舍弃的原始题目 id（原始题库本身不变）。 */
+const SCHOOL_EXCLUDED_QUESTION_IDS: readonly string[] = ['energy-conservation', 'wave-relation'];
+
+/** 校本课前诊断题集（8 题 / 7 维）。 */
+export const SCHOOL_DIAGNOSIS_QUESTIONS: readonly QuizQuestion[] = [
+  ...QUIZ_QUESTIONS.filter(
+    (question) => !SCHOOL_EXCLUDED_QUESTION_IDS.includes(question.id),
+  ),
+  ...SCHOOL_OWNED_QUESTIONS,
+];
+
+/** 校本诊断题实际考查的知识维度（用于区分"未考查"与"得 0 分"）。 */
+export const SCHOOL_DIAGNOSIS_DIMENSIONS: readonly DiagnosticDimension[] = Array.from(
+  new Set(SCHOOL_DIAGNOSIS_QUESTIONS.map((question) => question.dimension)),
+);

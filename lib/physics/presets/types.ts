@@ -8,6 +8,14 @@
  * 翻译成 OpenMAIC 的 Stage DSL 文档。
  */
 
+/** 白板演算的一步。 */
+export interface PresetWhiteboardStep {
+  /** 公式（LaTeX）。 */
+  latex: string;
+  /** 这一步的说明（以白板文本形式出现在公式旁）。 */
+  note?: string;
+}
+
 /** 讲演场景。 */
 export interface PresetScene {
   /** 场景标题。 */
@@ -18,6 +26,13 @@ export interface PresetScene {
   formula?: string;
   /** 旁白稿。 */
   narration: string;
+  /**
+   * 白板演算步骤。
+   *
+   * 播放时 AI 教师会依次开板、写出公式与注释、关板——这与真实生成的
+   * 课堂里的"白板演算"在体验上完全一致，且不依赖任何模型调用。
+   */
+  whiteboard?: readonly PresetWhiteboardStep[];
 }
 
 /** 测验题。 */

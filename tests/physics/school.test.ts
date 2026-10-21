@@ -10,6 +10,8 @@ import {
   RUBRIC,
   SCHOOL,
   SCHOOL_CHAPTER_META,
+  SCHOOL_DIAGNOSIS_DIMENSIONS,
+  SCHOOL_DIAGNOSIS_QUESTIONS,
   SCHOOL_LABS,
   buildCampusContext,
   buildIdeologyConstraint,
@@ -21,6 +23,7 @@ import {
   getLabsForChapter,
   getSchoolChapterMeta,
 } from '@/lib/school';
+import { DIAGNOSTIC_DIMENSIONS, QUIZ_QUESTIONS } from '@/lib/physics/data';
 
 describe('校本身份层', () => {
   it('校名与学院名不含硬编码散落（全站唯一出口）', () => {
@@ -135,5 +138,37 @@ describe('校内语境与智能体人格', () => {
     const context = buildCampusContext();
     expect(context).toContain('长江大学文理学院');
     expect(context).toContain('物理学 2601 班');
+  });
+});
+
+describe('校本课前诊断题集', () => {
+  it('恰好 8 题并覆盖全部 7 个知识维度', () => {
+    expect(SCHOOL_DIAGNOSIS_QUESTIONS).toHaveLength(8);
+    expect(new Set(SCHOOL_DIAGNOSIS_QUESTIONS.map((question) => question.dimension))).toEqual(
+      new Set(DIAGNOSTIC_DIMENSIONS),
+    );
+  });
+
+  it('题目 id 不重复，且每题都有合法选项与唯一正确答案', () => {
+    const ids = SCHOOL_DIAGNOSIS_QUESTIONS.map((question) => question.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    SCHOOL_DIAGNOSIS_QUESTIONS.forEach((question) => {
+      expect(question.options.length).toBeGreaterThanOrEqual(2);
+      expect(question.correctIndex).toBeGreaterThanOrEqual(0);
+      expect(question.correctIndex).toBeLessThan(question.options.length);
+      expect(question.question.length).toBeGreaterThan(0);
+    });
+  });
+
+  it('补齐了原始题库缺失的热学与近代物理维度', () => {
+    const originalDimensions = new Set(QUIZ_QUESTIONS.map((question) => question.dimension));
+    expect(originalDimensions.has('热学')).toBe(false);
+    expect(originalDimensions.has('近代物理')).toBe(false);
+    expect(SCHOOL_DIAGNOSIS_DIMENSIONS).toContain('热学');
+    expect(SCHOOL_DIAGNOSIS_DIMENSIONS).toContain('近代物理');
+  });
+
+  it('原始题库保持 8 题不被改写', () => {
+    expect(QUIZ_QUESTIONS).toHaveLength(8);
   });
 });

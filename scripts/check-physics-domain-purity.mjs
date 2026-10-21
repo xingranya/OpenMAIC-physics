@@ -39,6 +39,8 @@ const PURE_TIER = new Set([
   'lib/physics/presets/recipes.ts',
   'lib/physics/presets/build-classroom.ts',
   'lib/physics/presets/ultrasonic-lab.ts',
+  'lib/physics/presets/pbl.ts',
+  'lib/physics/presets/actions.ts',
 ]);
 
 /** 两层都不允许的依赖。 */

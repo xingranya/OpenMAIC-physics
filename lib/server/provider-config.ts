@@ -9,6 +9,7 @@ import fs from 'fs';
 import path from 'path';
 import yaml from 'js-yaml';
 import { createLogger } from '@/lib/logger';
+import { readMakersModelsConfig } from '@/lib/config/makers-models';
 import {
   DEFAULT_QWEN_TTS_VOICE_CLONE_MODEL,
   isQwenCatalogVoice,
@@ -511,6 +512,35 @@ function applyBedrockProviderConfig(
   return providers;
 }
 
+/**
+ * 腾讯云 EdgeOne Makers Models 统一网关适配。
+ *
+ * Makers Models 对外是 OpenAI 兼容协议，因此直接映射到 `openai` provider：
+ * 运维只需在 EdgeOne 控制台配置 `MAKERS_MODELS_KEY`（模板部署时平台可能自动注入），
+ * 即可用 `DEFAULT_MODEL=openai:@makers/<model>` 走通，无需自备第三方厂商密钥。
+ *
+ * 显式配置的 `OPENAI_API_KEY` 优先级更高：运维既然自己给了 OpenAI 密钥，
+ * 就不应被平台自动注入的 Makers Key 覆盖。
+ * 官方文档：https://cloud.tencent.com/document/product/1552/132748
+ */
+function applyMakersModelsProvider(
+  providers: Record<string, ServerProviderEntry>,
+): Record<string, ServerProviderEntry> {
+  const makers = readMakersModelsConfig();
+  if (!makers) return providers;
+
+  const existing = providers.openai;
+  if (existing?.apiKey) return providers;
+
+  providers.openai = {
+    apiKey: makers.apiKey,
+    baseUrl: makers.baseUrl,
+    models: makers.models ?? existing?.models,
+    proxy: existing?.proxy,
+  };
+  return providers;
+}
+
 function buildConfig(yamlData: YamlData): ServerConfig {
   const image = applyOpenAIImageFallback(
     loadEnvSection(IMAGE_ENV_MAP, yamlData.image, {
@@ -518,11 +548,13 @@ function buildConfig(yamlData: YamlData): ServerConfig {
     }),
     yamlData.image,
   );
-  const providers = applyBedrockProviderConfig(
-    loadEnvSection(LLM_ENV_MAP, yamlData.providers, {
-      keylessProviders: new Set(['ollama', 'lemonade', BEDROCK_PROVIDER_ID]),
-    }),
-    yamlData.providers,
+  const providers = applyMakersModelsProvider(
+    applyBedrockProviderConfig(
+      loadEnvSection(LLM_ENV_MAP, yamlData.providers, {
+        keylessProviders: new Set(['ollama', 'lemonade', BEDROCK_PROVIDER_ID]),
+      }),
+      yamlData.providers,
+    ),
   );
 
   return {

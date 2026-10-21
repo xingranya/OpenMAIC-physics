@@ -18,6 +18,9 @@ import type {
 } from '@openmaic/dsl';
 
 import { BRAND_TOKENS, FONT_STACK, SCHOOL_SLIDE_THEMES } from '@/lib/school';
+import { AGENT_PERSONAS } from '@/lib/school';
+import { buildSceneActions } from './actions';
+import { buildPblProject } from './pbl';
 import { buildUltrasonicLabHtml } from './ultrasonic-lab';
 import type { PresetClassroom, PresetScene } from './types';
 
@@ -32,6 +35,11 @@ let counter = 0;
 function makeId(prefix: string, seed: string): string {
   counter += 1;
   return `${prefix}-${seed}-${counter.toString(36)}`;
+}
+
+/** 去掉句尾已有的句号，避免拼进旁白后出现「。。」。 */
+function trimTrailingPeriod(text: string): string {
+  return text.replace(/[。.！!？?]+$/, '');
 }
 
 /** 构造一个文本元素。 */
@@ -156,35 +164,64 @@ export function buildPresetClassroom(
   const scenes: Scene[] = [];
 
   // 封面
+  const coverNarration = `${preset.subtitle}。本节课的目标是：${preset.objectives.join('；')}。`;
   const coverSlide = buildSlide(
     stageId,
     {
       title: preset.title,
       bullets: preset.objectives,
-      narration: `${preset.subtitle}。本节课的目标是：${preset.objectives.join('；')}。`,
+      narration: coverNarration,
     },
     0,
     theme,
   );
+  const coverSceneId = makeId('scene', preset.id);
   scenes.push({
-    id: makeId('scene', preset.id),
+    id: coverSceneId,
     stageId,
     title: '课程封面',
     order: 0,
     type: 'slide',
     content: { type: 'slide', canvas: coverSlide },
+    actions: buildSceneActions({ sceneId: coverSceneId, narration: coverNarration }),
+    whiteboards: [],
   } as unknown as Scene);
 
-  // 讲授场景
+  // 讲授场景：带旁白、白板演算与讨论动作
   preset.scenes.forEach((scene, index) => {
     const slide = buildSlide(stageId, scene, index + 1, theme);
+    const sceneId = makeId('scene', preset.id);
+    // 讨论引导语挂到该章节的最后一个讲授场景，避免同一场景里连续两次讨论。
+    const isLastLecture = index === preset.scenes.length - 1;
+    const discussion = isLastLecture ? preset.discussion[0] : undefined;
+    const actions = buildSceneActions({
+      sceneId,
+      narration: scene.narration,
+      whiteboard: scene.whiteboard,
+      discussionPrompt: discussion?.prompt,
+      discussionAgentId: discussion?.agentId,
+    });
+
     scenes.push({
-      id: makeId('scene', preset.id),
+      id: sceneId,
       stageId,
       title: scene.title,
       order: scenes.length,
       type: 'slide',
       content: { type: 'slide', canvas: slide },
+      actions,
+      whiteboards: [],
+      ...(discussion
+        ? {
+            multiAgent: {
+              enabled: true,
+              agentIds: [discussion.agentId, 'physics-teacher'],
+              directorPrompt:
+                '请围绕本场景的物理问题组织讨论：先让指定同学给出直觉判断，' +
+                '再由物理教师追问其成立条件，最后收束到可复核的结论。',
+            },
+          }
+        : {}),
     } as unknown as Scene);
   });
 
@@ -227,25 +264,35 @@ export function buildPresetClassroom(
     } as unknown as Scene);
   }
 
-  // PBL 任务以讲演页承载（保持与 DSL 的 PBL 契约解耦，避免不必要的耦合）
+  // PBL 项目场景：结构与真实生成的课堂完全一致（roleplay + 里程碑 + 情境角色）
   if (preset.pbl) {
-    const slide = buildSlide(
-      stageId,
-      {
-        title: `项目任务 · ${preset.pbl.title}`,
-        bullets: [`角色：${preset.pbl.role}`, `目标：${preset.pbl.goal}`, ...preset.pbl.milestones],
-        narration: `本项目的角色是${preset.pbl.role}。目标是${preset.pbl.goal}。`,
-      },
-      scenes.length,
-      theme,
-    );
+    const sceneId = makeId('scene', preset.id);
+    const project = buildPblProject(preset.id, preset.pbl, {
+      now: new Date(now).toISOString(),
+      characters: preset.discussion.map((discussion) => ({
+        id: discussion.agentId,
+        name: discussion.agentId === 'physics-teacher' ? '物理教师' : '同学',
+        // 课堂播放器的 PBL 可运行性校验要求至少一个 instructor 角色。
+        roleType: discussion.agentId === 'physics-teacher' ? ('instructor' as const) : ('collaborator' as const),
+        persona:
+          discussion.agentId === 'physics-teacher'
+            ? '你是本节课的物理教师，严谨、强调量纲自检与模型边界条件。'
+            : '你是同班同学，关注"为什么这一步成立"与"怎么用数据验证"。',
+        situation: discussion.prompt,
+      })),
+    });
+
     scenes.push({
-      id: makeId('scene', preset.id),
+      id: sceneId,
       stageId,
-      title: '项目任务',
+      title: `项目任务 · ${preset.pbl.title}`,
       order: scenes.length,
-      type: 'slide',
-      content: { type: 'slide', canvas: slide },
+      type: 'pbl',
+      content: { type: 'pbl', projectV2: project },
+      actions: buildSceneActions({
+        sceneId,
+        narration: `本项目的角色是${preset.pbl.role}。目标是${trimTrailingPeriod(preset.pbl.goal)}`,
+      }),
     } as unknown as Scene);
   }
 
@@ -257,9 +304,51 @@ export function buildPresetClassroom(
     updatedAt: now,
     languageDirective: '全程使用简体中文讲授，物理量使用规范符号，每个公式给出量纲检查。',
     style: '学术讲授风格，浅色天蓝主题，课件页脚标注学校与课程。',
+    // 课堂级智能体名册：用本校的三个人格替换通用智能体，
+    // 使讨论与圆桌里的发言者是"我们学校"的老师与同学。
+    generatedAgentConfigs: buildSchoolAgentRoster(preset),
   };
 
   return { stage, scenes, currentSceneId: scenes[0]?.id ?? '' };
+}
+
+/**
+ * 由剧本构造课堂级智能体名册。
+ *
+ * 上游的 `stage.generatedAgentConfigs` 正是"这个课堂用哪几位智能体"的落点：
+ * 生成管线会把选中的智能体写在这里，课堂加载时按它覆盖注册表。
+ * 预置包用同一机制把本校人格装进课堂，因此讨论、圆桌与点名回答
+ * 用的都是本校教师与同学，而不是上游的通用角色。
+ */
+function buildSchoolAgentRoster(preset: PresetClassroom) {
+  const teacher = AGENT_PERSONAS.find((persona) => persona.id === 'physics-teacher');
+  const peers = AGENT_PERSONAS.filter((persona) => persona.role === 'peer');
+
+  const roster = [
+    {
+      id: 'physics-teacher',
+      name: teacher?.name ?? '物理教师',
+      role: 'teacher',
+      persona: teacher?.persona ?? '',
+      avatar: '/brand/college-brand.png',
+      color: BRAND_TOKENS.primary,
+      priority: 10,
+    },
+    ...peers.map((peer, index) => ({
+      id: peer.id,
+      name: peer.name,
+      role: 'student',
+      persona: peer.persona,
+      avatar: '/brand/college-brand.png',
+      color: SCHOOL_SLIDE_THEMES[0].colors[index % SCHOOL_SLIDE_THEMES[0].colors.length] ?? '#1c7c59',
+      priority: 7 - index,
+    })),
+  ];
+
+  // 只保留剧本实际用到的智能体，避免名册里出现闲人。
+  const used = new Set(preset.discussion.map((discussion) => discussion.agentId));
+  used.add('physics-teacher');
+  return roster.filter((agent) => used.has(agent.id));
 }
 
 /** 预置包可直接用于 PPTX 导出的字体说明。 */

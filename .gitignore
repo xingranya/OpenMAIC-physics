@@ -73,7 +73,10 @@ next-env.d.ts
 /logs
 
 # docs
-/docs
+# 上游用整条 /docs 忽略本地文档目录；参赛材料必须进版本库，
+# 因此只忽略 docs/ 下除「参赛」以外的内容。
+/docs/*
+!/docs/参赛
 # Eval results
 eval/whiteboard-layout/results/
 eval/outline-language/results/

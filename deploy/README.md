@@ -36,6 +36,45 @@ OpenMAIC `main` 分支（v1.2.0+）是 **server-first** 架构：课程生成在
 
 ## 2. 部署步骤
 
+### 2.0 两条路径：Git 导入 与 CLI 直传
+
+| 路径 | 适用 | 前置 |
+| --- | --- | --- |
+| **A. CLI 直传**（推荐，最快） | 参赛现场、临时演示、只有本机代码 | 本机已装 `edgeone` CLI 并 `edgeone login` |
+| **B. Git 导入** | 正式上线、需要持续迭代 | 仓库已推到 GitHub / Gitee / CNB / GitLab |
+
+#### 路径 A：EdgeOne CLI 直传
+
+EdgeOne 官方 CLI 支持**直接上传目录部署**，不必先推 Git 仓库：
+
+```bash
+# 0) 安装并登录（登录态存在 ~/.edgeone，主对话或 CI 均可直接复用）
+npm install -g edgeone
+edgeone login --site china
+edgeone whoami            # 确认账号与 APPID
+
+# 1) 本地先构建出与平台一致的产物（见 §2.3 的构建配置）
+export EDGEONE=1
+pnpm build:packages && pnpm build
+
+# 2) 直传部署
+edgeone makers deploy . --name <项目名> --json
+
+# 3) 后续更新：重新构建后再次 deploy 即可
+```
+
+要点：
+
+- `--json` 输出机器可读 JSON（URL、状态、产物信息），便于脚本化与留证。
+- 默认会自动把 **AI Gateway 密钥**同步进本地 `.env` 并绑定云端凭据；
+  若不希望自动绑定，加 `--skip-ai-gateway-sync`。
+- 部署到**预览环境**用 `--env preview`；中国大陆与海外节点用 `--area china|global`。
+- 已有项目必须是「直传（direct upload）」类型才能被 `deploy` 复用。
+- 可用 `edgeone makers env set/ls/pull/rm` 在命令行增删改环境变量，
+  不必每次都进控制台。
+
+#### 路径 B：Git 导入（控制台）
+
 ### 2.1 准备仓库
 
 ```bash
@@ -57,9 +96,17 @@ cd OpenMAIC
 | --- | --- | --- |
 | 包管理器 | pnpm | 仓库是 pnpm workspace |
 | 安装命令 | `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 pnpm install --frozen-lockfile` | Playwright 只用于 e2e，EdgeOne 构建不需要浏览器；跳过可显著缩短构建并避免二进制下载失败 |
-| 构建命令 | `pnpm build:packages && pnpm build` | 先构建 8 个工作区包，再跑 Next.js 生产构建 |
+| 构建命令 | `EDGEONE=1 pnpm build:packages && EDGEONE=1 pnpm build` | 先构建 8 个工作区包，再跑 Next.js 生产构建。**`EDGEONE=1` 必须带上**：它决定 `next.config.ts` 不产出 standalone 产物（平台自己托管 Next.js 运行时） |
 | 输出目录 | 保持默认 | EdgeOne 的 Next.js 适配器接管产物 |
 | Node 版本 | 24.5.0 | 见 §1 |
+
+> **为什么 `EDGEONE=1` 必须在构建时带上**
+> `output` 只在构建期有意义，但 `next start` 会在运行期重新求值 `next.config.ts`。
+> 若运行期看不到 `EDGEONE`，就会被判成 standalone 模式，而 standalone 模式下的
+> `next start` **不提供正常的静态资源路由**：客户端 chunk 直接 500，
+> React 因此无法水合，**整站按钮全部失效**（页面能打开、SSR 文字正常，但点不动）。
+> 本项目已用 `NEXT_PHASE` 把这个判定固化在构建期，运行期一律不声明 standalone。
+> 控制台环境变量请照 §2.5 配置 `EDGEONE=1`，构建命令也请显式带上。
 
 > **关于 `build:packages`**
 > 上游原脚本在 pnpm workspace 内部混用 `npm run build` 与 `pnpm run build`，
@@ -118,6 +165,29 @@ MINIMAX_API_KEY=...
 MINIMAX_BASE_URL=https://api.minimaxi.com/anthropic/v1
 ```
 
+**推荐方案：腾讯云 Makers Models 统一网关**（免自备第三方厂商密钥）
+
+Makers Models 是部署在 EdgeOne 边缘节点的统一模型接入服务，OpenAI 兼容协议、
+单一 Key 调多家厂商模型、SSE 流式原生支持。本项目已原生识别 EdgeOne 的
+`MAKERS_MODELS_KEY` 变量名并映射到 `openai` provider，控制台配置如下：
+
+```env
+MAKERS_MODELS_KEY=<EdgeOne Makers → Models → API Key 复制的值>
+DEFAULT_MODEL=openai:@makers/deepseek-v4-flash
+```
+
+- 官方文档：<https://cloud.tencent.com/document/product/1552/132748>
+- 平台「模板部署」时可能自动注入 `MAKERS_MODELS_KEY`，此时无需任何改动即可生效。
+- 显式配置 `OPENAI_API_KEY` 时优先级更高（运维自备密钥优先于平台注入密钥）。
+- 想限定可用模型时补一行 `MAKERS_MODELS=@makers/deepseek-v4-flash,@makers/xxx`。
+- 需要自定义端点时补 `OPENAI_BASE_URL=https://ai-gateway.edgeone.link/v1`。
+
+> 平台上还有两类可选的边缘计算模块，本项目当前**未**使用，需要时可另行接入：
+> Makers Functions（`./edge-functions/api` 或 `./cloud-functions/api`，单次请求/任务型）
+> 与 Makers Agents（`context.env` / `context.store` / `context.sandbox` 等，AI 业务流程型）。
+> 参考 <https://cloud.tencent.com/document/product/1552/127415> 与
+> <https://cloud.tencent.com/document/product/1552/132759>。
+
 > `ACCESS_CODE` 是保护部署的唯一凭据。没有它，任何能访问该地址的人都能修改
 > 甚至删除整个课程库。生成方式：`openssl rand -base64 24`
 
@@ -166,7 +236,9 @@ MINIMAX_BASE_URL=https://api.minimaxi.com/anthropic/v1
 | 页面 500 且日志报 `[部署配置]` | 误配了 `DATABASE_URL` 或 Workbench 开关 | 见 §5 的互斥项清单 |
 | 生成课堂报 429 | 模型额度耗尽 | 改用预置课堂包；或换 provider；或降低 `DEFAULT_MODEL` 成本 |
 | 首页一直转圈 | 未配置模型 Key | 至少配置一个 `*_API_KEY`，或直接用预置课堂包 |
+| **页面文字正常但所有按钮点不动** | 构建形态与运行形态不匹配，客户端 chunk 500，React 未水合 | 构建与运行都要带 `EDGEONE=1`；用 §8 的 chunk 自检命令确认全部 200 |
 | 访问无口令保护 | 未配置 `ACCESS_CODE` | 配置后需重新验证 Cookie |
+| 本地 http 演示卡在口令弹窗 | 口令 Cookie 被标了 `Secure`，http 下浏览器不回传 | 本项目已按请求实际协议判定 `Secure`；若自行改过该路由，请核对 `app/api/access-code/verify/route.ts` |
 | 导出的 MP4 不可用 | 渲染服务未部署 | 预期行为：自动降级为导出项目 ZIP |
 
 ---
@@ -219,3 +291,51 @@ MINIMAX_BASE_URL=https://api.minimaxi.com/anthropic/v1
 
 建议两个平台都部署一个：EdgeOne 作为主（国内访问快、免费额度足），
 Vercel 作为灾备（EdgeOne 故障时切换）。
+
+---
+
+## 8. 提交前本地自检（建议每次部署前跑一遍）
+
+**构建形态必须与平台一致**，否则会出现"页面能打开、但所有按钮点不动"的假故障：
+
+```bash
+export EDGEONE=1
+pnpm build:packages && pnpm build      # 产物中不应出现 .next/standalone
+node scripts/typecheck.mjs              # 退出码 0
+./node_modules/.bin/eslint --quiet      # 退出码 0
+./node_modules/.bin/vitest run tests/physics/   # 全绿
+node scripts/check-physics-domain-purity.mjs   # 分层门禁
+
+# 启动自检：启动日志里不应再出现 standalone 警告
+./node_modules/.bin/next start -p 3434
+
+# 静态资源自检：HTML 引用的每一个客户端 chunk 都必须是 200
+curl -s http://127.0.0.1:3434/teacher/evaluation \
+  | grep -o '/_next/static/chunks/[^"]*\.js' | sort -u \
+  | while read -r c; do curl -s -o /dev/null -w "%{http_code} $c\n" "http://127.0.0.1:3434$c"; done
+```
+
+> 上述最后一条命令是本项目实测踩出来的：**某个 chunk 500 时，页面 SSR 文字完全正常，
+> 但 React 不会水合，于是所有 `onClick` 静默失效**——现场表现就是"点了没反应"。
+> 看到任何一个非 200 就说明构建形态与运行形态不匹配（见 §2.3 的说明）。
+
+**口入门禁自检**（`ACCESS_CODE` 生效时）：
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:3434/api/stages   # 期望 401
+# 授权后应放行（注意本地 http 下 Cookie 不带 Secure，浏览器可正常保存回传）
+curl -s -D - -o /dev/null -X POST -H 'Content-Type: application/json' \
+  -d '{"code":"<你的 ACCESS_CODE>"}' http://127.0.0.1:3434/api/access-code/verify
+```
+
+---
+
+## 9. EdgeOne Makers 平台能力速查（2026-06 官方文档）
+
+| 能力 | 文档 | 与本项目的关系 |
+| --- | --- | --- |
+| **Makers Models** 统一模型网关 | `1552/132748` | 单一 Key 调多家厂商模型，OpenAI 兼容，SSE 原生支持；`MAKERS_MODELS_KEY` + `DEFAULT_MODEL=openai:@makers/deepseek-v4-flash` 即接入。免费版：20 万次执行/月、总内存时长 10 万 GB-s/月、单请求最长 3600 秒、会话最长空闲 300 秒、运行并发上限 40 |
+| **Makers Agents** | `1552/132759` | 托管运行时 + 沙箱 + 会话管理 + 内置模型，`AI_GATEWAY_API_KEY` / `AI_GATEWAY_BASE_URL`（默认 `https://ai-gateway.edgeone.link/v1`）。本项目**未使用**（见 §5 互斥项） |
+| **Makers Functions** | `1552/127415` | Edge Functions（边缘节点、毫秒级冷启动）与 Cloud Functions（云端、Node/Python/Go）两档；本项目的 Next.js API 路由由平台的 Next 适配器托管 |
+
+> 三份文档均已核对，结论已写进 `deploy/edgeone.env.example` 的「方案 A」。

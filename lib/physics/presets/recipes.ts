@@ -40,6 +40,9 @@ export const PRESET_CLASSROOMS: readonly PresetClassroom[] = [
           '第三步：定坐标系与正方向，再写方程',
         ],
         formula: 'ΣF = ma',
+        whiteboard: [
+          { latex: '\\sum \\vec{F} = m\\vec{a}', note: '矢量式，先定正方向再代数值' },
+        ],
         narration:
           '受力分析只有三步，但初学者几乎都在第二步出错：把"运动方向"当成力，把"惯性"当成力。记住：只有物体间的相互作用才是力。',
       },
@@ -51,6 +54,11 @@ export const PRESET_CLASSROOMS: readonly PresetClassroom[] = [
           '误区澄清："力使物体转弯"这句话不成立，力的作用是改变速度',
         ],
         formula: 'a_n = v²/r ， F_n = m v²/r',
+        whiteboard: [
+          { latex: 'a_n = \\frac{v^2}{r}', note: '速率一定时，半径越小向心加速度越大' },
+          { latex: 'F_n = m\\frac{v^2}{r}', note: '向心力是合外力的径向分量，不是新的一种力' },
+          { latex: 'v_{max} = \\sqrt{a_{max} \\cdot r}', note: '安全阈值：把 a_max 当作设计约束' },
+        ],
         narration:
           '这里要澄清一个流传很广的说法：并不是"力使物体转弯"。力做的是改变速度矢量这件事，弯道只是速度方向改变的具体表现。向心力不是一种额外的力，它就是合外力在半径方向上的分量。',
       },
@@ -141,6 +149,9 @@ export const PRESET_CLASSROOMS: readonly PresetClassroom[] = [
           '量纲检查：m/s = m × 1/s ✓',
         ],
         formula: 'v = λ · f',
+        whiteboard: [
+          { latex: 'v = \\lambda f', note: '量纲检查：m/s = m × 1/s ✓' },
+        ],
         narration:
           '先复习波速、波长、频率的关系，顺手做一次量纲检查。记住这个动作，后面每个公式都做一遍。',
       },
@@ -152,6 +163,10 @@ export const PRESET_CLASSROOMS: readonly PresetClassroom[] = [
           '量纲检查：(m/s)·s / 2 = m ✓',
         ],
         formula: 'd = v · t / 2',
+        whiteboard: [
+          { latex: '2d = v \\cdot t', note: '脉冲往返总路程是 2d' },
+          { latex: 'd = \\frac{v t}{2}', note: '漏掉 2 是最常见的错误' },
+        ],
         narration:
           '测距的公式里那个 2 是最常被忘掉的。请在黑板上画一遍：脉冲走了多远？去是 d，回来还是 d。',
       },
@@ -240,6 +255,9 @@ export const PRESET_CLASSROOMS: readonly PresetClassroom[] = [
           '适用条件：温度等物理量近似不变',
         ],
         formula: 'U = I · R',
+        whiteboard: [
+          { latex: 'U = I R', note: '描述电阻性元件的伏安特性，灯丝不满足' },
+        ],
         narration:
           '欧姆定律常被说成"永远成立"。更准确的说法是：它描述特定元件的伏安特性，灯丝这类元件的 R 随温度变化，模型不成立。',
       },
@@ -251,6 +269,10 @@ export const PRESET_CLASSROOMS: readonly PresetClassroom[] = [
           '列方程前先标方向、标正负号',
         ],
         formula: 'ΣI = 0 ， ΣU = 0',
+        whiteboard: [
+          { latex: '\\sum I = 0', note: 'KCL：节点流入等于流出，本质是电荷守恒' },
+          { latex: '\\sum U = 0', note: 'KVL：回路电压升等于电压降，本质是能量守恒' },
+        ],
         narration:
           '基尔霍夫两条定律看起来抽象，其实就是电荷守恒和能量守恒。解方程时最关键的是符号约定。',
       },
@@ -262,6 +284,9 @@ export const PRESET_CLASSROOMS: readonly PresetClassroom[] = [
           '额定值与实际值：铭牌是额定工况，不是任何时候的实际值',
         ],
         formula: 'P = U · I = I²R',
+        whiteboard: [
+          { latex: 'P = U I = I^2 R = \\frac{U^2}{R}', note: '同一元件三式等价，换算前先看用哪个更省事' },
+        ],
         narration:
           '最后落到安全：过载会烧保险丝，短路会引燃。额定值和实际值的区别，是这一节最该带走的东西。',
       },
@@ -338,6 +363,10 @@ export const PRESET_CLASSROOMS: readonly PresetClassroom[] = [
           '数量级估算：λ ≈ 600 nm，d ~ 1 μm 时光程差极小，仪器精度是关键',
         ],
         formula: 'Δ = 2n·d·cosθ ， Δk = λ',
+        whiteboard: [
+          { latex: '\\Delta = 2 n d \\cos\\theta', note: '薄膜干涉的光程差' },
+          { latex: '\\Delta k = \\lambda', note: '相邻明纹对应光程差变化一个波长' },
+        ],
         narration:
           '条纹计数看起来是体力活，其实第一步是数量级估算：波长是 600 纳米量级，膜厚是微米量级——你得先知道测量要精确到哪一位。',
       },
@@ -424,6 +453,10 @@ export const PRESET_CLASSROOMS: readonly PresetClassroom[] = [
           '量纲检查：J = J + J ✓',
         ],
         formula: 'hν = W₀ + eU_c',
+        whiteboard: [
+          { latex: 'h\\nu = W_0 + E_{k,max}', note: '光子能量减去逸出功，剩下的就是最大动能' },
+          { latex: 'E_{k,max} = e U_c', note: '截止电压的物理含义：恰好把光电子"刹住"' },
+        ],
         narration:
           '方程只有两项：入射光子能量减去逸出功，剩下的就是光电子最大动能。注意每一项的单位都是焦耳。',
       },
@@ -435,6 +468,9 @@ export const PRESET_CLASSROOMS: readonly PresetClassroom[] = [
           '纵轴截距反映逸出功',
         ],
         formula: 'U_c = (h/e)·ν − W₀/e',
+        whiteboard: [
+          { latex: 'U_c = \\frac{h}{e}\\nu - \\frac{W_0}{e}', note: '斜率 = h/e，截距反映逸出功' },
+        ],
         narration:
           '这里要强调"作图取斜率"而不是"代一组数算"：多点拟合能显著降低随机误差的影响，这也是实验方法的核心。',
       },
@@ -511,6 +547,9 @@ export const PRESET_CLASSROOMS: readonly PresetClassroom[] = [
           '对理想气体，ΔU 只与温度有关',
         ],
         formula: 'ΔU = Q − W',
+        whiteboard: [
+          { latex: '\\Delta U = Q - W', note: '符号约定必须先说清：吸热为正、系统对外做功为正' },
+        ],
         narration:
           '第一定律就是能量守恒。请特别注意符号约定：吸热为正、系统对外做功为正，这和很多人习惯的写法正好相反。',
       },
@@ -522,6 +561,9 @@ export const PRESET_CLASSROOMS: readonly PresetClassroom[] = [
           '优化要给出量化指标与改动前后的对比',
         ],
         formula: 'η = W_useful / Q_in',
+        whiteboard: [
+          { latex: '\\eta = \\frac{W_{useful}}{Q_{in}}', note: '先画能量流图找到最大损耗环节，再谈优化' },
+        ],
         narration:
           '把效率讲清楚之后，请大家自己判断：一个"不消耗能量却持续输出能量"的装置，在能量流图上会画成什么样？',
       },

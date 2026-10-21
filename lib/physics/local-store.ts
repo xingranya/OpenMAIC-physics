@@ -279,6 +279,34 @@ export function updateState(state: AppState, patch: Partial<AppState>): AppState
 
 export const patchState = updateState;
 
+/**
+ * 切换项目时的作用域化重置：只清空「当前项目」的进度。
+ *
+ * 学情画像（role / student / teacher / diagnosis）、教师复核记录
+ * （evaluationReviews）与教师自建项目（localProjects）不属于项目进度，
+ * 必须原样保留，否则学生会话会清掉教师的复核成果，学情画像也会被抹掉。
+ */
+export function resetProjectProgress(state: AppState, projectId: string | null = null): AppState {
+  return normaliseState({
+    ...state,
+    projectId,
+    activeTask: 0,
+    taskChecks: {},
+    taskTexts: {},
+    chat: [],
+    labRecords: [],
+    evaluation: undefined,
+  });
+}
+
+/**
+ * 重新诊断时的作用域化重置：只清空诊断结果本身。
+ * 项目进度、实验记录与学情画像（学生信息）都不受影响。
+ */
+export function clearDiagnosisResult(state: AppState): AppState {
+  return normaliseState({ ...state, diagnosis: undefined });
+}
+
 /** 校验内置账号，密码和用户名均不会写入持久化状态。 */
 export function authenticate(
   username: string,

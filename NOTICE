@@ -40,6 +40,9 @@ This product is a derivative work of OpenMAIC, developed by THU-MAIC.
                           ideology / rubric / campus。
   lib/config/deployment-mode.ts
                           边缘部署形态断言。
+  lib/config/makers-models.ts
+                          腾讯云 EdgeOne Makers Models 统一模型网关适配
+                          （单一 MAKERS_MODELS_KEY 调用多家厂商模型）。
   lib/brand/brand-config.ts
                           品牌配置改为校色（长江大学文理学院 · 天蓝 #0369a1）。
   components/physics/     物理工作台：外壳、登录、命令面板、学生 8 视图、教师 5 视图。
@@ -52,6 +55,12 @@ This product is a derivative work of OpenMAIC, developed by THU-MAIC.
   app/globals.css         校本色板、中文字体栈与打印样式。
   pnpm-workspace.yaml     增加 supportedArchitectures（linux-x64 原生模块）。
   package.json            build:packages 改为 pnpm -r --filter；新增 typecheck 脚本。
+  scripts/typecheck.mjs    归一化 next-env.d.ts 后再类型检查，消除 Next 16 的
+                          「先 dev 后 typecheck 必报假错误」。
+  scripts/check-physics-domain-purity.mjs
+                          物理域依赖分层门禁：纯领域层零 React / 零 DOM。
+  next.config.ts          output 判定按构建期固化，避免运行期误判为 standalone
+                          导致客户端 chunk 500、整站无法水合。
 
   从上游移除 / Removed from upstream:
     render-service/            Docker + Chromium 视频渲染服务（边缘部署不可用，

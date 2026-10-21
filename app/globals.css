@@ -146,6 +146,13 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+  /* 校本色在深色模式下的对应值：亮底令牌必须换成透明/亮色，否则深色卡片上不可读。 */
+  --school-primary-strong: #7dd3fc;
+  --school-primary-soft: rgb(56 189 248 / 20%);
+  --school-primary-softer: rgb(56 189 248 / 12%);
+  --school-success: #4ade80;
+  --school-warning: #fbbf24;
+  --school-danger: #fb7185;
 }
 
 @layer base {

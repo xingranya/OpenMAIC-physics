@@ -30,7 +30,7 @@ import { getProjectById } from '@/lib/physics/data';
 import Link from 'next/link';
 
 export function StudentProjects() {
-  const { state, update, reset } = usePhysicsState();
+  const { state, resetProject } = usePhysicsState();
   const [pending, setPending] = React.useState<{ id: string; title: string } | null>(null);
 
   const student = state.student ?? {
@@ -52,8 +52,8 @@ export function StudentProjects() {
 
   const confirmSwitch = () => {
     if (!pending) return;
-    reset(`切换项目到「${pending.title}」`);
-    update({ projectId: pending.id });
+    // 只清空项目级进度：学情诊断、学习画像与教师复核记录都会保留。
+    resetProject(`切换项目到「${pending.title}」`, pending.id);
     setPending(null);
   };
 
@@ -84,7 +84,7 @@ export function StudentProjects() {
       ) : null}
 
       {featured ? (
-        <section className="rounded-2xl border border-primary/25 bg-gradient-to-br from-[var(--school-primary-softer)] to-card p-6">
+        <section className="rounded-2xl border border-primary/25 bg-gradient-to-br from-[var(--school-primary-softer)] to-card p-6 dark:from-primary/10">
           <div className="flex flex-wrap items-center gap-2">
             <Badge className="font-normal">
               <Sparkles className="size-3" aria-hidden="true" />
@@ -192,7 +192,7 @@ export function StudentProjects() {
           <AlertDialogHeader>
             <AlertDialogTitle>切换到「{pending?.title}」？</AlertDialogTitle>
             <AlertDialogDescription>
-              切换项目会清空当前的任务进度与实验记录。操作前会自动生成 24 小时可恢复快照，
+              切换项目会清空当前的任务进度、实验记录与 AI 助教对话，但会保留学情诊断与学习画像。操作前会自动生成 24 小时可恢复快照，
               可在工作台顶部横幅中撤销。
             </AlertDialogDescription>
           </AlertDialogHeader>
