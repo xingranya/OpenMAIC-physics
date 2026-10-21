@@ -408,3 +408,22 @@ ALLOW_INSECURE_ACCESS_COOKIE=1 EDGEONE=1 ./node_modules/.bin/next start -p 3434
 | **Makers Functions** | `1552/127415` | Edge Functions（边缘节点、毫秒级冷启动）与 Cloud Functions（云端、Node/Python/Go）两档；本项目的 Next.js API 路由由平台的 Next 适配器托管 |
 
 > 三份文档均已核对，结论已写进 `deploy/edgeone.env.example` 的「方案 A」。
+
+### 9.1 关闭某个模型 provider
+
+LLM provider 段支持运维侧的强制关闭开关（上游原本只对能力段支持这一档）：
+
+```bash
+# EdgeOne 控制台的环境变量写法（推荐，平台只能配环境变量）
+OPENAI_ENABLED=false
+
+# 或者用 server-providers.yml
+#   providers:
+#     openai:
+#       enabled: false
+```
+
+被关掉的 provider：不拿任何密钥、不出现在客户端的模型列表里，
+**平台自动注入的 `MAKERS_MODELS_KEY` 也不会把它复活**。
+注意 `*_ENABLED` 未设置（空值）视为"没有意见"，不会覆盖 YAML 里的显式关闭；
+显式写 `=true` 才会反过来打开。
