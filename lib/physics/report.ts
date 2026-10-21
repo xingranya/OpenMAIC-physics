@@ -153,10 +153,10 @@ export function buildStudentReportMarkdown(input: ReportInput): string {
   })
 
   return [
-    `<!-- 大学物理 AI 智慧教学系统 · 学习报告 -->`,
-    `# 大学物理学习报告 · ${safe(student?.name)}`,
+    `<!-- ${BRAND_FULL_NAME} · 学习报告 -->`,
+    `# ${COURSE.name}学习报告 · ${safe(student?.name)}`,
     ``,
-    `_生成时间 ${generatedAt} | 来源：大学物理 AI 智慧教学系统（演示版）_`,
+    `_生成时间 ${generatedAt} | 来源：${BRAND_FULL_NAME}（课程示例数据）_`,
     ``,
     `---`,
     ``,
@@ -166,7 +166,8 @@ export function buildStudentReportMarkdown(input: ReportInput): string {
     ``,
     `---`,
     ``,
-    `_本报告由本地浏览器根据学习过程生成，未连接远程大模型或教务系统。_`,
+    `_本报告由本地浏览器根据学习过程生成，未连接远程大模型或教务系统；` +
+      `其中的班级、成绩与评价量表均为${DATA_DISCLAIMER.classRoster}，不代表真实教务数据。_`,
   ].join("\n")
 }
 
@@ -183,7 +184,7 @@ export function buildTeacherBatchReviewMarkdown(input: TeacherBatchReviewInput):
   const now = input.generatedAt ?? new Date()
   const generatedAt = now.toLocaleString("zh-CN")
   return [
-    `<!-- 大学物理 AI 智慧教学系统 · 教师批量复核记录 -->`,
+    `<!-- ${BRAND_FULL_NAME} · 教师批量复核记录 -->`,
     `# 教师批量复核记录`,
     ``,
     `_生成时间 ${generatedAt} | 复核人：${input.reviewer}_`,
@@ -198,6 +199,7 @@ export function buildTeacherBatchReviewMarkdown(input: TeacherBatchReviewInput):
     `- 复核理由：${input.defaultReason.trim() || "（未填写）"}`,
     ``,
     `> 本记录由本地操作生成，不替代逐人 Sheet 复核中的细化分与理由；可在「评价复核 → 批量复核」中按需调整。`,
+    `> 班级与学生名单为${DATA_DISCLAIMER.classRoster}，不代表真实教务数据。`,
   ].join("\n")
 }
 
@@ -237,7 +239,7 @@ export function buildTeacherReviewDetailMarkdown(input: TeacherReviewDetailInput
   })
 
   return [
-    `<!-- 长江大学文理学院 · 大学物理 AI 智慧课堂 · 教师复核明细 -->`,
+    `<!-- ${BRAND_FULL_NAME} · 教师复核明细 -->`,
     `# 教师复核明细`,
     ``,
     `_生成时间 ${generatedAt} | 复核人：${input.reviewer} | 班级：${input.className}_`,
@@ -249,5 +251,6 @@ export function buildTeacherReviewDetailMarkdown(input: TeacherReviewDetailInput
     ...rows,
     ``,
     `> 本记录由本地操作生成，不含真实教务数据。`,
+    `> AI 建议分来自${DATA_DISCLAIMER.aiScore}；班级与名单为${DATA_DISCLAIMER.classRoster}。`,
   ].join("\n")
 }

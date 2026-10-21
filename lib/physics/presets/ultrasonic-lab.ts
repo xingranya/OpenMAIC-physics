@@ -8,6 +8,9 @@
  * 发射脉冲 → 传播 → 反射 → 接收，噪声叠加在回波上。
  */
 
+// 直连 identity（无依赖叶子模块），保持纯领域层不引入 `lib/school` 桶文件。
+import { COURSE, SCHOOL } from '@/lib/school/identity';
+
 /** 声速默认值（m/s）。 */
 const DEFAULT_SPEED = 343;
 /** 超声波频率（Hz）。 */
@@ -26,7 +29,7 @@ export function buildUltrasonicLabHtml(): string {
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>超声波测距虚拟仿真 · 长江大学文理学院</title>
+<title>超声波测距虚拟仿真 · ${SCHOOL.college}</title>
 <style>
   :root {
     --primary: #0369a1;
@@ -77,7 +80,7 @@ export function buildUltrasonicLabHtml(): string {
 </head>
 <body>
   <h1>超声波测距 · 虚拟仿真</h1>
-  <p class="sub">发射脉冲 → 传播 → 反射 → 接收 → 计时。调节参数观察回波时延与测量误差如何变化。长江大学文理学院 · 大学物理</p>
+  <p class="sub">发射脉冲 → 传播 → 反射 → 接收 → 计时。调节参数观察回波时延与测量误差如何变化。${SCHOOL.college} · ${COURSE.name}</p>
 
   <div class="wrap">
     <div class="panel">

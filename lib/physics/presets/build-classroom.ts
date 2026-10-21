@@ -17,7 +17,7 @@ import type {
   Stage,
 } from '@openmaic/dsl';
 
-import { BRAND_TOKENS, FONT_STACK, SCHOOL_SLIDE_THEMES } from '@/lib/school';
+import { BRAND_TOKENS, COURSE, FONT_STACK, SCHOOL, SCHOOL_SLIDE_THEMES } from '@/lib/school';
 import { AGENT_PERSONAS } from '@/lib/school';
 import { buildSceneActions } from './actions';
 import { buildPblProject } from './pbl';
@@ -129,7 +129,7 @@ function buildSlide(
   }
 
   elements.push(
-    textElement(`${slideId}-brand`, '长江大学文理学院 · 大学物理', {
+    textElement(`${slideId}-brand`, `${SCHOOL.college} · ${COURSE.name}`, {
       left: 70,
       top: VIEWPORT_SIZE * VIEWPORT_RATIO - 46,
       width: VIEWPORT_SIZE - 140,
@@ -299,7 +299,7 @@ export function buildPresetClassroom(
   const stage: Stage = {
     id: stageId,
     name: `${preset.title} · ${preset.subtitle}`,
-    description: `长江大学文理学院《大学物理》预置课堂包。目标：${preset.objectives.join('；')}。`,
+    description: `${SCHOOL.college}《${COURSE.name}》预置课堂包。目标：${preset.objectives.join('；')}。`,
     createdAt: now,
     updatedAt: now,
     languageDirective: '全程使用简体中文讲授，物理量使用规范符号，每个公式给出量纲检查。',
