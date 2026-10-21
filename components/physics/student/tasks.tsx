@@ -23,7 +23,11 @@ import Link from 'next/link';
 
 export function StudentTasks() {
   const { state, update } = usePhysicsState();
-  const [active, setActive] = React.useState(state.activeTask ?? 0);
+  // 状态容器首帧是空状态，挂载后才补齐浏览器里的数据。
+  // 这里用 override 承接"用户刚刚切了哪一关"，持久化的 activeTask 作为回落：
+  // 若把初值缓存进 useState，刷新后会永远停在第 1 关。
+  const [activeOverride, setActiveOverride] = React.useState<number | null>(null);
+  const active = activeOverride ?? state.activeTask ?? 0;
 
   const progress = calculateTaskProgress(state.taskChecks, TASK_TEMPLATES);
   const project = getProjectById(state.projectId);
@@ -88,7 +92,7 @@ export function StudentTasks() {
                   <button
                     type="button"
                     onClick={() => {
-                      setActive(index);
+                      setActiveOverride(index);
                       update({ activeTask: index });
                     }}
                     aria-current={isActive ? 'step' : undefined}

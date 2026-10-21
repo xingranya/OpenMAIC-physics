@@ -7,14 +7,13 @@ const isVercelBuild = Boolean(process.env.VERCEL);
 // 关闭 standalone；EdgeOne 部署若沿用 standalone，平台会拿到一份
 // 无人启动的服务器产物，表现为路由 404 或静态资源缺失。
 //
-// `output` 只在**构建期**有意义，但 `next start` 会在**运行期**重新求值
-// 本文件。若运行期看不到 EDGEONE，就会把 output 判成 standalone，
-// 而 standalone 模式下的 `next start` 并不提供正常的静态资源路由：
-// 客户端 chunk 直接 500，React 因此无法水合，整站按钮全部失效。
-// 平台与本地都可能在某一侧漏配环境变量，所以这里用 NEXT_PHASE 把判定
-// 固化在构建期：构建时按 EDGEONE 决定产物形态，运行期一律不声明 standalone。
-const isProductionBuild = process.env.NEXT_PHASE === 'phase-production-build';
-const isEdgeOneBuild = Boolean(process.env.EDGEONE) && isProductionBuild;
+// 注意：`output` 是**构建期**产物形态的决定项，而 `next start` 会在**运行期**
+// 重新求值本文件。EdgeOne / Vercel 控制台配置的环境变量在构建与运行两侧
+// 都能读到，所以平台上一致。但本地自检时若"构建带了 EDGEONE=1、运行没带"，
+// 运行期会判成 standalone，与产物形态不匹配，静态资源路由就会异常
+// （客户端 chunk 500 → React 不水合 → 整站按钮静默失效）。
+// 因此本地必须**构建与运行都带 EDGEONE=1**，见 deploy/README.md §8。
+const isEdgeOneBuild = Boolean(process.env.EDGEONE);
 
 const nextConfig: NextConfig = {
   env: {
@@ -22,12 +21,10 @@ const nextConfig: NextConfig = {
     // A runtime-only override must not disable the route the built client uses.
     NEXT_PUBLIC_PI_CHAT_ENABLED: process.env.NEXT_PUBLIC_PI_CHAT_ENABLED ?? '',
   },
-  // 构建期：Vercel / EdgeOne 都不产出 standalone 产物；其余场景保留上游的
-  // standalone 产物，供自托管 Docker（node .next/standalone/server.js）使用。
-  // 运行期（next start）：一律不声明 standalone，避免进入 standalone 模式后
-  // 静态资源路由异常、客户端 chunk 500，进而整站无法水合。
-  output:
-    isVercelBuild || isEdgeOneBuild || !isProductionBuild ? undefined : 'standalone',  outputFileTracingIncludes: {
+  // Vercel / EdgeOne 不产出 standalone 产物；其余场景保留上游的 standalone
+  // 产物，供自托管 Docker（node .next/standalone/server.js）使用。
+  output: isVercelBuild || isEdgeOneBuild ? undefined : 'standalone',
+  outputFileTracingIncludes: {
     '/*': [
       'lib/server/agent-runtime/import-pptx-worker.mjs',
       'skills/openmaic/**',

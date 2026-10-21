@@ -31,26 +31,31 @@ import type { DiagnosticDimension } from '@/lib/physics/types';
 export function StudentDiagnosis() {
   const { state, update, resetDiagnosis } = usePhysicsState();
   const [answers, setAnswers] = React.useState<Record<string, number>>({});
-  const [result, setResult] = React.useState(state.diagnosis ?? null);
   const [confirmOpen, setConfirmOpen] = React.useState(false);
+
+  // 诊断结果以持久化状态为唯一来源。
+  // 状态容器首帧是空状态（与服务端渲染对齐），挂载后才补齐浏览器里的数据；
+  // 若把初值缓存进 useState，刷新后会一直读到那个空初值，诊断结果随即消失。
+  const result = state.diagnosis ?? null;
 
   const answered = Object.keys(answers).length;
   const total = SCHOOL_DIAGNOSIS_QUESTIONS.length;
 
   const submit = () => {
     const next = scoreDiagnosis(answers, SCHOOL_DIAGNOSIS_QUESTIONS);
-    setResult(next);
     update({ diagnosis: next });
   };
 
   const resetDiagnosisResult = () => {
     setAnswers({});
-    setResult(null);
     // 只清空诊断结果本身，项目进度、实验记录与学习画像都会保留。
     resetDiagnosis('重新进行学情诊断');
   };
 
   // 只展示本次题集真正考查到的维度，避免把"未考查"显示成"得 0 分"。
+  // 判定依据是"该维度在当前题集中有没有题"，而不是得分是否存在：
+  // 得分对每个维度都有值（无题时记 0），按得分过滤等于没有过滤。
+  // SCHOOL_DIAGNOSIS_DIMENSIONS 即"题集实际覆盖到的维度"集合。
   const coveredDimensions = React.useMemo(
     () =>
       SCHOOL_DIAGNOSIS_DIMENSIONS.reduce<Partial<Record<DiagnosticDimension, number>>>(

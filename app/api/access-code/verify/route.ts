@@ -68,20 +68,20 @@ export async function POST(request: Request) {
 
   const token = createAccessToken(accessCode);
   const cookieStore = await cookies();
-  // Secure 依据请求实际协议判定，而不是 NODE_ENV：边缘平台（EdgeOne Pages /
-  // Vercel）会带 `x-forwarded-proto: https`，生产部署的强度与按 NODE_ENV 判定
-  // 完全一致；而本地以 http:// 演示时若仍加 Secure，浏览器既不保存也不回传
-  // 该 Cookie，门禁就永远无法通过——现场演示会直接卡死在弹窗。
-  const forwardedProto = request.headers.get('x-forwarded-proto');
-  const requestProtocol = forwardedProto
-    ? forwardedProto.split(',')[0].trim()
-    : new URL(request.url).protocol.replace(/:$/, '');
+  // Secure 的判定不能依赖请求头：`x-forwarded-proto` 是客户端可控的，
+  // 若据此下发不带 Secure 的 Cookie，攻击者就能让站点在 http 下携带口令票据。
+  // 因此默认（生产）一律加 Secure，只在显式开启本地演示开关时才放宽——
+  // 本地 `next start` 也是 NODE_ENV=production，用 NODE_ENV 区分不开。
+  // 放宽开关：ALLOW_INSECURE_ACCESS_COOKIE=1，仅用于 http://localhost 演示。
+  const allowInsecureCookie =
+    process.env.ALLOW_INSECURE_ACCESS_COOKIE === '1' ||
+    process.env.ALLOW_INSECURE_ACCESS_COOKIE === 'true';
   cookieStore.set('openmaic_access', token, {
     httpOnly: true,
     sameSite: 'lax',
     path: '/',
     maxAge: ACCESS_TOKEN_MAX_AGE_SECONDS,
-    secure: requestProtocol === 'https',
+    secure: !allowInsecureCookie,
   });
 
   return apiSuccess({ valid: true });

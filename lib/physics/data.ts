@@ -13,22 +13,26 @@ import type {
   StudentProfile,
   TeachingPlan,
 } from "./types";
+// 直连 identity 而不是 `@/lib/school` 桶文件：`lib/school/curriculum.ts` 反过来
+// 依赖本文件的题库，走桶文件会形成 `school/index → curriculum → data → school/index`
+// 的循环依赖；`identity.ts` 是无依赖叶子模块，直连即可。
+import { COURSE, DEMO } from "@/lib/school/identity";
 
 /** 登录账号统一使用该密码，正式环境不得复用。 */
-export const PHYSICS_AI_PASSWORD = "dunzhongwan";
+export const PHYSICS_AI_PASSWORD = DEMO.password;
 export const DEMO_PASSWORD = PHYSICS_AI_PASSWORD;
 
 const DEMO_STUDENT_PROFILE: StudentProfile = {
-  name: "陈思远",
+  name: DEMO.studentName,
   id: "20260001",
-  major: "物理学",
-  className: "物理学 2601 班",
+  major: DEMO.studentMajor,
+  className: DEMO.studentClassName,
   style: "practice",
   target: "application",
 };
 
 const DEMO_TEACHER_PROFILE: TeacherProfile = {
-  name: "顿老师",
+  name: COURSE.teacher,
   id: "teacher-001",
   department: "大学物理教研组",
 };
@@ -36,17 +40,17 @@ const DEMO_TEACHER_PROFILE: TeacherProfile = {
 /** 内置登录账号，仅用于当前产品的账号校验。 */
 export const DEMO_ACCOUNTS: readonly DemoAccount[] = [
   {
-    username: "student",
+    username: DEMO.studentUsername,
     password: PHYSICS_AI_PASSWORD,
     role: "student",
-    displayName: "陈思远",
+    displayName: DEMO.studentName,
     profile: DEMO_STUDENT_PROFILE,
   },
   {
-    username: "teacher",
+    username: DEMO.teacherUsername,
     password: PHYSICS_AI_PASSWORD,
     role: "teacher",
-    displayName: "顿老师",
+    displayName: COURSE.teacher,
     profile: DEMO_TEACHER_PROFILE,
   },
 ];

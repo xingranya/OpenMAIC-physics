@@ -300,11 +300,15 @@ export function resetProjectProgress(state: AppState, projectId: string | null =
 }
 
 /**
- * 重新诊断时的作用域化重置：只清空诊断结果本身。
+ * 重新诊断时的作用域化重置：清空诊断结果与由它算出的固化评价。
  * 项目进度、实验记录与学情画像（学生信息）都不受影响。
+ *
+ * `evaluation` 是基于诊断分、任务进度与实验记录算出的**派生快照**：
+ * 诊断结果一旦作废，这份快照就不再成立，继续留着会让学习报告沿用
+ * 旧诊断分数算出的评定，与新的诊断结果自相矛盾。
  */
 export function clearDiagnosisResult(state: AppState): AppState {
-  return normaliseState({ ...state, diagnosis: undefined });
+  return normaliseState({ ...state, diagnosis: undefined, evaluation: undefined });
 }
 
 /** 校验内置账号，密码和用户名均不会写入持久化状态。 */

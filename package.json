@@ -22,6 +22,7 @@
     "check:node-engine": "node scripts/check-node-engine-contract.mjs",
     "check:package-versions": "node scripts/check-package-version-bumps.mjs",
     "check:physics-domain": "node scripts/check-physics-domain-purity.mjs",
+    "check:physics-e2e": "node scripts/check-physics-e2e.mjs",
     "check": "prettier . --check",
     "format": "prettier . --write",
     "test": "vitest run",

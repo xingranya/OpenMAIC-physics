@@ -101,12 +101,18 @@ cd OpenMAIC
 | Node 版本 | 24.5.0 | 见 §1 |
 
 > **为什么 `EDGEONE=1` 必须在构建时带上**
-> `output` 只在构建期有意义，但 `next start` 会在运行期重新求值 `next.config.ts`。
-> 若运行期看不到 `EDGEONE`，就会被判成 standalone 模式，而 standalone 模式下的
-> `next start` **不提供正常的静态资源路由**：客户端 chunk 直接 500，
-> React 因此无法水合，**整站按钮全部失效**（页面能打开、SSR 文字正常，但点不动）。
-> 本项目已用 `NEXT_PHASE` 把这个判定固化在构建期，运行期一律不声明 standalone。
-> 控制台环境变量请照 §2.5 配置 `EDGEONE=1`，构建命令也请显式带上。
+> `output` 决定**构建产物形态**：EdgeOne / Vercel 由平台托管 Next.js 运行时，
+> 不需要 standalone 产物；其余场景（自托管 Docker）需要 `.next/standalone`。
+> 控制台配置的环境变量在**构建与运行两侧都能读到**，所以平台上一致。
+>
+> ⚠️ **构建与运行必须看到同一份环境变量。** Next 在运行期按 `output` 决定静态资源
+> 的文件系统检查策略：产物是非 standalone 形态、运行期却按 standalone 处理时，
+> 客户端 chunk 会直接 **500** → React 不水合 → **页面文字正常但所有按钮静默失效**。
+> 本地两侧都要带 `EDGEONE=1`；平台侧控制台的环境变量两侧都有，天然一致。
+>
+> ⚠️ 另一条：**不要在服务运行期间重新构建**。运行中的 `next start` 持有旧的
+> build-manifest，一旦 `.next` 被就地重建，它返回的 HTML 会引用磁盘上已不存在的
+> chunk，同样表现为 chunk 500。重建后请重启服务。
 
 > **关于 `build:packages`**
 > 上游原脚本在 pnpm workspace 内部混用 `npm run build` 与 `pnpm run build`，
@@ -236,9 +242,9 @@ DEFAULT_MODEL=openai:@makers/deepseek-v4-flash
 | 页面 500 且日志报 `[部署配置]` | 误配了 `DATABASE_URL` 或 Workbench 开关 | 见 §5 的互斥项清单 |
 | 生成课堂报 429 | 模型额度耗尽 | 改用预置课堂包；或换 provider；或降低 `DEFAULT_MODEL` 成本 |
 | 首页一直转圈 | 未配置模型 Key | 至少配置一个 `*_API_KEY`，或直接用预置课堂包 |
-| **页面文字正常但所有按钮点不动** | 构建形态与运行形态不匹配，客户端 chunk 500，React 未水合 | 构建与运行都要带 `EDGEONE=1`；用 §8 的 chunk 自检命令确认全部 200 |
+| **页面文字正常但所有按钮点不动** | 客户端 chunk 500 → React 未水合。常见原因：①构建与运行只在一侧配了 `EDGEONE=1`；②服务运行期间重建了产物 | 两侧都带 `EDGEONE=1`；重建后重启服务；跑 §8 的 `check:physics-e2e.mjs` 确认 chunk 全 200 |
 | 访问无口令保护 | 未配置 `ACCESS_CODE` | 配置后需重新验证 Cookie |
-| 本地 http 演示卡在口令弹窗 | 口令 Cookie 被标了 `Secure`，http 下浏览器不回传 | 本项目已按请求实际协议判定 `Secure`；若自行改过该路由，请核对 `app/api/access-code/verify/route.ts` |
+| 本地 http 演示卡在口令弹窗 | 口令 Cookie 带了 `Secure`，http 下浏览器不回传 | 本地自检时设 `ALLOW_INSECURE_ACCESS_COOKIE=1`（仅限 http://localhost 演示；生产一律带 `Secure`） |
 | 导出的 MP4 不可用 | 渲染服务未部署 | 预期行为：自动降级为导出项目 ZIP |
 
 ---
@@ -297,36 +303,60 @@ Vercel 作为灾备（EdgeOne 故障时切换）。
 ## 8. 提交前本地自检（建议每次部署前跑一遍）
 
 **构建形态必须与平台一致**，否则会出现"页面能打开、但所有按钮点不动"的假故障：
+客户端 chunk 返回 500 → React 不水合 → 所有 `onClick` 静默失效。
+
+### 8.1 一条命令的端到端自检
 
 ```bash
+# 1) 先构建（与平台同形态）
 export EDGEONE=1
 pnpm build:packages && pnpm build      # 产物中不应出现 .next/standalone
-node scripts/typecheck.mjs              # 退出码 0
+
+# 2) 启动（构建与运行都带 EDGEONE=1）
+EDGEONE=1 pnpm start -- -p 3434        # 或 ./node_modules/.bin/next start -p 3434
+
+# 3) 跑自检脚本（21 项）
+node scripts/check-physics-e2e.mjs --base-url http://127.0.0.1:3434
+# 配置了口令时再加上 --access-code，并让服务带 ALLOW_INSECURE_ACCESS_COOKIE=1
+```
+
+脚本检查的内容：
+
+| 检查项 | 通过条件 |
+| --- | --- |
+| 15 条关键路由 | HTTP 200，且首帧含校名与「正在加载工作台」水合安全标记 |
+| 客户端 chunk | 页面引用的**每一个** chunk 都是 200（52 个） |
+| 口令门禁 | 未授权 401、错误口令 401、正确口令放行、带 Cookie 会话生效 |
+| 模型降级前提 | 未配置模型 Key 时 provider 为空，生成路径优雅降级 |
+
+任何一项失败都是阻断项，退出码非 0。
+
+### 8.2 静态质量门槛
+
+```bash
+node scripts/typecheck.mjs              # 退出码 0（且会原样还原 next-env.d.ts）
 ./node_modules/.bin/eslint --quiet      # 退出码 0
 ./node_modules/.bin/vitest run tests/physics/   # 全绿
 node scripts/check-physics-domain-purity.mjs   # 分层门禁
-
-# 启动自检：启动日志里不应再出现 standalone 警告
-./node_modules/.bin/next start -p 3434
-
-# 静态资源自检：HTML 引用的每一个客户端 chunk 都必须是 200
-curl -s http://127.0.0.1:3434/teacher/evaluation \
-  | grep -o '/_next/static/chunks/[^"]*\.js' | sort -u \
-  | while read -r c; do curl -s -o /dev/null -w "%{http_code} $c\n" "http://127.0.0.1:3434$c"; done
 ```
 
-> 上述最后一条命令是本项目实测踩出来的：**某个 chunk 500 时，页面 SSR 文字完全正常，
-> 但 React 不会水合，于是所有 `onClick` 静默失效**——现场表现就是"点了没反应"。
-> 看到任何一个非 200 就说明构建形态与运行形态不匹配（见 §2.3 的说明）。
+### 8.3 口令门禁的本地形态
 
-**口入门禁自检**（`ACCESS_CODE` 生效时）：
+本地 `next start` 也是 `NODE_ENV=production`，口令 Cookie 会带 `Secure`，
+http 下浏览器不回传 → 一直卡在口令弹窗。本地演示请显式开：
 
 ```bash
-curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:3434/api/stages   # 期望 401
-# 授权后应放行（注意本地 http 下 Cookie 不带 Secure，浏览器可正常保存回传）
-curl -s -D - -o /dev/null -X POST -H 'Content-Type: application/json' \
-  -d '{"code":"<你的 ACCESS_CODE>"}' http://127.0.0.1:3434/api/access-code/verify
+ALLOW_INSECURE_ACCESS_COOKIE=1 EDGEONE=1 ./node_modules/.bin/next start -p 3434
 ```
+
+**生产环境绝对不要设置这个变量**——设了它，口令票据就能在明文 http 上传输。
+
+### 8.4 两条容易踩的坑
+
+1. **重建后要重启服务**。运行中的 `next start` 持有旧的 build-manifest，
+   `.next` 被就地重建后，它返回的 HTML 会引用磁盘上已不存在的 chunk → 500。
+2. **构建与运行要看到同一份环境变量**。只在一侧配 `EDGEONE=1` 时，
+   运行期会按 standalone 处理非 standalone 产物，同样表现为 chunk 500。
 
 ---
 

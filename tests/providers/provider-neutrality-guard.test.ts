@@ -153,7 +153,9 @@ const TEMPORARY_VENDOR_DEBT: readonly AllowedVendorDebt[] = [
     'Temporary: provider configuration is still a mixed catalog and resolver composition root.',
     [
       ['qwen', 25],
-      ['openai', 25],
+      // 25 + 2：新增的两处来自 Makers Models 统一网关适配
+      // （applyMakersModelsProvider 读写的 providers.openai）。
+      ['openai', 27],
       ['azure', 8],
       ['atlascloud', 2],
       ['anthropic', 2],

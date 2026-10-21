@@ -49,6 +49,9 @@ const eslintConfig = defineConfig([
     '.superpowers/**',
     '.worktrees/**',
     '.scratch/**',
+    // Local scratch directory (TMPDIR for sandboxed tooling, throwaway
+    // verification probes). Not part of the deliverable and not linted.
+    '.tmp/**',
     // Playwright e2e tests (not React code):
     'e2e/**',
     // Isolated MP4 render service: its own package, tsconfig, and Node-only

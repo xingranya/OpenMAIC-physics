@@ -59,6 +59,9 @@ This product is a derivative work of OpenMAIC, developed by THU-MAIC.
                           「先 dev 后 typecheck 必报假错误」。
   scripts/check-physics-domain-purity.mjs
                           物理域依赖分层门禁：纯领域层零 React / 零 DOM。
+  scripts/check-physics-e2e.mjs
+                          端到端自检：路由首帧水合安全性、客户端 chunk 全 200、
+                          口令门禁、模型降级前提（21 项）。
   next.config.ts          output 判定按构建期固化，避免运行期误判为 standalone
                           导致客户端 chunk 500、整站无法水合。
 

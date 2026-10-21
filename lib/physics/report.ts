@@ -5,6 +5,8 @@
  * 全部逻辑保持在纯函数层，不依赖 React，便于单元测试和未来扩展（PDF 模板、邮件等）。
  */
 import type { AppState, LabRecord, Project } from "./types"
+// 直连 identity（无依赖叶子模块），避免与 `lib/school` 桶文件形成循环依赖。
+import { BRAND_FULL_NAME, COURSE, DATA_DISCLAIMER, DEMO } from "@/lib/school/identity"
 
 export interface ReportInput {
   state: AppState
@@ -54,7 +56,7 @@ export function buildStudentReportMarkdown(input: ReportInput): string {
   const { state, project, summary } = input
   const now = input.generatedAt ?? new Date()
   const generatedAt = now.toLocaleString("zh-CN")
-  const student = state.student ?? { name: "陈思远" } as AppState["student"]
+  const student = state.student ?? ({ name: DEMO.studentName } as AppState["student"])
   const diagnosis = state.diagnosis
 
   const sections: MarkdownSection[] = []
@@ -62,11 +64,11 @@ export function buildStudentReportMarkdown(input: ReportInput): string {
   sections.push({
     heading: "封面",
     body: [
-      `> 大学物理 AI 智慧教学系统 · 大学物理学习报告`,
+      `> ${BRAND_FULL_NAME} · ${COURSE.name}学习报告`,
       ``,
       `**学生**：${safe(student?.name)}`,
-      `**班级**：物理学 2601 班`,
-      `**课程模块**：上学期力学模块`,
+      `**班级**：${COURSE.className}`,
+      `**课程模块**：上册 · 力学模块（${DATA_DISCLAIMER.syllabus}）`,
       `**报告生成时间**：${generatedAt}`,
     ].join("\n"),
   })
@@ -92,6 +94,8 @@ export function buildStudentReportMarkdown(input: ReportInput): string {
               ([dimension, value]) => `${dimension}：${value} 分`,
             ),
           ),
+          ``,
+          `> 诊断题目与维度取自校本题集，${DATA_DISCLAIMER.classRoster}；得分由本地规则引擎计算。`,
         ].join("\n")
       : "尚未完成 AI 学情诊断，报告基于已有任务与实验数据生成。",
   })

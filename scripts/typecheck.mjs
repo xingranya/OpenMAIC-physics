@@ -73,16 +73,21 @@ function main() {
     wrote = true;
   }
 
+  let status = 1;
   try {
     const tsc = join(ROOT, 'node_modules', '.bin', 'tsc');
     const result = spawnSync(tsc, ['--noEmit', '-p', 'tsconfig.typecheck.json'], {
       cwd: ROOT,
       stdio: 'inherit',
     });
-    process.exit(result.status ?? 1);
+    status = result.status ?? 1;
   } finally {
+    // 还原必须先于退出完成：`process.exit()` 不会执行 finally，
+    // 把退出语句写在这里会让"原样还原"成为空承诺，CI 上会留下被改写的
+    // next-env.d.ts（把构建产物引用换成了 dev 产物引用）。
     if (wrote) writeFileSync(ENV_D_TS, original, 'utf8');
   }
+  process.exit(status);
 }
 
 main();
