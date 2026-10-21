@@ -9,6 +9,8 @@ import { PINNED_PROVIDER_ID, PROVIDER_SIGNUP_LINKS, pickRegionalLink } from './p
 
 interface ProviderWithServerInfo extends ProviderConfig {
   isServerConfigured?: boolean;
+  /** 管理员在服务端强制停用了这个 provider（关闭优先于任何配置）。 */
+  serverDisabled?: boolean;
   apiKey?: string;
 }
 
@@ -41,8 +43,13 @@ export function ProviderList({
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex-1 space-y-1 overflow-y-auto p-1">
         {providers.map((provider) => {
+          // 被管理员停用的 provider 既不算"已配置"，也不能再让用户填 Key。
+          const serverDisabled = !!provider.serverDisabled;
           const configured =
-            !!provider.isServerConfigured || !!provider.apiKey || provider.requiresApiKey === false;
+            !serverDisabled &&
+            (!!provider.isServerConfigured ||
+              !!provider.apiKey ||
+              provider.requiresApiKey === false);
           const active = selectedProviderId === provider.id;
           // 推广位（如 Kimi）：常驻主色描边强调（选中态沿用更深的选中描边），
           // 行尾附获取 API key 的跳转（按界面语言分流国内/海外）。
@@ -93,7 +100,11 @@ export function ProviderList({
                   <span
                     className={cn(
                       'block truncate text-xs leading-tight',
-                      active ? 'font-medium text-foreground' : 'text-muted-foreground',
+                      serverDisabled
+                        ? 'text-muted-foreground/60 line-through'
+                        : active
+                          ? 'font-medium text-foreground'
+                          : 'text-muted-foreground',
                     )}
                   >
                     {getProviderDisplayName(provider)}
@@ -102,12 +113,18 @@ export function ProviderList({
                     <span
                       className={cn(
                         'size-1 rounded-full',
-                        configured ? 'bg-emerald-500' : 'bg-muted-foreground/40',
+                        serverDisabled
+                          ? 'bg-destructive/70'
+                          : configured
+                            ? 'bg-emerald-500'
+                            : 'bg-muted-foreground/40',
                       )}
                     />
-                    {configured
-                      ? t('settings.modelServices.configured')
-                      : t('settings.modelServices.notConfigured')}
+                    {serverDisabled
+                      ? t('settings.courseModels.stopped')
+                      : configured
+                        ? t('settings.modelServices.configured')
+                        : t('settings.modelServices.notConfigured')}
                   </span>
                 </span>
               </button>

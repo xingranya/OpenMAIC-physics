@@ -82,11 +82,13 @@ describe('LLM provider 的强制关闭开关', () => {
     expect(resolveApiKey('openai', 'sk-client')).toBe('');
   });
 
-  it('被关闭的 provider 不出现在客户端可选列表里', async () => {
+  it('被关闭的 provider 以 disabled 标记回传客户端（而不是被悄悄丢弃）', async () => {
+    // 丢弃它会让客户端把它当成"未托管"的 BYOK 项：用户填的 Key 被服务端静默
+    // 丢弃，最后只看到一个语焉不详的 401。
     yamlOverride = 'providers:\n  openai:\n    enabled: false\n';
     vi.stubEnv('OPENAI_API_KEY', 'sk-server');
     const { getServerProviders } = await import('@/lib/server/provider-config');
-    expect(getServerProviders().openai).toBeUndefined();
+    expect(getServerProviders().openai).toEqual({ disabled: true });
   });
 
   it('OPENAI_ENABLED=false 同样能关闭（EdgeOne 控制台只能配环境变量）', async () => {
@@ -94,7 +96,7 @@ describe('LLM provider 的强制关闭开关', () => {
     vi.stubEnv('OPENAI_ENABLED', 'false');
     const { resolveApiKey, getServerProviders } = await import('@/lib/server/provider-config');
     expect(resolveApiKey('openai', 'sk-client')).toBe('');
-    expect(getServerProviders().openai).toBeUndefined();
+    expect(getServerProviders().openai).toEqual({ disabled: true });
   });
 
   it('Makers 自动注入不会复活被关闭的 openai', async () => {
@@ -102,7 +104,7 @@ describe('LLM provider 的强制关闭开关', () => {
     vi.stubEnv('MAKERS_MODELS_KEY', 'mk-123');
     const { resolveApiKey, getServerProviders } = await import('@/lib/server/provider-config');
     expect(resolveApiKey('openai')).toBe('');
-    expect(getServerProviders().openai).toBeUndefined();
+    expect(getServerProviders().openai).toEqual({ disabled: true });
   });
 
   it('没有关闭开关时，Makers 的 Key 与内置模型正常生效', async () => {

@@ -45,6 +45,12 @@ export interface ProviderSettings {
   // deliberately NOT exposed to the client.
   isServerConfigured?: boolean; // Server manages this provider's credentials
   serverModels?: string[]; // Server-restricted model list (if set)
+  /**
+   * 管理员在服务端强制停用了这个 provider
+   * （`server-providers.yml` 的 `enabled: false` 或 `<PREFIX>_ENABLED=false`）。
+   * 关闭优先于任何配置：界面显灰、禁止填 Key，服务端也会直接报错。
+   */
+  serverDisabled?: boolean;
 
   /**
    * 授权层 per-provider 开关（模型服务/Token Plan = 授权管理；课程模型配置 =

@@ -10,6 +10,7 @@ import { getModel, getProvider, parseModelString, type ModelWithInfo } from '@/l
 import type { ProviderType, ThinkingConfig } from '@/lib/types/provider';
 import {
   isServerConfiguredProvider,
+  isLLMProviderDisabled,
   authorizeServerModel,
   resolveApiKey,
   resolveBaseUrl,
@@ -114,6 +115,15 @@ export async function resolveModel(params: {
   // re-validates redirect hops: no upstream can be assumed to redirect only to
   // public targets, so the hop target is checked regardless of who chose the
   // origin.
+  // A provider the operator force-disabled (server-providers.yml `enabled: false`
+  // or `<PREFIX>_ENABLED=false`) must fail loudly and specifically. Silently
+  // serving an empty key would surface as an opaque upstream 401, and the user
+  // would go hunting for a broken API key that never had a chance to work.
+  if (isLLMProviderDisabled(providerId)) {
+    throw new Error(
+      `Provider ${providerId} is disabled by the server operator and cannot be used.`,
+    );
+  }
   const managed = isServerConfiguredProvider('providers', providerId);
   authorizeServerModel('providers', providerId, modelId);
   const registeredProviderType = getProvider(providerId)?.type;

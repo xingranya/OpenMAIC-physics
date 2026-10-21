@@ -32,6 +32,13 @@ OpenMAIC `main` 分支（v1.2.0+）是 **server-first** 架构：课程生成在
 | 模型 Key | 至少一个 | 可选 MiniMax / DeepSeek / Kimi / Qwen / GLM / OpenAI 兼容 / Ollama 等；**没有也能演示**（见 §6） |
 | 腾讯云账号 | 需要 | EdgeOne Pages 控制台 |
 
+> **本地开发用哪个 Node？** 仓库的 `.nvmrc` 写的是 `22`——那是**本地开发的
+> 最低主线**，不是部署版本：OpenMAIC 要求 `node >= 22.19.0`，所以用 22 系列时
+> 请指定 22.19.0 及以上的补丁版本（如 22.20.0）。**部署到 EdgeOne 时控制台固定
+> 选 24.5.0**（平台只提供 22.11.0 / 22.17.1 / 24.5.0，前两个低于下限）。
+> `.nvmrc` 保持单行是有意的：`nvm` 不识别文件里的 `#` 注释，多行会让
+> `nvm use` 直接报 "version '22\n# …' is not yet installed"。
+
 ---
 
 ## 2. 部署步骤
@@ -107,12 +114,18 @@ cd OpenMAIC
 >
 > ⚠️ **构建与运行必须看到同一份环境变量。** Next 在运行期按 `output` 决定静态资源
 > 的文件系统检查策略：产物是非 standalone 形态、运行期却按 standalone 处理时，
-> 客户端 chunk 会直接 **500** → React 不水合 → **页面文字正常但所有按钮静默失效**。
+> 静态资源路由会异常，表现为**路由 404 或静态资源缺失**。
 > 本地两侧都要带 `EDGEONE=1`；平台侧控制台的环境变量两侧都有，天然一致。
 >
-> ⚠️ 另一条：**不要在服务运行期间重新构建**。运行中的 `next start` 持有旧的
-> build-manifest，一旦 `.next` 被就地重建，它返回的 HTML 会引用磁盘上已不存在的
-> chunk，同样表现为 chunk 500。重建后请重启服务。
+> ⚠️ 另一条、也是更隐蔽的一条：**不要在服务运行期间重新构建**。运行中的
+> `next start` 持有旧的 build-manifest，一旦 `.next` 被就地重建，它返回的 HTML
+> 会按旧 BUILD_ID 引用磁盘上已不存在的 chunk → chunk 拉不到 → React 不水合 →
+> **页面文字正常但所有按钮静默失效**。重建后请重启服务（核对步骤见 §8.0）。
+>
+> 这两条**症状不同、成因也不同**，排查时不要混为一谈：我们做过对照实验
+> （同一份产物、只改运行期判定值，standalone 与非 standalone 两种形态下
+> 51 个客户端 chunk 全部 200），所以"形态不一致 → chunk 500"并不成立；
+> 真正会打空按钮的是上面第二条。
 
 > **关于 `build:packages`**
 > 上游原脚本在 pnpm workspace 内部混用 `npm run build` 与 `pnpm run build`，
@@ -366,6 +379,7 @@ node scripts/typecheck.mjs              # 退出码 0（且会原样还原 next-
 ./node_modules/.bin/eslint --quiet      # 退出码 0
 ./node_modules/.bin/vitest run tests/physics/   # 全绿
 node scripts/check-physics-domain-purity.mjs   # 分层门禁
+node scripts/check-doc-metrics.mjs            # 参赛材料自引数字与实现一致
 ```
 
 模型供给自检（**在 EdgeOne 控制台拿到 Makers Key 之后跑**）：
@@ -389,12 +403,17 @@ ALLOW_INSECURE_ACCESS_COOKIE=1 EDGEONE=1 ./node_modules/.bin/next start -p 3434
 
 **生产环境绝对不要设置这个变量**——设了它，口令票据就能在明文 http 上传输。
 
-### 8.4 两条容易踩的坑
+### 8.4 两条容易踩的坑（症状不同，别混为一谈）
 
 1. **重建后要重启服务**。运行中的 `next start` 持有旧的 build-manifest，
-   `.next` 被就地重建后，它返回的 HTML 会引用磁盘上已不存在的 chunk → 500。
+   `.next` 被就地重建后，它返回的 HTML 会引用磁盘上已不存在的 chunk →
+   chunk 拉不到 → React 不水合 → **页面文字正常但所有按钮静默失效**。
+   识别办法：比对 BUILD_ID（§8.0），自检脚本已内建这一项。
 2. **构建与运行要看到同一份环境变量**。只在一侧配 `EDGEONE=1` 时，
-   运行期会按 standalone 处理非 standalone 产物，同样表现为 chunk 500。
+   运行期会按 standalone 处理非 standalone 产物，静态资源路由异常，
+   表现为**路由 404 或静态资源缺失**——不是 chunk 500。
+   （我们用对照实验确认过：同一份产物只改运行期判定值时，两种形态的
+   51 个客户端 chunk 全部 200。）
 
 ---
 

@@ -1748,7 +1748,7 @@ export const useSettingsStore = create<SettingsState>()(
             // capability section carries an optional `disabled` flag for
             // admin/server-level force-off (#665).
             const data = (await res.json()) as {
-              providers: Record<string, { models?: string[] }>;
+              providers: Record<string, { models?: string[]; disabled?: boolean }>;
               tts: Record<string, { disabled?: boolean }>;
               asr: Record<string, { disabled?: boolean }>;
               pdf: Record<string, Record<string, never>>;
@@ -1768,11 +1768,15 @@ export const useSettingsStore = create<SettingsState>()(
                   newProvidersConfig[key] = {
                     ...newProvidersConfig[key],
                     isServerConfigured: false,
+                    serverDisabled: false,
                     serverModels: undefined,
                   };
                 }
               }
-              // Set flags for server-configured providers
+              // Set flags for server-configured providers. A `disabled` entry is
+              // admin force-off (server precedence): it is NOT treated as
+              // managed/configured, and the client is told to grey it out
+              // instead of silently discarding whatever key the user types.
               for (const [pid, info] of Object.entries(data.providers)) {
                 const key = pid as ProviderId;
                 if (newProvidersConfig[key]) {
@@ -1801,11 +1805,13 @@ export const useSettingsStore = create<SettingsState>()(
                         return model ? { ...model, id, name: model.name || id } : { id, name: id };
                       })
                     : currentModels;
+                  const serverDisabled = info.disabled === true;
                   newProvidersConfig[key] = {
                     ...newProvidersConfig[key],
-                    isServerConfigured: true,
-                    serverModels: info.models,
-                    models: filteredModels,
+                    isServerConfigured: !serverDisabled,
+                    serverDisabled,
+                    serverModels: serverDisabled ? undefined : info.models,
+                    models: serverDisabled ? currentModels : filteredModels,
                   };
                 }
               }

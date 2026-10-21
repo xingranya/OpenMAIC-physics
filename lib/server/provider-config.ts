@@ -772,17 +772,28 @@ function resolveSectionBaseUrl(
  * base URL, which can reveal internal gateway/proxy infrastructure.
  *
  * 被运维显式关闭（`enabled: false` / `<PREFIX>_ENABLED=false`）的 provider
- * 不出现在这里——它已经不被本部署服务，不该出现在客户端的可选列表里。
+ * 仍然会出现在这里，但带 `disabled: true`：客户端据此显灰并阻止用户填 Key。
+ * 之前是直接把它从列表里剔除，结果客户端把它当成"未托管"的 BYOK 项——
+ * 用户填的 Key 会被服务端静默丢弃，最后只看到一个语焉不详的 401。
  */
-export function getServerProviders(): Record<string, { models?: string[] }> {
+export function getServerProviders(): Record<string, { models?: string[]; disabled?: boolean }> {
   const cfg = getConfig();
-  const result: Record<string, { models?: string[] }> = {};
+  const result: Record<string, { models?: string[]; disabled?: boolean }> = {};
   for (const [id, entry] of Object.entries(cfg.providers)) {
-    if (entry.enabled === false) continue;
+    if (entry.enabled === false) {
+      result[id] = { disabled: true };
+      continue;
+    }
     result[id] = {};
     if (entry.models && entry.models.length > 0) result[id].models = entry.models;
   }
   return result;
+}
+
+/** 运维是否显式停用了这个 LLM provider。 */
+export function isLLMProviderDisabled(providerId: string): boolean {
+  const entry = serverEntry('providers', providerId);
+  return entry?.enabled === false;
 }
 
 /** Resolve API key. Managed provider ⇒ server key; otherwise client key. */

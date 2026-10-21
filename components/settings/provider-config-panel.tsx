@@ -34,6 +34,7 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { useI18n } from '@/lib/hooks/use-i18n';
+import { getLLMProviderServerDisabledError } from '@/lib/llm/provider-enablement';
 import type { ProviderConfig } from '@/lib/ai/providers';
 import type { ProvidersConfig } from '@/lib/types/settings';
 import { createVerifyModelRequest, formatContextWindow } from './utils';
@@ -206,6 +207,10 @@ export function ProviderConfigPanel({
 
   const models = providersConfig[provider.id]?.models || [];
   const isServerConfigured = providersConfig[provider.id]?.isServerConfigured;
+  // 管理员在服务端强制停用了这个 provider：隐藏编辑入口，只留一句明确说明，
+  // 免得用户填了 Key 之后被服务端静默丢弃、最后只看到一个语焉不详的 401。
+  const serverDisabled = !!providersConfig[provider.id]?.serverDisabled;
+  const serverDisabledMessage = getLLMProviderServerDisabledError(providersConfig[provider.id]);
   // When the operator pins an allowed model list (MODELS env/yaml), the model
   // catalog is admin-managed too — view-only, no add/edit/delete. Without a
   // pinned list the server manages only credentials and the user curates models.
@@ -220,9 +225,17 @@ export function ProviderConfigPanel({
         </div>
       )}
 
+      {/* Server force-off notice: the operator disabled this provider outright. */}
+      {serverDisabled && serverDisabledMessage && (
+        <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+          {serverDisabledMessage}
+        </div>
+      )}
+
       {/* Managed providers are admin-owned: the operator's key and base URL are
-          authoritative and not overridable here, so the editing inputs are hidden. */}
-      {!isServerConfigured && (
+          authoritative and not overridable here, so the editing inputs are hidden.
+          A server-disabled provider is likewise not editable. */}
+      {!isServerConfigured && !serverDisabled && (
         <>
           {/* 推广位（如 Kimi）：获取 API key 的国内/海外双链接。 */}
           {signupLinks && (
