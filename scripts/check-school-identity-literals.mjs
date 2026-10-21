@@ -30,9 +30,24 @@
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
-import ts from 'typescript';
 
 const ROOT = process.cwd();
+
+/**
+ * 动态载入 TypeScript 编译器 API。
+ *
+ * `typescript` 是 devDependency（门禁属于开发期工具）。若在只装了生产依赖的
+ * 环境里跑这个脚本，要给出可读提示，而不是一段 ERR_MODULE_NOT_FOUND。
+ */
+const ts = await (async () => {
+  try {
+    return (await import('typescript')).default;
+  } catch {
+    console.error('[FAIL] 找不到 typescript —— 本门禁需要它来解析 AST（含 JSX 文本节点）。');
+    console.error('  请先执行 pnpm install（typescript 在 devDependencies 里）。');
+    process.exit(1);
+  }
+})();
 
 /**
  * 禁止出现在源码字符串里的词元（校名 / 学院 / 班级 / 师生）。
