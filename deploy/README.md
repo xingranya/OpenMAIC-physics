@@ -427,7 +427,20 @@ ALLOW_INSECURE_ACCESS_COOKIE=1 EDGEONE=1 ./node_modules/.bin/next start -p 3434
 | 启用了 `ACCESS_CODE` 的实例 | 口令已知且会留在 shell 历史里；也容易让人误以为线上就是这个口令 |
 | 占用同一端口的旧实例 | 新实例起不来，验证其实跑在老代码上 |
 
-清理方式（受限沙箱禁止 `kill` 时，请在普通终端执行）：
+仓库自带清理脚本（**默认 dry-run**，只列不动手；要真结束必须显式 `--yes`）：
+
+```bash
+# 1) 看看有哪些属于本仓库的残留进程
+node scripts/cleanup-local-dev.mjs
+
+# 2) 确认无误后结束（只处理 cwd 在本仓库内的 node 进程，不碰别的项目）
+node scripts/cleanup-local-dev.mjs --yes
+
+# 只处理某个端口
+node scripts/cleanup-local-dev.mjs --port 3540 --yes
+```
+
+手工清理的话：
 
 ```bash
 # 1) 看看有哪些 node 进程在监听端口
