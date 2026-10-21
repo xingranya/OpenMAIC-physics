@@ -8,6 +8,8 @@
  * brand (home hero, workspace rail, site header) keep one source of truth.
  */
 
+import { PLATFORM } from '@/lib/school/identity';
+
 export interface BrandConfig {
   /** Full product name (page titles, logo alt text). */
   productName: string;
@@ -23,10 +25,15 @@ export interface BrandConfig {
   themeColor: string;
 }
 
-/** The default brand: 长江大学文理学院 · 大学物理 AI 智慧课堂. */
+/**
+ * The default brand.
+ *
+ * 平台显示名不在这里另写一份——统一取 `lib/school/identity.ts` 的
+ * `PLATFORM`，避免"改了一处、另一处没改"的双真值来源。
+ */
 export const DEFAULT_BRAND: BrandConfig = {
-  productName: '大学物理 AI 智慧课堂',
-  shortName: '物理 AI 课堂',
+  productName: PLATFORM.systemName,
+  shortName: PLATFORM.systemShortName,
   logoSrc: '/brand/college-brand.png',
   logoHasWordmark: false,
   markSrc: '/brand/college-brand.png',

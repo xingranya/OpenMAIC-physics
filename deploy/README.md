@@ -124,7 +124,7 @@ cd OpenMAIC
 >
 > 这两条**症状不同、成因也不同**，排查时不要混为一谈：我们做过对照实验
 > （同一份产物、只改运行期判定值，standalone 与非 standalone 两种形态下
-> 51 个客户端 chunk 全部 200），所以"形态不一致 → chunk 500"并不成立；
+> 49 个客户端 chunk 全部 200），所以"形态不一致 → chunk 500"并不成立；
 > 真正会打空按钮的是上面第二条。
 
 > **关于 `build:packages`**
@@ -291,7 +291,7 @@ DEFAULT_MODEL=openai:@makers/deepseek-v4-flash
    ↓ 429 限额 / 无 key / 断网
 本地确定性引擎（工作台：诊断 / 匹配 / 闯关 / 实验 / 报告，全部离线可用）
    ↓
-预生成课程包（AI 课堂的"生成"环节：6 个物理章节，讲演页 + 测验 + 自包含交互仿真）
+预生成课程包（AI 课堂的"生成"环节：6 个物理章节，讲演页 + 测验，部分另含自包含交互仿真）
 ```
 
 后两档各管一段、互不替代：工作台没有模型也能完整跑；AI 课堂没有模型时，
@@ -356,7 +356,7 @@ pnpm build:packages && pnpm build      # 产物中不应出现 .next/standalone
 # 2) 启动（构建与运行都带 EDGEONE=1）；**必须重启，不能复用旧进程**
 EDGEONE=1 pnpm start -- -p 3434        # 或 ./node_modules/.bin/next start -p 3434
 
-# 3) 跑自检脚本（未启用口令 20 项 / 启用口令 23 项）
+# 3) 跑自检脚本（未启用口令 21 项 / 启用口令 24 项）
 node scripts/check-physics-e2e.mjs --base-url http://127.0.0.1:3434
 # 配置了口令时再加上 --access-code，并让服务带 ALLOW_INSECURE_ACCESS_COOKIE=1
 ```

@@ -10,21 +10,32 @@
  * 里极容易漏（值和 identity 里的完全一致，功能上没有任何异常），
  * 所以必须靠自动化检查拦。
  *
- * 扫描口径：
+ * 扫描口径（用 TypeScript AST，不做正则）：
  * - 只扫 `app/`、`components/`、`lib/` 下的 `.ts` / `.tsx`；
  * - `lib/school/` 是身份定义处本身，排除；
- * - 逐行剔除注释行（注释里的说明文字不算"出现在站上"）；
- * - 白名单：`scripts/`（校验脚本自身需要字面量）、`tests/`、`NOTICE` 等法务文本。
+ * - 覆盖四种字符串来源：
+ *   ① 字符串字面量 `'…'` / `"…"`；
+ *   ② 无插值模板字符串 `` `…` ``；
+ *   ③ 模板字符串的各段（含多行模板）；
+ *   ④ **JSX 文本节点**——React 组件里写死校名最自然的写法就是它，
+ *      只查引号字面量会完全看不见（第五轮复审实测漏报）；
+ * - 另加一条**拼接**检查：`'长江' + '大学'` 这类拼接也要命中；
+ * - 用 AST 的另一个好处：**注释天然不在字面量节点里**，
+ *   所以行尾注释里带引号的中文不会再被误判（第五轮复审 F 项误报）。
+ *
+ * 已知边界：`const a = '文理'; const b = '学院';` 这种跨变量的拼接
+ * 静态不可判定——刻意绕过检查不在本门禁的职责范围内。
  *
  * 用法：node scripts/check-school-identity-literals.mjs
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
+import ts from 'typescript';
 
 const ROOT = process.cwd();
 
 /**
- * 禁止出现在源码字符串里的字面量（校名 / 学院 / 班级 / 师生）。
+ * 禁止出现在源码字符串里的词元（校名 / 学院 / 班级 / 师生）。
  *
  * 用**词元**而不是完整词匹配：`长江大学文理学院` 只要写了 `长江` 就算命中，
  * 否则拼接写法（`'长江' + '大学文理学院'`）会绕过检查。
@@ -43,13 +54,19 @@ const FORBIDDEN = [
   { text: 'dunzhongwan', match: 'includes' },
 ];
 
+/**
+ * 词元白名单：某些合法的中文搭配会命中上面的词元（例如「长江流域」）。
+ * 命中白名单时该字面量整体放行。
+ */
+const ALLOWED_LITERAL_PATTERNS = [/长江(流域|大桥|三角洲|水温|水位|经济带)/];
+
 /** 扫描根目录（相对仓库根）。 */
 const SCAN_ROOTS = ['app', 'components', 'lib'];
 
 /** 排除路径前缀（相对仓库根）。 */
 const EXCLUDE_PREFIXES = ['lib/school'];
 
-/** 允许出现字面量的文件（法务文本、校验脚本等）。 */
+/** 允许出现字面量的文件（法务文本等）。 */
 const ALLOWED_FILES = ['NOTICE'];
 
 /** 把绝对路径转成仓库相对的正斜杠路径。 */
@@ -76,29 +93,94 @@ function collect(dir, extension, out = []) {
   return out;
 }
 
-/** 判断是不是注释行（含行尾注释的判定从简：只看行首）。 */
-function isCommentLine(line) {
-  const trimmed = line.trim();
-  return (
-    trimmed.startsWith('//') ||
-    trimmed.startsWith('*') ||
-    trimmed.startsWith('/*') ||
-    trimmed.startsWith('*/')
-  );
+/**
+ * 收集一个表达式里能静态确定的字符串片段。
+ *
+ * 支持：字符串字面量、无插值模板、模板各段、以及 `+` 拼接。
+ * 返回 null 表示这段表达式里有非静态部分（变量、函数调用……）。
+ */
+function staticStringOf(node, source) {
+  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+    return node.text;
+  }
+  if (ts.isTemplateExpression(node)) {
+    // 模板里只要有插值，就只能取各段的字面量部分（分段检查）。
+    return null;
+  }
+  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+    const left = staticStringOf(node.left, source);
+    const right = staticStringOf(node.right, source);
+    if (left === null || right === null) return null;
+    return left + right;
+  }
+  if (ts.isParenthesizedExpression(node)) {
+    return staticStringOf(node.expression, source);
+  }
+  return null;
 }
 
 /**
- * 从一行代码里抽出字符串字面量，避免把标识符 / 属性名误判。
- * 只处理单引号、双引号、反引号包裹的简单字面量。
+ * 扫描一个文件，返回违规记录。
+ *
+ * @returns {Array<{line:number, forbidden:string, literal:string}>}
  */
-function stringLiterals(line) {
-  const literals = [];
-  const pattern = /(['"`])((?:\\.|(?!\1)[^\\])*)\1/g;
-  let match;
-  while ((match = pattern.exec(line)) !== null) {
-    literals.push(match[2]);
-  }
-  return literals;
+function scanFile(file) {
+  const text = readFileSync(file, 'utf8');
+  const source = ts.createSourceFile(
+    file,
+    text,
+    ts.ScriptTarget.Latest,
+    true,
+    file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
+
+  const violations = [];
+  const seen = new Set();
+
+  const record = (literal, node) => {
+    if (!literal) return;
+    if (ALLOWED_LITERAL_PATTERNS.some((pattern) => pattern.test(literal))) return;
+    const line = source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
+    for (const rule of FORBIDDEN) {
+      const hit = rule.match === 'exact' ? literal === rule.text : literal.includes(rule.text);
+      if (!hit) continue;
+      const key = `${line}:${rule.text}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      violations.push({
+        line,
+        forbidden: rule.text,
+        literal: literal.length > 80 ? `${literal.slice(0, 77)}...` : literal,
+      });
+    }
+  };
+
+  const visit = (node) => {
+    // ① / ② 字符串字面量与无插值模板
+    if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+      record(node.text, node);
+    }
+    // ③ 模板字符串的各段（覆盖多行模板）
+    else if (ts.isTemplateHead(node) || ts.isTemplateMiddle(node) || ts.isTemplateTail(node)) {
+      record(node.text, node);
+    }
+    // ④ JSX 文本节点（React 里写死校名的最自然写法）
+    else if (ts.isJsxText(node)) {
+      const raw = node.getText(source);
+      // JSX 文本里的空白与实体要归一，否则 `{'\u3000'}` 之类会误判
+      const normalized = raw.replace(/&[a-z]+;|&#\d+;/gi, '').trim();
+      if (normalized) record(normalized, node);
+    }
+    // ⑤ `+` 拼接
+    else if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+      const joined = staticStringOf(node, source);
+      if (joined) record(joined, node);
+    }
+    ts.forEachChild(node, visit);
+  };
+
+  visit(source);
+  return violations;
 }
 
 const violations = [];
@@ -110,27 +192,9 @@ for (const scanRoot of SCAN_ROOTS) {
     if (ALLOWED_FILES.includes(repoPath)) continue;
     if (EXCLUDE_PREFIXES.some((prefix) => repoPath.startsWith(prefix))) continue;
 
-    const lines = readFileSync(file, 'utf8').split('\n');
-    lines.forEach((line, index) => {
-      if (isCommentLine(line)) return;
-      const literals = stringLiterals(line);
-      // 除了单个字面量，还检查"同一行所有字面量拼接后"的结果——
-      // 否则 `'长江' + '大学文理学院'` 这类拼接写法会绕过检查。
-      const candidates = literals.length > 1 ? [...literals, literals.join('')] : literals;
-      for (const literal of candidates) {
-        for (const rule of FORBIDDEN) {
-          const hit = rule.match === 'exact' ? literal === rule.text : literal.includes(rule.text);
-          if (hit) {
-            violations.push({
-              file: repoPath,
-              line: index + 1,
-              forbidden: rule.text,
-              literal: literal.length > 80 ? `${literal.slice(0, 77)}...` : literal,
-            });
-          }
-        }
-      }
-    });
+    for (const violation of scanFile(file)) {
+      violations.push({ file: repoPath, ...violation });
+    }
   }
 }
 
@@ -144,5 +208,5 @@ if (violations.length > 0) {
 }
 
 console.log(
-  `校本身份字面量检查通过：${SCAN_ROOTS.join(' / ')} 下未发现硬编码的校名 / 班级 / 师生字面量。`,
+  `校本身份字面量检查通过：${SCAN_ROOTS.join(' / ')} 下未发现硬编码的校名 / 班级 / 师生字面量（含 JSX 文本与模板字符串）。`,
 );

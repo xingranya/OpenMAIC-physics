@@ -1337,6 +1337,14 @@ export function useExportPPTX() {
   // 这里刻意调用 `decorateSlidesWithBrand`（与测试共用同一份实现）：
   // 早前测试自己手工拼了一遍装饰，于是"导出哪天不再调用装饰"这类回归
   // 完全测不出来——测试照样绿，产物却没了页眉。
+  //
+  // 注意：**共用实现本身并不足以守住这条接线**。`buildPptxBlob` 内部不做
+  // 装饰，所以若有人把下面这行换成 `slides`，只验"装饰后产物"的测试仍会
+  // 全绿。因此另有一条**源码级**护栏：
+  // `tests/physics/pptx-export-wiring.test.ts` 断言这里仍是
+  // `const brandedSlides = decorateSlidesWithBrand(slides, …)` 形态——
+  // 把装饰挪进 `buildPptxBlob` 会变成双重装饰（同一页两条页眉），
+  // 所以保持"hook 负责装饰、渲染器只负责渲染"的单点结构。
   const brandedSlides = decorateSlidesWithBrand(slides, {
     chapter: stage?.name,
     teacher: COURSE.teacher,

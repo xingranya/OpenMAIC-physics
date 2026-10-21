@@ -184,37 +184,55 @@ async function checkChunks() {
 }
 
 /**
- * 说明书自引的 chunk 数必须与实测一致。
+ * 材料里自引的 chunk 数必须与实测一致。
  *
  * 第四轮独立复审发现：说明书里写着「51 个客户端 chunk 全部 200」，
  * 而用本脚本实测是 49 —— 数字漂了但没人管。行数与用例数已经有门禁盯着，
  * chunk 数同样要有一处能自证的地方。
  *
+ * 第五轮复审补充：只查说明书会漏掉**部署手册**（那里也引用了同一个数字，
+ * 且一度与说明书不一致）。所以两处都要查，且都要是同一个数。
+ *
  * 注意 chunk 数随前端改动而变（新增/删除 chunk 都会动它），所以这是
  * "必须同步文档"的提醒项，而不是"必须等于某个常量"的断言。
  */
+const CHUNK_COUNT_DOCS = [
+  { label: '说明书', path: join(ROOT, 'docs', '参赛', '作品说明书.md') },
+  { label: '部署手册', path: join(ROOT, 'deploy', 'README.md') },
+];
+
 function checkDocChunkCount(actual) {
-  const docPath = join(ROOT, 'docs', '参赛', '作品说明书.md');
-  let source;
-  try {
-    source = readFileSync(docPath, 'utf8');
-  } catch {
-    record('说明书自引 chunk 数', true, '找不到说明书，跳过');
-    return;
+  for (const doc of CHUNK_COUNT_DOCS) {
+    let source;
+    try {
+      source = readFileSync(doc.path, 'utf8');
+    } catch {
+      record(`${doc.label}自引 chunk 数`, true, `找不到${doc.label}，跳过`);
+      continue;
+    }
+    // 取第一个出现的数字；同一份文档里若出现多个不同数字，下面会一并报出。
+    const matches = [...source.matchAll(/(\d+)\s*个客户端 chunk 全部 200/g)];
+    if (matches.length === 0) {
+      record(
+        `${doc.label}自引 chunk 数`,
+        false,
+        `${doc.label}里找不到「N 个客户端 chunk 全部 200」`,
+      );
+      continue;
+    }
+    const declared = Number(matches[0][1]);
+    const drifted = matches.map((m) => Number(m[1])).filter((n) => n !== declared);
+    const consistent = drifted.length === 0;
+    record(
+      `${doc.label}自引 chunk 数`,
+      declared === actual && consistent,
+      declared === actual && consistent
+        ? `${doc.label} ${declared} 个 / 实测 ${actual} 个，一致`
+        : `${doc.label}写 ${declared} 个${
+            consistent ? '' : `（同文另有 ${drifted.join(' / ')} 个）`
+          }，实测 ${actual} 个（请同步${doc.label}）`,
+    );
   }
-  const match = /(\d+)\s*个客户端 chunk 全部 200/.exec(source);
-  if (!match) {
-    record('说明书自引 chunk 数', false, '说明书里找不到「N 个客户端 chunk 全部 200」');
-    return;
-  }
-  const declared = Number(match[1]);
-  record(
-    '说明书自引 chunk 数',
-    declared === actual,
-    declared === actual
-      ? `说明书 ${declared} 个 / 实测 ${actual} 个，一致`
-      : `说明书写 ${declared} 个，实测 ${actual} 个（请同步 docs/参赛/作品说明书.md）`,
-  );
 }
 
 async function checkAccessCode() {

@@ -114,7 +114,7 @@
 > 若客户端 chunk 有任何一个非 200，React 不会水合，页面 SSR 文字完全正常，
 > 但**所有按钮静默失效**——现场就是"点了没反应"。
 
-- [ ] 跑一次自动化自检：`node scripts/check-physics-e2e.mjs --base-url <线上地址> [--access-code <口令>]` → **未启用口令 20 项 / 启用口令 23 项全通过**
+- [ ] 跑一次自动化自检：`node scripts/check-physics-e2e.mjs --base-url <线上地址> [--access-code <口令>]` → **未启用口令 21 项 / 启用口令 24 项全通过**
 - [ ] ⚠️ **BUILD_ID 一致性核对**（本地/自托管必做）：页面 HTML 引用的客户端 chunk
       与磁盘上的 `.next/BUILD_ID` 同源同版本。重建过产物却没重启服务时，
       旧 HTML 会引用已被删除的 chunk → 页面文字正常但按钮全哑。
@@ -132,7 +132,7 @@
 - [ ] 预置包的 **白板演算**能画出公式
 - [ ] 刷新页面**不会**被踢回登录页
 
-**一条命令跑完上面可自动化的部分**（路由 / chunk / BUILD_ID / 门禁 / 降级，共 20 项；启用口令时 23 项）：
+**一条命令跑完上面可自动化的部分**（路由 / chunk / BUILD_ID / 门禁 / 降级，共 21 项；启用口令时 24 项）：
 
 ```bash
 node scripts/check-physics-e2e.mjs --base-url <线上地址> --access-code "$ACCESS_CODE"

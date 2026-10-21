@@ -160,6 +160,16 @@ jobs:
       - name: Physics domain dependency layering
         run: pnpm check:physics-domain
 
+      # 校本身份字面量门禁：全站不得硬编码校名 / 班级 / 师生字面量，
+      # 一律经 lib/school/identity.ts 读取（用 TS AST 扫，含 JSX 文本）。
+      - name: School identity literals
+        run: pnpm check:school-identity
+
+      # 参赛材料自引数字门禁：说明书里写的行数 / 用例数 / 测试文件数
+      # 必须与实现实测一致，对不上就失败。
+      - name: Contest material self-referenced metrics
+        run: pnpm check:doc-metrics
+
       # Keep these sequential. Running root vitest alongside the storage
       # package on a 4-core runner made 5s-timeout tests flake (CPU
       # contention, not a product regression).

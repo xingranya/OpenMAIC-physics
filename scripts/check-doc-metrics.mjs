@@ -162,6 +162,23 @@ const source = readFileSync(DOC, 'utf8');
 const problems = [];
 const rows = [];
 
+/**
+ * 量测阶段出错时优雅退出，而不是抛一整段 stack trace。
+ *
+ * 门禁必须 **fail-closed**（退出码非 0），但失败原因要能一眼看懂：
+ * 「vitest 没装」和「数字对不上」是两种完全不同的问题。
+ */
+function measureSafely(metric) {
+  try {
+    return metric.measure();
+  } catch (error) {
+    console.error(`\n[FAIL] 无法实测「${metric.label}」：`);
+    console.error(`  ${error instanceof Error ? error.message : String(error)}`);
+    console.error('  本门禁 fail-closed：请先修好上面这个问题，再重跑。\n');
+    process.exit(1);
+  }
+}
+
 for (const metric of METRICS) {
   const match = metric.pattern.exec(source);
   if (!match) {
@@ -170,7 +187,7 @@ for (const metric of METRICS) {
   }
   // 表格里的数字用窄空格（U+202F）或普通空格分隔，这里统一去掉所有空白。
   const declared = Number(match[1].replace(/[\s\u202f\u00a0]/g, ''));
-  const actual = metric.measure();
+  const actual = measureSafely(metric);
   rows.push({ label: metric.label, declared, actual, unit: metric.unit ?? '行' });
   if (declared !== actual) {
     problems.push(
