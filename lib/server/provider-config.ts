@@ -532,6 +532,7 @@ function applyBedrockProviderConfig(
  */
 function applyMakersModelsProvider(
   providers: Record<string, ServerProviderEntry>,
+  disabled: ReadonlySet<string>,
 ): Record<string, ServerProviderEntry> {
   const makers = readMakersModelsConfig();
   if (!makers) return providers;
@@ -540,7 +541,7 @@ function applyMakersModelsProvider(
   // 运维自备 OpenAI 密钥：Makers 不接管。
   if (existing?.apiKey) return providers;
   // 运维显式关闭了 openai：Makers 不得把它重新打开。
-  if (existing?.enabled === false) return providers;
+  if (disabled.has('openai')) return providers;
 
   providers.openai = {
     ...existing,
@@ -552,7 +553,7 @@ function applyMakersModelsProvider(
 }
 
 /**
- * LLM provider 的运维侧强制关闭开关。
+ * 收集运维侧显式关闭的 LLM provider。
  *
  * 上游原本只对**能力段**（tts / asr / image / video / webSearch）支持
  * `providers.<id>.enabled: false`，LLM 段并没有这个开关。但 EdgeOne 场景下
@@ -564,16 +565,11 @@ function applyMakersModelsProvider(
  *  2. **环境变量**：`<PREFIX>_ENABLED=false`（例如 `OPENAI_ENABLED=false`）。
  *     EdgeOne Pages 的控制台只能配环境变量，这一层才是现场真正用得上的。
  *
- * 语义与能力段一致：关闭优先于任何配置，被关掉的 provider 既不会拿到密钥，
- * 也不会出现在客户端可选列表里；Makers 的自动注入也不会把它复活。
- *
- * @param wipe true = 连同已解析出的凭据一起清空（关闭后不允许任何密钥生效）
+ * 语义与能力段一致：关闭优先于任何配置。
  */
-function applyLlmProviderDisableSwitches(
-  providers: Record<string, ServerProviderEntry>,
+function collectDisabledLlmProviders(
   yamlSection: Record<string, Partial<ServerProviderEntry>> | undefined,
-  { wipe = false }: { wipe?: boolean } = {},
-): Record<string, ServerProviderEntry> {
+): Set<string> {
   const disabled = new Set<string>();
 
   if (yamlSection) {
@@ -588,7 +584,19 @@ function applyLlmProviderDisableSwitches(
     if (parseBooleanEnv(raw)) disabled.delete(providerId);
     else disabled.add(providerId);
   }
+  return disabled;
+}
 
+/**
+ * 把被关闭的 LLM provider 从可用集合里摘掉。
+ *
+ * @param wipe true = 连同已解析出的凭据一起清空（关闭后不允许任何密钥生效）
+ */
+function applyLlmProviderDisableSwitches(
+  providers: Record<string, ServerProviderEntry>,
+  disabled: ReadonlySet<string>,
+  { wipe = false }: { wipe?: boolean } = {},
+): Record<string, ServerProviderEntry> {
   for (const id of disabled) {
     const existing = providers[id];
     providers[id] = {
@@ -610,22 +618,24 @@ function buildConfig(yamlData: YamlData): ServerConfig {
     yamlData.image,
   );
   // LLM provider 的运维侧关闭开关要跑**两遍**：
-  //  1. 先标记（保留已解析出的凭据），让 Makers 适配层看得见 `enabled:false`，
+  //  1. 先标记（保留已解析出的凭据），让 Makers 适配层看得见"这个 provider 被关了"，
   //     从而不会把运维明确关掉的 provider 重新打开；
   //  2. 再清空凭据，保证关掉之后任何密钥都不再生效。
+  const disabledLlm = collectDisabledLlmProviders(yamlData.providers);
   const providers = applyLlmProviderDisableSwitches(
-    applyLlmProviderDisableSwitches(
-      applyMakersModelsProvider(
-        applyBedrockProviderConfig(
+    applyMakersModelsProvider(
+      applyBedrockProviderConfig(
+        applyLlmProviderDisableSwitches(
           loadEnvSection(LLM_ENV_MAP, yamlData.providers, {
             keylessProviders: new Set(['ollama', 'lemonade', BEDROCK_PROVIDER_ID]),
           }),
-          yamlData.providers,
+          disabledLlm,
         ),
+        yamlData.providers,
       ),
-      yamlData.providers,
+      disabledLlm,
     ),
-    yamlData.providers,
+    disabledLlm,
     { wipe: true },
   );
 
