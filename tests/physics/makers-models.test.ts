@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  AI_GATEWAY_API_KEY_ENV,
+  AI_GATEWAY_BASE_URL_ENV,
   MAKERS_MODELS_BASE_URL,
   MAKERS_MODELS_BUILTIN_MODEL,
   MAKERS_MODELS_KEY_ENV,
@@ -24,6 +26,40 @@ describe('EdgeOne Makers Models 统一网关适配', () => {
     const config = readMakersModelsConfig({ [MAKERS_MODELS_KEY_ENV]: 'mk-123' });
     expect(config?.apiKey).toBe('mk-123');
     expect(config?.baseUrl).toBe(MAKERS_MODELS_BASE_URL);
+  });
+
+  it('平台模板部署注入的 AI_GATEWAY_API_KEY 也能启用（官方文档 132759）', () => {
+    const config = readMakersModelsConfig({ [AI_GATEWAY_API_KEY_ENV]: 'gw-123' });
+    expect(config?.apiKey).toBe('gw-123');
+    expect(config?.baseUrl).toBe(MAKERS_MODELS_BASE_URL);
+    expect(resolveMakersDefaultModel({ [AI_GATEWAY_API_KEY_ENV]: 'gw-123' })).toBe(
+      `openai:${MAKERS_MODELS_BUILTIN_MODEL}`,
+    );
+  });
+
+  it('原生变量名优先于模板注入的 AI_GATEWAY_API_KEY', () => {
+    const config = readMakersModelsConfig({
+      [MAKERS_MODELS_KEY_ENV]: 'mk-123',
+      [AI_GATEWAY_API_KEY_ENV]: 'gw-123',
+    });
+    expect(config?.apiKey).toBe('mk-123');
+  });
+
+  it('AI_GATEWAY_BASE_URL 覆盖统一端点，但不超过 OPENAI_BASE_URL', () => {
+    expect(
+      readMakersModelsConfig({
+        [MAKERS_MODELS_KEY_ENV]: 'mk-123',
+        [AI_GATEWAY_BASE_URL_ENV]: 'https://gw.internal/v1',
+      })?.baseUrl,
+    ).toBe('https://gw.internal/v1');
+
+    expect(
+      readMakersModelsConfig({
+        [MAKERS_MODELS_KEY_ENV]: 'mk-123',
+        [AI_GATEWAY_BASE_URL_ENV]: 'https://gw.internal/v1',
+        OPENAI_BASE_URL: 'https://explicit.internal/v1',
+      })?.baseUrl,
+    ).toBe('https://explicit.internal/v1');
   });
 
   it('显式 baseUrl 优先于官方统一端点', () => {

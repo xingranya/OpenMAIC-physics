@@ -3,6 +3,7 @@
  *
  * 官方文档：https://cloud.tencent.com/document/product/1552/132748
  * 配额文档：https://cloud.tencent.com/document/product/1552/132789
+ * 模板部署注入的环境变量：https://cloud.tencent.com/document/product/1552/132759
  *
  * Makers Models 是部署在 EdgeOne 边缘节点的统一模型接入服务，对外暴露
  * OpenAI 兼容协议：
@@ -24,6 +25,22 @@ export const MAKERS_MODELS_BASE_URL = 'https://ai-gateway.edgeone.link/v1';
 
 /** EdgeOne 控制台签发的 Makers API Key 环境变量名。 */
 export const MAKERS_MODELS_KEY_ENV = 'MAKERS_MODELS_KEY';
+
+/**
+ * 平台「模板部署」自动注入的网关鉴权 Key 变量名。
+ *
+ * 官方文档 132759 明确：使用模板部署时平台会自动注入
+ * `AI_GATEWAY_API_KEY` 与 `AI_GATEWAY_BASE_URL`（默认 `https://ai-gateway.edgeone.link/v1`），
+ * 业务代码通过 `context.env` 读取即可。
+ *
+ * 直接上传（CLI deploy）不会注入这两个变量，Key 由运维在控制台配成
+ * `MAKERS_MODELS_KEY`。两种入口都要能跑，所以这里**两个名字都认**，
+ * 原生变量名优先。
+ */
+export const AI_GATEWAY_API_KEY_ENV = 'AI_GATEWAY_API_KEY';
+
+/** 平台模板部署注入的网关地址变量名（与上面的 Key 配套）。 */
+export const AI_GATEWAY_BASE_URL_ENV = 'AI_GATEWAY_BASE_URL';
 
 /** 可选的模型白名单环境变量名（逗号分隔）。 */
 export const MAKERS_MODELS_ENV = 'MAKERS_MODELS';
@@ -62,9 +79,10 @@ export interface MakersModelsConfig {
  * 读取 Makers Models 接入参数。
  *
  * 优先级：
- *  - Key：`MAKERS_MODELS_KEY`（EdgeOne 原生变量名）。
+ *  - Key：`MAKERS_MODELS_KEY`（EdgeOne 原生变量名）优先，
+ *    其次 `AI_GATEWAY_API_KEY`（平台模板部署注入的变量名，见 132759）。
  *    若运维同时显式配置了 `OPENAI_API_KEY`，交由调用方决定，本函数不越权覆盖。
- *  - 端点：`OPENAI_BASE_URL` 优先，其次退回 Makers 统一网关。
+ *  - 端点：`OPENAI_BASE_URL` → `AI_GATEWAY_BASE_URL` → Makers 统一网关默认端点。
  *  - 模型白名单：`OPENAI_MODELS` 优先，其次 `MAKERS_MODELS`；
  *    两者都没配时回落到官方内置模型，保证"只配 Key"也能跑通。
  *
@@ -73,7 +91,8 @@ export interface MakersModelsConfig {
 export function readMakersModelsConfig(
   env: Record<string, string | undefined> = process.env,
 ): MakersModelsConfig | undefined {
-  const apiKey = env[MAKERS_MODELS_KEY_ENV]?.trim();
+  // Key：原生变量名优先，其次是平台模板部署注入的 AI_GATEWAY_API_KEY。
+  const apiKey = env[MAKERS_MODELS_KEY_ENV]?.trim() || env[AI_GATEWAY_API_KEY_ENV]?.trim();
   if (!apiKey) return undefined;
 
   const models = (env.OPENAI_MODELS ?? env[MAKERS_MODELS_ENV] ?? '')
@@ -85,7 +104,8 @@ export function readMakersModelsConfig(
 
   return {
     apiKey,
-    baseUrl: env.OPENAI_BASE_URL?.trim() || MAKERS_MODELS_BASE_URL,
+    baseUrl:
+      env.OPENAI_BASE_URL?.trim() || env[AI_GATEWAY_BASE_URL_ENV]?.trim() || MAKERS_MODELS_BASE_URL,
     models: effectiveModels,
     defaultModel: `${MAKERS_MODELS_PROVIDER_ID}:${effectiveModels[0]}`,
   };
