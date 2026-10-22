@@ -26,6 +26,7 @@
     "check:doc-metrics": "node scripts/check-doc-metrics.mjs",
     "check:school-identity": "node scripts/check-school-identity-literals.mjs",
     "check:mock-factory-exports": "node scripts/check-mock-factory-exports.mjs",
+    "check:test-baseline": "node scripts/check-test-baseline.mjs",
     "cleanup:local-dev": "node scripts/cleanup-local-dev.mjs",
     "preflight:demo": "node scripts/preflight-demo.mjs",
     "check:makers-models": "node scripts/check-makers-models.mjs",
