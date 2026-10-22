@@ -113,7 +113,7 @@ edgeone makers deploy .tmp/edgeone-stage -n <项目名> -e production --area glo
 | `edgeone whoami` | 账号 100043806721 / APPID 1374239834（登录态可用） |
 | `edgeone makers deploy -n physics-ai-classroom -e preview` | 报错：需先创建 production 部署 |
 | `edgeone makers deploy -n physics-ai-classroom -e production` | 报错：`pnpm install` 失败——corepack 缓存里没有 `pnpm@10.28.0`（`ENOENT: stat ~/.cache/node/corepack/v1/pnpm/10.28.0`） |
-| `node scripts/deploy-edgeone.mjs` | **部署成功**：`https://physics-ai-classroom-kchmficm.edgeone.cool`，部署 ID `dpq39pdntzqq`，函数包 116.5 MiB（上限 128 MiB） |
+| `node scripts/deploy-edgeone.mjs` | **部署成功**：`https://physics-ai-classroom-kchmficm.edgeone.cool`，部署 ID `dpj9dfq4v6mv`，函数包 116.5 MiB（上限 128 MiB） |
 | 线上静态页（`/physics/overview` 等 SSG 路由） | HTTP 200，首屏标题「大学物理 AI 智慧课堂 · 长江大学文理学院」 |
 | 线上动态路由（`/api/health`、`/physics/overview`、`/teacher/dashboard` 等 SSR 路由） | **HTTP 200**（修复前是 502 / 500），根因与修法见 §8.1e；线上自检 `node scripts/check-physics-e2e.mjs --base-url <地址> --access-code <码>` **24 / 24 通过** |
 
@@ -546,7 +546,7 @@ node scripts/prune-edgeone-function.mjs --yes      # 真执行
 
 > **体积口径**：`116.5 MiB` 是**按文件字节求和**（脚本里的 `dirSize`），
 > 与平台「解包后体积」的判定口径不完全等同——同一目录用 `du -sk` 量是 **140 MiB**
-> （块对齐会更大）。本项目按 116.5 MiB 部署**被平台接受**（部署 ID `dpq39pdntzqq`），
+> （块对齐会更大）。本项目按 116.5 MiB 部署**被平台接受**（部署 ID `dpj9dfq4v6mv`），
 > 说明平台的判定口径与文件字节求和一致或更宽松。
 
 ### 8.1e 云函数依赖为什么必须改名成 `deps`（**线上 5xx 的真正根因**）
