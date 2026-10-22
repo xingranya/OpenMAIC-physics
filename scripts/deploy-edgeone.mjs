@@ -36,7 +36,7 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { join } from 'node:path';
+import path, { join } from 'node:path';
 
 const ROOT = process.cwd();
 const EDGEONE_DIR = join(ROOT, '.edgeone');
@@ -49,12 +49,77 @@ const SKIP_BUILD = process.argv.includes('--skip-build');
 /** 函数包体积上限（EdgeOne 平台对 Cloud SSR Node 函数的硬限制）。 */
 const LIMIT_MIB = 128;
 
+/**
+ * 干净的环境变量白名单。
+ *
+ * **为什么必须净化**：EdgeOne CLI 在编译 edge 函数（也就是 Next 的 middleware）
+ * 时，会把**当前进程的 env 整体内联**进产物。实测一次部署内联了 79 个变量，
+ * 里面既有本机的 PATH / HOME / PWD，也有 `WEKNORA_API_KEY`、
+ * `ALIBABA_CLOUD_YUNXIAO_ACCESS_TOKEN` 这类**真实凭据**。
+ *
+ * 这不只是泄露风险：macOS 专有的环境变量（`XPC_*`、`MACH_PORT_*` 等）被塞进
+ * 边缘运行时后，edge 函数在平台上**加载即崩**，所有经过中间件的路由都会
+ * 返回 502（`CLOUD_FUNCTION_INVOCATION_FAILED`）；而静态页由平台的 filesystem
+ * handler 直接服务、不经函数，所以呈现出「静态页 200、动态页 502」的怪现象。
+ *
+ * 所以这里只透传构建真正需要的变量，其余一律不带。平台侧的运行时环境变量
+ * （ACCESS_CODE / EDGEONE / DEFAULT_MODEL）由 `edgeone makers env set` 写在
+ * 平台环境里，与本地进程无关。
+ */
+const CLEAN_ENV_KEYS = [
+  'PATH',
+  'HOME',
+  'USER',
+  'SHELL',
+  'LANG',
+  'LC_ALL',
+  'TMPDIR',
+  'TERM',
+  'npm_config_store_dir',
+  'npm_config_package_import_method',
+  'npm_config_registry',
+  'npm_config_user_config',
+  'PNPM_HOME',
+];
+
+/** 构造一份净化后的环境变量。 */
+function cleanEnv(extra = {}) {
+  const env = {};
+  for (const key of CLEAN_ENV_KEYS) {
+    if (process.env[key] !== undefined) env[key] = process.env[key];
+  }
+  // PATH 也要收窄：构建只需要 node、pnpm shim、edgeone CLI 和系统基础目录，
+  // 不收窄的话本机的各种个人工具目录（~/.bun/bin、~/.cargo/bin…）会被写进产物。
+  const keepDirs = (process.env.PATH || '')
+    .split(':')
+    .filter((dir) => dir && (/\/\.tmp\/bin$/.test(dir) || /\/node_modules\/\.bin$/.test(dir)));
+  // edgeone CLI 自己所在目录也要留着，否则子进程根本起不来。
+  for (const dir of (process.env.PATH || '').split(':')) {
+    if (!dir) continue;
+    try {
+      if (existsSync(join(dir, 'edgeone'))) {
+        keepDirs.push(dir);
+        break;
+      }
+    } catch {
+      /* 忽略不可读目录 */
+    }
+  }
+  env.PATH = [
+    ...new Set([...keepDirs, path.dirname(process.execPath), '/usr/local/bin', '/usr/bin', '/bin']),
+  ].join(':');
+  env.SHELL = env.SHELL || '/bin/bash';
+  env.LANG = env.LANG || 'en_US.UTF-8';
+  env.CI = 'true';
+  return { ...env, ...extra };
+}
+
 function run(command, args, options = {}) {
   console.log(`\n$ ${command} ${args.join(' ')}`);
   const result = spawnSync(command, args, {
     cwd: options.cwd || ROOT,
     stdio: 'inherit',
-    env: { ...process.env, ...(options.env || {}) },
+    env: cleanEnv(options.env || {}),
   });
   if (result.status !== 0) {
     throw new Error(`命令失败（退出码 ${result.status}）：${command} ${args.join(' ')}`);
@@ -122,6 +187,53 @@ if (!SKIP_BUILD) {
 
 if (!existsSync(EDGEONE_DIR)) {
   throw new Error(`没有构建产物：${EDGEONE_DIR}`);
+}
+
+/**
+ * 产物泄露门禁：CLI 编译 edge 函数时会把当前进程的 env 内联进产物。
+ * 这里确认**没有**把本机路径与本机凭据带进去；带进去了既泄露凭据，
+ * 又会因为 macOS 专有环境变量让边缘函数在平台上加载即崩。
+ */
+const edgeBundle = join(EDGEONE_DIR, 'edge-functions', 'index.js');
+if (existsSync(edgeBundle)) {
+  const bundle = readFileSync(edgeBundle, 'utf8');
+  const problems = [];
+
+  // (1) 产物里内联的环境变量名必须在白名单内。
+  //     白名单 = 构建机必需的那几个 + 平台侧下发的部署相关变量。
+  const allowed = new Set([
+    ...CLEAN_ENV_KEYS,
+    'ACCESS_CODE',
+    'EDGEONE',
+    'DEFAULT_MODEL',
+    'EDGEONE_PROJECT_ID',
+    'PAGES_PROJECT_ID',
+  ]);
+  const bundledNames = [
+    ...new Set([...bundle.matchAll(/"([A-Z][A-Z0-9_]{2,})":/g)].map((m) => m[1])),
+  ];
+  const unexpected = bundledNames.filter((name) => !allowed.has(name));
+  if (unexpected.length > 0) {
+    problems.push(`白名单外的环境变量 ${unexpected.join('、')}`);
+  }
+
+  // (2) 本机凭据的取值不能出现在产物里。
+  for (const key of Object.keys(process.env)) {
+    if (!/KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL/i.test(key)) continue;
+    const value = process.env[key];
+    if (!value || value.length < 12) continue;
+    if (bundle.includes(value)) problems.push(`环境变量 ${key} 的取值`);
+  }
+
+  if (problems.length > 0) {
+    throw new Error(
+      `构建产物把本机环境内联进了 edge 函数（${problems.join('、')}）。` +
+        '请检查部署脚本是否走了净化环境（scripts/deploy-edgeone.mjs 的 cleanEnv）。',
+    );
+  }
+  console.log(
+    `[deploy-edgeone] 产物泄露门禁通过：edge 函数只内联了 ${bundledNames.length} 个白名单变量`,
+  );
 }
 
 // ---------------------------------------------------------------- 2. 裁剪
