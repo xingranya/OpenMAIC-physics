@@ -386,6 +386,20 @@ node scripts/check-physics-e2e.mjs --base-url http://127.0.0.1:3434
 
 任何一项失败都是阻断项，退出码非 0。
 
+### 8.1b 上游 mock 工厂导出面门禁
+
+```bash
+node scripts/check-mock-factory-exports.mjs
+```
+
+本分支给某个模块**新增导出**时，如果仓库里有测试用**固定形状**的
+`vi.mock('…', () => ({ … }))` 工厂 mock 它，那个工厂必须一并补上新导出——
+否则 vitest 会抛 `No "X" export is defined on the mock`，把那个测试从绿变红。
+
+这类问题极难靠人眼发现（类型检查不报错、局部跑测试也不报错，只有跑全量才炸），
+所以做成了门禁并接进 CI。判��只看**本分支相对上游基线新增**的导出，
+上游遗留的差异不归本分支管。
+
 ### 8.2 静态质量门槛
 
 ```bash

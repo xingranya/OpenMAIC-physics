@@ -179,6 +179,13 @@ jobs:
       - name: Contest material self-referenced metrics
         run: pnpm check:doc-metrics
 
+      # 上游 mock 工厂导出面门禁：本分支给模块新增导出时，固定形状的
+      # vi.mock 工厂必须一并补上——否则 vitest 抛
+      # `No "X" export is defined on the mock`，把上游测试从绿变红，
+      # 而 CI 的 pnpm test 跑全量且无 continue-on-error → 交付分支 CI 变红。
+      - name: Upstream mock factory export surface
+        run: pnpm check:mock-factory-exports
+
       # Keep these sequential. Running root vitest alongside the storage
       # package on a 4-core runner made 5s-timeout tests flake (CPU
       # contention, not a product regression).

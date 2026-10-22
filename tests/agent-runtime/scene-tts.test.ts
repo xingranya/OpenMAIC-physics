@@ -7,6 +7,11 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/server/provider-config', () => ({
+  // 该 mock 工厂是**固定形状**的：被 mock 模块新增导出时必须一并补上，
+  // 否则 vitest 会抛 `No "isLLMProviderDisabled" export is defined on the mock`，
+  // 把这个上游测试从绿变红（见 scripts/check-mock-factory-exports.mjs）。
+  // 语义：该 LLM provider 未被运维停用。
+  isLLMProviderDisabled: () => false,
   getServerTTSProviders: mocks.providers,
   isServerConfiguredProvider: vi.fn(() => true),
   resolveTTSApiKey: vi.fn(() => ''),
