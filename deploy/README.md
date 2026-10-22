@@ -694,7 +694,7 @@ Cookie 形态：<毫秒时间戳>.<HMAC-SHA256(时间戳, ACCESS_CODE) 的小写
 | --- | --- | --- | --- |
 | **函数运行时版本** | **Nodejs20.19**，由平台固定，改不动 | 控制台「项目设置 → Node.js 版本」与 `edgeone.json` 的 `nodeVersion` 都设成 `24.5.0`，构建日志也确实是 `v24.5.0`，但函数运行时仍显示 `Nodejs20.19` | 产物里的 `engines.node` 应当**匹配平台实际提供的运行时**。仓库 `package.json` 写的是上游要求的 `>=22.19.0`，平台上没有满足它的运行时，平台可能在拉起阶段直接拒收。本项目把**产物副本**放宽到 `>=20.19.0`（仓库里的不动）。⚠️ 注意：仓库里 `@earendil-works/pi-ai` / `pi-agent-core` 自报 `>=22.19.0`、`svg-pathdata` 自报 `>=22.16.0`，在 Node 20.19 上属**未声明支持**，涉及 AI 助教与导出路径时需留意 |
 | **云函数包体积** | 解包后 ≤ **128 MiB** | 直接 deploy 是 295.1 MiB，裁剪+拍平+依赖实体化后 116.5 MiB | 超限平台拒收（错误码 30），见 §8.1d / §8.1e |
-| **函数地域** | 默认**保留**中国大陆节点（广州） | `edgeone.json` 的 `cloudFunctions.regions.overseas` 只会**新增**海外节点，`mainland: []` 不会移除广州 | 实际部署地域看部署 MetaData 的 `actualRegions`：写了海外仍是 `{mainland: ap-guangzhou, overseas: ap-singapore}`；要去掉大陆节点需在控制台「项目设置 → 函数管理 → 函数地域」里改 |
+| **函数地域** | 中国站账号下**必须保留 1 个大陆地域** | `edgeone.json` 的 `cloudFunctions.regions.overseas` 只会**新增**海外节点；`mainland: []` 会被平台改写 | 部署 MetaData 的 `actualRegions` 恒为 `{mainland: ap-guangzhou, overseas: ap-singapore}`，而 `conf.cloudFunctions.regions` 里确实是 `{"mainland": []}` —— **配置到了，平台改写**（详见 §8.1f-1） |
 | **预设域名访问保护** | `*.edgeone.cool` 需带 `eo_token` | 仓库里没有这个概念 | 不带令牌的请求会拿到**平台自己的 401 页面**（不是应用的 401）；CLI 部署成功时打印的地址带 `?eo_token=…&eo_time=…`，绑定自定义域名后不再需要 |
 
 **⇒ 产物 `engines.node` 为什么必须改**：仓库 `package.json` 写的是上游 OpenMAIC 的
@@ -707,6 +707,33 @@ Cookie 形态：<毫秒时间戳>.<HMAC-SHA256(时间戳, ACCESS_CODE) 的小写
 `[ssr-node] framework server listening`（说明函数**起来了**，内存占用 ~17MB），
 真正的报错是 `Cannot find module 'next/dist/server/lib/start-server.js'`
 —— 根因是**平台不物化符号链接**，见 §8.1e。
+
+### 8.1f-1 「加速区域」与「函数地域」是两件事（都实测过，别混）
+
+这是本项目在「不要中国大陆节点」这件事上绕得最久的一处认知偏差，结论如下：
+
+| 概念 | 平台字段 | 本项目现状 | 说明 |
+| --- | --- | --- | --- |
+| **加速区域**（静态资源/产品域） | 项目 `Area` | **`"global"`** ✔ | 「全球可用区（不含中国大陆）」——**已经满足**。CLI 建项目时固定发 `CreatePagesProject {Area:"global"}`，仓库里改不了 |
+| **函数地域**（SCF 部署节点） | 部署 MetaData 的 `actualRegions` | `{mainland: ap-guangzhou, overseas: ap-singapore}` | `ap-guangzhou` 是**中国站账号**下的 SCF 默认落点，与 `Area` 无关 |
+
+**实测证据链**：
+
+1. `DescribePagesProjects` 返回 `Area: "global"`、`Regions: {}` —— 加速区域本来就是全球；
+2. 部署 MetaData 里 `conf.cloudFunctions.regions = {"mainland": [], "overseas": ["ap-singapore"]}`
+   —— **我们的配置确实到了平台**，但 `actualRegions` 仍被加上 `ap-guangzhou`（平台改写）；
+3. 控制台「项目设置 → 函数管理 → 函数地域」实测：点「上海」能选中、点「广州」能取消
+   （说明点击生效），但**大陆组始终保留恰好 1 个地域**，无法清空 —— 与第 2 点互相印证；
+4. CLI 内部把区域映射写死为
+   `global → https://pages-api.edgeone.ai/v1`（国际站）、`china → https://pages-api.cloud.tencent.com/v1`（中国站），
+   默认函数地域 `global → ap-singapore`、`china → ap-guangzhou`；
+5. 中国站令牌打国际站 API 会直接被拒：
+   `{"Code":109,"Message":"The Token usage region is incorrect."}`。
+
+**⇒ 结论**：在**中国站账号**下，无论怎么配 `edgeone.json`、怎么在控制台点，
+大陆组都会被强制留下至少一个节点，**唯一能拿到「零大陆节点」的办法是把项目建在国际站**
+（国际站默认函数地域 `ap-singapore`，且自定义域名不要求 ICP 备案）。
+操作见 §8.1h。
 
 ### 8.1g 自定义域名绑定（控制台操作）
 
@@ -825,36 +852,70 @@ EdgeOne Pages 是**两个独立产品**，由**不同的 API 域名**区分，�
 | --- | --- | --- |
 | Pages API | `https://pages-api.cloud.tencent.com/v1` | `https://pages-api.edgeone.ai/v1` |
 | 控制台 | `console.cloud.tencent.com/edgeone/makers` | `console.tencentcloud.com/edgeone/makers` |
-| CLI 参数 | `--area global`（落在中国区） | `--area overseas`（落在国际站） |
+| **令牌区域**（`~/.edgeone` 的 `login_region`） | `china` | `global` |
 | 默认函数地域 | **ap-guangzhou（广州，大陆）** | **ap-singapore（新加坡，无大陆）** |
 | 自定义域名 | 要求 **ICP 备案** | 不要求备案 |
 
-**为什么「函数地域不含大陆」在配置层面做不到**：CLI 会把
-`cloudFunctions.regions.mainland: []` 原样发给平台（部署 MetaData 的 `conf` 里
-能看到 `"mainland": []`），但平台**会强制回写一个大陆节点**：
+**关键：区域由「令牌」决定，不是由 `--area` 参数决定**（这一点很容易搞反，
+CLI 内部常量实测如下）：
 
 ```
-actualRegions = { "mainland": "ap-guangzhou", "overseas": "ap-singapore" }
+API 基址：  global → https://pages-api.edgeone.ai/v1      china → https://pages-api.cloud.tencent.com/v1
+默认地域：  global → ap-singapore                          china  → ap-guangzhou
+控制台：    global → console.tencentcloud.com              china  → console.cloud.tencent.com
 ```
 
-即：`regions` 只**增不减**，`mainland: []` 会被忽略。控制台「项目设置 → 函数管理 →
-函数地域」里也只能改大陆节点的具体城市（广州/上海/南京/北京/成都），
-**不能清空大陆组**。
-
-**自定义域名同理**：`dun.xran.uk` 未备案时，控制台直接提示「检测到当前域名未在
-工信部备案，将无法被顺利添加」，流程卡在域名管理页。
-
-**⇒ 结论**：要同时满足「加速区域不含中国大陆」+「自定义域名免备案」，
-只能把项目建在**国际站产品**上：
+CLI 的 `--area` 只影响**候选基址与控制台跳转**；**令牌区域不匹配时 API 会直接拒绝**：
 
 ```bash
-# 需要国际站区域的令牌（中国区令牌会报 Code 109 "The Token usage region is incorrect"）
-edgeone login            # 在国际站控制台登录后执行，拿到 global 区令牌
-edgeone makers deploy . -n physics-ai-classroom -e production --area overseas
+# 中国区令牌打国际站 API：
+$ curl -s -X POST https://pages-api.edgeone.ai/v1 -H "Authorization: Bearer <china-token>" \
+    -H 'Content-Type: application/json' -d '{"Action":"DescribePagesProjects"}'
+{"Code":109,"Message":"The Token usage region is incorrect.","RequestId":"4fe46de1-…"}
 ```
 
-国际站项目的默认函数地域就是 `ap-singapore`（无大陆节点），
-自定义域名也不要求 ICP 备案。
+⇒ **想走国际站，必须用国际站账号登录拿令牌**：
+
+```bash
+edgeone switch --site global
+# 浏览器会打开 https://edgeone.ai/login?s_url=…（国际站是**独立账号体系**，
+# 中国区的腾讯云登录态**不通用**；登录成功后 ~/.edgeone 的 login_region 会变成 global）
+```
+
+**为什么「函数地域不含大陆」在配置层面做不到**（实测，详见 §8.1f-1）：
+
+- 部署 MetaData 的 `conf.cloudFunctions.regions` 里确实是 `{"mainland": []}`，
+  但平台**强制回写一个大陆节点**：
+  `actualRegions = { "mainland": "ap-guangzhou", "overseas": "ap-singapore" }`；
+- 控制台「项目设置 → 函数管理 → 函数地域」里能改大陆节点的**具体城市**
+  （广州/上海/南京/北京/成都，实测点击生效），但**大陆组始终保留恰好 1 个**，
+  **无法清空**。
+
+**自定义域名同理**（实测）：
+
+- 控制台「域名管理 → 添加自定义域名 → 填 `dun.xran.uk`」→ 环境选「生产」→
+  点「下一步」，弹出「**检测到当前域名未在工信部备案，将无法被顺利添加。备案指引**」，
+  流程**不推进**到 DNS 配置步骤；
+- 绕过后端也不通：`ModifyPagesProject` 带 `CustomDomains:["dun.xran.uk"]`
+  返回 `Code 0`，但再查项目，**`CustomDomains` 仍然是 `[]`**——平台静默丢弃。
+
+**⇒ 结论**：要同时满足「零大陆节点」+「自定义域名免备案」，只能把项目建在
+**国际站产品**上。拿到国际站令牌后的完整步骤：
+
+```bash
+# 1) 国际站登录（令牌区域变 global）
+edgeone switch --site global
+
+# 2) 删掉中国区的旧项目（可选：新旧两个项目并存即可，旧项目确认无用后再删）
+#    控制台 → 项目概览 → 删除项目
+
+# 3) 用国际站令牌新建项目并部署（CLI 建项目时固定发 CreatePagesProject {Area:"global"}，
+#    新项目的默认函数地域就是 ap-singapore，无大陆节点）
+edgeone makers deploy . -n physics-ai-classroom -e production
+
+# 4) 控制台（国际站）→ 域名管理 → 添加自定义域名 → dun.xran.uk
+#    → 按提示在 DNS 加 CNAME dun → <新项目>.edgeone.cool 与 TXT 归属校验记录
+```
 
 ## 9. EdgeOne Makers 平台能力速查（2026-06 官方文档）
 
