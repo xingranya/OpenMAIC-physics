@@ -12,10 +12,11 @@
  * 用法：node scripts/check-doc-metrics.mjs
  */
 import { readFileSync, readdirSync, statSync, existsSync, mkdtempSync, rmSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
+import { PURE_TIER } from './check-physics-domain-purity.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const DOC = join(ROOT, 'docs', '参赛', '作品说明书.md');
@@ -90,6 +91,22 @@ function measurePhysicsTests() {
 
 let physicsTests = null;
 
+/** 纯领域层（物理域不依赖 React/DOM 的那一半）的总行数。 */
+function measurePureTier() {
+  const files = collect(join(ROOT, 'lib', 'physics'), '.ts');
+  let total = 0;
+  for (const file of files) {
+    const repoPath = toRepoPath(file);
+    if (PURE_TIER.has(repoPath)) total += countLines([file]);
+  }
+  return total;
+}
+
+/** 把仓库路径转成与 PURE_TIER 一致的正斜杠相对路径。 */
+function toRepoPath(file) {
+  return relative(ROOT, file).split(sep).join('/');
+}
+
 /** 一项指标：文档里的标签、文档里写的行数、实测行数。 */
 const METRICS = [
   {
@@ -137,6 +154,40 @@ const METRICS = [
       ),
   },
   {
+    // 同一组数字在 §3 的对照表与 §8.4 的正文里也各出现一次。
+    // 第八轮复审实测：只守护 §8.1 的话，把这两处改成别的数字，门禁仍 exit=0。
+    label: '物理域总规模（§3 对照表）',
+    // 捕获组：1 = 纯领域层行数，2 = 浏览器适配层行数，3 = 合计。
+    declaredGroup: 3,
+    pattern: /纯领域层 11 文件 ([\d\s]+) 行 \+ 浏览器适配层 8 文件 ([\d\s]+) 行，共 ([\d\s]+) 行/,
+    measure: () => countLines(collect(join(ROOT, 'lib', 'physics'), '.ts')),
+    // 额外校验纯层、适配层与合计三个分项。
+    extra: (match) => {
+      const total = countLines(collect(join(ROOT, 'lib', 'physics'), '.ts'));
+      const pure = measurePureTier();
+      return {
+        groups: [
+          { label: '纯领域层', declared: Number(match[1].replace(/\s/g, '')), actual: pure },
+          {
+            label: '浏览器适配层',
+            declared: Number(match[2].replace(/\s/g, '')),
+            actual: total - pure,
+          },
+          {
+            label: '物理域合计',
+            declared: Number(match[3].replace(/\s/g, '')),
+            actual: total,
+          },
+        ],
+      };
+    },
+  },
+  {
+    label: '纯领域层累计（§8.4 正文）',
+    pattern: /纯领域层累计 ([\d\s]+) 行/,
+    measure: () => measurePureTier(),
+  },
+  {
     // 「**N / N 通过**（M 个文件）」——两个数字都要对得上。
     label: '物理域单元测试',
     unit: '例',
@@ -145,10 +196,15 @@ const METRICS = [
       if (!physicsTests) physicsTests = measurePhysicsTests();
       return physicsTests.tests;
     },
-    // 额外校验测试文件数与用例数。
-    extra: () => {
+    // 额外校验用例数与测试文件数（第 2、3 个捕获组）。
+    extra: (match) => {
       if (!physicsTests) physicsTests = measurePhysicsTests();
-      return { files: physicsTests.files, tests: physicsTests.tests };
+      return {
+        groups: [
+          { label: '用例数', declared: Number(match[2]), actual: physicsTests.tests },
+          { label: '测试文件数', declared: Number(match[3]), actual: physicsTests.files },
+        ],
+      };
     },
   },
 ];
@@ -186,7 +242,8 @@ for (const metric of METRICS) {
     continue;
   }
   // 表格里的数字用窄空格（U+202F）或普通空格分隔，这里统一去掉所有空白。
-  const declared = Number(match[1].replace(/[\s\u202f\u00a0]/g, ''));
+  const group = metric.declaredGroup ?? 1;
+  const declared = Number(match[group].replace(/[\s\u202f\u00a0]/g, ''));
   const actual = measureSafely(metric);
   rows.push({ label: metric.label, declared, actual, unit: metric.unit ?? '行' });
   if (declared !== actual) {
@@ -198,20 +255,20 @@ for (const metric of METRICS) {
   }
 
   if (metric.extra) {
-    const { files, tests } = metric.extra();
-    const declaredTests = Number(match[2]);
-    const declaredFiles = Number(match[3]);
-    rows[rows.length - 1].detail = `${declaredTests} 例 / ${declaredFiles} 个文件`;
-    rows[rows.length - 1].actualDetail = `${tests} 例 / ${files} 个文件`;
-    if (declaredTests !== tests) {
-      problems.push(
-        `${metric.label}：说明书写 ${declaredTests} 例，实测 ${tests} 例（请同步后重跑）`,
-      );
-    }
-    if (declaredFiles !== files) {
-      problems.push(
-        `${metric.label}：说明书写 ${declaredFiles} 个测试文件，实测 ${files} 个（请同步后重跑）`,
-      );
+    const { groups } = metric.extra(match);
+    for (const group of groups) {
+      const ok = group.declared === group.actual;
+      rows[rows.length - 1].detail = groups
+        .map((item) => `${item.label} ${item.declared}`)
+        .join(' · ');
+      rows[rows.length - 1].actualDetail = groups
+        .map((item) => `${item.label} ${item.actual}`)
+        .join(' · ');
+      if (!ok) {
+        problems.push(
+          `${metric.label}（${group.label}）：说明书写 ${group.declared}，实测 ${group.actual}（请同步后重跑）`,
+        );
+      }
     }
   }
 }

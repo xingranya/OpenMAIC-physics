@@ -34,21 +34,44 @@ describe('导出幻灯片的校本页眉页脚', () => {
       OPTIONS,
     );
 
-    expect(header.id).toBe(`${SLIDE_BRAND_HEADER_ID_PREFIX}slide-1`);
+    expect(header?.id).toBe(`${SLIDE_BRAND_HEADER_ID_PREFIX}slide-1`);
     expect(footer?.id).toBe(`${SLIDE_BRAND_FOOTER_ID_PREFIX}slide-1`);
 
-    expect(header.content).toContain(SCHOOL.college);
-    expect(header.content).toContain(COURSE.name);
-    expect(header.content).toContain(OPTIONS.chapter);
+    expect(header?.content).toContain(SCHOOL.college);
+    expect(header?.content).toContain(COURSE.name);
+    expect(header?.content).toContain(OPTIONS.chapter);
 
     expect(footer?.content).toContain(SCHOOL.college);
     expect(footer?.content).toContain(COURSE.name);
     expect(footer?.content).toContain(COURSE.teacher);
 
     // 页眉在顶部、页脚在底部，两者不重叠
-    expect(header.top).toBeLessThan(60);
+    expect(header?.top).toBeLessThan(60);
     expect(footer?.top).toBeGreaterThan(400);
-    expect(header.top + header.height).toBeLessThan(footer?.top ?? 0);
+    expect((header?.top ?? 0) + (header?.height ?? 0)).toBeLessThan(footer?.top ?? 0);
+  });
+
+  it('装饰是幂等的：画布已含本校页眉/页脚时不再重复添加', () => {
+    // 第八轮复审实测：导出链路上若把**已装饰**的画布又送进渲染器一次，
+    // 产物会出现**两条页眉**，而当时没有任何测试能发现（"hook 传已装饰画布"
+    // 这个变异，失败集合与零变异对照组逐条相同）。
+    // 做成幂等后，双重装饰在结构上不可能发生。
+    const first = buildBrandElements(
+      { id: 'slide-idem', elements: [{ id: 'slide-idem-title' }] },
+      OPTIONS,
+    );
+    expect(first.header).toBeTruthy();
+    expect(first.footer).toBeTruthy();
+
+    const second = buildBrandElements(
+      {
+        id: 'slide-idem',
+        elements: [{ id: 'slide-idem-title' }, { id: first.header!.id }, { id: first.footer!.id }],
+      },
+      OPTIONS,
+    );
+    expect(second.header, '已含页眉的画布不应再加页眉').toBeNull();
+    expect(second.footer, '已含页脚的画布不应再加页脚').toBeNull();
   });
 
   it('画布已自带贴底校名标识时不再重复加页脚', () => {

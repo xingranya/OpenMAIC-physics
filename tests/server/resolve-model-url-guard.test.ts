@@ -23,6 +23,10 @@ vi.mock('@/lib/ai/providers', async (importOriginal) => {
 
 vi.mock('@/lib/server/provider-config', () => ({
   authorizeServerModel: () => {},
+  // 该 mock 工厂是**固定形状**的：模块新增导出时必须一并补上，
+  // 否则 vitest 会抛 `No "isLLMProviderDisabled" export is defined on the mock`。
+  // 语义：provider 未被运维停用。
+  isLLMProviderDisabled: () => false,
   isServerConfiguredProvider: () => mocks.serverManaged,
   resolveApiKey: (_id: string, clientKey: string) => clientKey || 'server-key',
   resolveBaseUrl: (_id: string, clientBaseUrl?: string) => clientBaseUrl,
