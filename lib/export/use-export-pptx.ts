@@ -499,6 +499,14 @@ export function assertPptxMediaReferenceParity(
 // Exported for the round-trip integration test harness — the test wires its
 // own slides + ratios in and inspects the resulting PPTX bytes via JSZip.
 // The hook below is still the only intended runtime caller.
+//
+// 校本页眉页脚**在这一层**统一加上（`chapter` 可选，决定页眉右侧显示的章节名）。
+// 为什么放在这里而不是调用方：装饰一旦由调用方负责，就只能靠"检查调用点有没有
+// 调装饰函数"来守住——而那种源码结构断言非常脆弱（第六、七轮复审实测出多种
+// 绕过与误伤：正则会被注释里的同形文字满足、扁平作用域表会跨作用域串味、
+// 只看初始值会漏掉后续重新赋值、还会误伤包一层 / 抽 helper / import 改名等
+// 语义等价的重构）。下沉到这里之后，**任何**走 buildPptxBlob 的导出都必然带
+// 页眉页脚，结构上无法绕过，测试也只需验证产物本身。
 export async function buildPptxBlob(
   slides: Slide[],
   slideScenes: Scene[],
@@ -507,11 +515,19 @@ export async function buildPptxBlob(
   ratioPx2Inch: number,
   ratioPx2Pt: number,
   stageId?: string,
+  chapter?: string,
 ): Promise<Blob> {
   const pptx = new pptxgen();
-  const documentElements = slides.flatMap((slide) => slide.elements);
-  const manifestRefs = derivePptxMediaReferenceSet(slides);
-  assertPptxMediaReferenceParity(slides, manifestRefs);
+  // 装饰只作用在导出副本上，不改动课堂存储里的原始画布。
+  const brandedSlides = decorateSlidesWithBrand(slides, {
+    chapter,
+    teacher: COURSE.teacher,
+    viewportSize,
+    viewportRatio,
+  });
+  const documentElements = brandedSlides.flatMap((slide) => slide.elements);
+  const manifestRefs = derivePptxMediaReferenceSet(brandedSlides);
+  assertPptxMediaReferenceParity(brandedSlides, manifestRefs);
   const resolveManifestMedia = (
     ref: string | undefined,
     task: MediaTaskState | undefined,
@@ -536,8 +552,8 @@ export async function buildPptxBlob(
   pptx.company = SCHOOL.college;
   pptx.subject = `${COURSE.name} · ${COURSE.className}`;
 
-  for (let slideIdx = 0; slideIdx < slides.length; slideIdx++) {
-    const slide = slides[slideIdx];
+  for (let slideIdx = 0; slideIdx < brandedSlides.length; slideIdx++) {
+    const slide = brandedSlides[slideIdx];
     const pptxSlide = pptx.addSlide();
 
     // ── Speaker Notes ──
@@ -668,7 +684,7 @@ export async function buildPptxBlob(
         if (el.flipV) options.flipV = el.flipV;
         if (el.rotate) options.rotate = el.rotate;
         if (el.link) {
-          const linkOption = getLinkOption(el.link, slides);
+          const linkOption = getLinkOption(el.link, brandedSlides);
           if (linkOption) options.hyperlink = linkOption;
         }
         if (el.filters?.opacity) options.transparency = 100 - parseInt(el.filters.opacity);
@@ -731,7 +747,7 @@ export async function buildPptxBlob(
           if (el.flipH) imgOptions.flipH = el.flipH;
           if (el.flipV) imgOptions.flipV = el.flipV;
           if (el.link) {
-            const linkOption = getLinkOption(el.link, slides);
+            const linkOption = getLinkOption(el.link, brandedSlides);
             if (linkOption) imgOptions.hyperlink = linkOption;
           }
           pptxSlide.addImage(imgOptions);
@@ -772,7 +788,7 @@ export async function buildPptxBlob(
           if (el.outline?.width) shapeOptions.line = getOutlineOption(el.outline, ratioPx2Pt);
           if (el.rotate) shapeOptions.rotate = el.rotate;
           if (el.link) {
-            const linkOption = getLinkOption(el.link, slides);
+            const linkOption = getLinkOption(el.link, brandedSlides);
             if (linkOption) shapeOptions.hyperlink = linkOption;
           }
 
@@ -815,7 +831,7 @@ export async function buildPptxBlob(
           if (el.flipV) patternOptions.flipV = el.flipV;
           if (el.rotate) patternOptions.rotate = el.rotate;
           if (el.link) {
-            const linkOption = getLinkOption(el.link, slides);
+            const linkOption = getLinkOption(el.link, brandedSlides);
             if (linkOption) patternOptions.hyperlink = linkOption;
           }
           pptxSlide.addImage(patternOptions);
@@ -1105,7 +1121,7 @@ export async function buildPptxBlob(
             h: el.height / ratioPx2Inch,
           };
           if (el.link) {
-            const linkOption = getLinkOption(el.link, slides);
+            const linkOption = getLinkOption(el.link, brandedSlides);
             if (linkOption) latexOptions.hyperlink = linkOption;
           }
 
@@ -1329,28 +1345,16 @@ export function useExportPPTX() {
   const slideScenes = scenes.filter((s) => s.content.type === 'slide');
   const slides = slideScenes.map((s) => (s.content as SlideContent).canvas);
 
-  // 校本导出页眉页脚：每一页贴顶一条"学校 · 课程 · 章节"、贴底一条
-  // "学校 · 课程 · 教师"，课件进讲台或传给学生时出处一眼可辨。
-  // 装饰发生在导出副本上，不改动课堂存储里的原始画布。
-  // 具体规则见 `@/lib/export/slide-branding`（纯函数，有单测覆盖）。
+  // 校本导出页眉页脚由 `buildPptxBlob` 内部统一加上（见那里的说明）：
+  // 每一页贴顶一条"学校 · 课程 · 章节"、贴底一条"学校 · 课程 · 教师"，
+  // 课件进讲台或传给学生时出处一眼可辨。
   //
-  // 这里刻意调用 `decorateSlidesWithBrand`（与测试共用同一份实现）：
-  // 早前测试自己手工拼了一遍装饰，于是"导出哪天不再调用装饰"这类回归
-  // 完全测不出来——测试照样绿，产物却没了页眉。
-  //
-  // 注意：**共用实现本身并不足以守住这条接线**。`buildPptxBlob` 内部不做
-  // 装饰，所以若有人把下面这行换成 `slides`，只验"装饰后产物"的测试仍会
-  // 全绿。因此另有一条**源码级**护栏：
-  // `tests/physics/pptx-export-wiring.test.ts` 断言这里仍是
-  // `const brandedSlides = decorateSlidesWithBrand(slides, …)` 形态——
-  // 把装饰挪进 `buildPptxBlob` 会变成双重装饰（同一页两条页眉），
-  // 所以保持"hook 负责装饰、渲染器只负责渲染"的单点结构。
-  const brandedSlides = decorateSlidesWithBrand(slides, {
-    chapter: stage?.name,
-    teacher: COURSE.teacher,
-    viewportSize,
-    viewportRatio,
-  }) as unknown as Slide[];
+  // 这里**不再**自己调用装饰——装饰点分散在两处时，只能靠"检查源码里有没有
+  // 调装饰函数"来守住，而那种断言非常脆弱（第六、七轮复审实测出多种绕过与
+  // 误伤：正则会被注释里的同形文字满足、扁平作用域表会跨作用域串味、
+  // 只看初始值会漏掉后续重新赋值、还会误伤包一层 / 抽 helper / import 改名
+  // 等语义等价的重构）。下沉到渲染器后，任何走它的导出都必然带页眉。
+  // 章节名通过 `chapter` 参数传下去。
   // Shared guard + state wrapper for export actions.
   // `requireSlides` controls whether the guard rejects a deck with no slide
   // scenes (PPTX export needs them; the resource pack can ship interactive
@@ -1384,20 +1388,21 @@ export function useExportPPTX() {
     withExportGuard(async () => {
       const fileName = stage?.name || 'slides';
       const blob = await buildPptxBlob(
-        brandedSlides,
+        slides,
         slideScenes,
         viewportRatio,
         viewportSize,
         ratioPx2Inch,
         ratioPx2Pt,
         stage?.id,
+        stage?.name,
       );
       saveAs(blob, `${fileName}.pptx`);
       toast.success(t('export.exportSuccess'));
     });
   }, [
     withExportGuard,
-    brandedSlides,
+    slides,
     slideScenes,
     stage,
     viewportSize,
@@ -1424,13 +1429,14 @@ export function useExportPPTX() {
         fetcher: sharedFetcher,
         getPptxBlob: () =>
           buildPptxBlob(
-            brandedSlides,
+            slides,
             slideScenes,
             viewportRatio,
             viewportSize,
             ratioPx2Inch,
             ratioPx2Pt,
             stage?.id,
+            stage?.name,
           ),
       });
 
@@ -1466,7 +1472,7 @@ export function useExportPPTX() {
     }, false);
   }, [
     withExportGuard,
-    brandedSlides,
+    slides,
     slideScenes,
     scenes,
     stage,

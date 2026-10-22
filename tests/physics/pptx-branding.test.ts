@@ -2,11 +2,7 @@ import { describe, expect, it } from 'vitest';
 import JSZip from 'jszip';
 
 import { buildPptxBlob } from '@/lib/export/use-export-pptx';
-import {
-  buildBrandElements,
-  decorateSlidesWithBrand,
-  hasInlineBrandElement,
-} from '@/lib/export/slide-branding';
+import { buildBrandElements, hasInlineBrandElement } from '@/lib/export/slide-branding';
 import { buildPresetClassroom, getPresetById } from '@/lib/physics/presets';
 import { SCHOOL, COURSE } from '@/lib/school/identity';
 
@@ -23,11 +19,17 @@ import { SCHOOL, COURSE } from '@/lib/school/identity';
  * - 「页眉贴顶」恒成立，因为原始画布的最小 y 偏移本来就远小于最大 y 的 1/4；
  * - 断言用的是测试自己手工拼的装饰，导出链路哪天不调装饰也测不出来。
  *
- * 现在改成：
- * 1. 走**与导出链路共用的** `decorateSlidesWithBrand`；
- * 2. 用**章节名**定位页眉（`-brand` 里没有章节名，两者不会混淆），
+ * 第五、六、七轮又连续把这个洞挖得更深：手写的"源码结构断言"（正则 / AST
+ * 扫调用点）先后被证明会被注释里的同形文字满足、跨作用域同名声明串味、
+ * 漏掉后续重新赋值，还会误伤包一层 / 抽 helper / import 改名等语义等价重构。
+ *
+ * **最终解法是不再断言源码结构，改为直接断言产物**：校本页眉页脚已下沉到
+ * `buildPptxBlob` 内部统一添加，任何走它的导出都必然带页眉页脚——结构上
+ * 无法绕过。于是本文件只需调一次真实的 `buildPptxBlob` 并解包 PPTX 核对：
+ * 1. 用**章节名**定位页眉（`-brand` 里没有章节名，两者不会混淆），
  *    断言"含章节名的文本块存在，且它的 y 偏移是全页最小的"；
- * 3. 断言贴底那条（不含章节名、含校名）的 y 偏移是全页最大的；
+ * 2. 断言贴底那条（不含章节名、含校名）的 y 偏移是全页最大的；
+ * 3. 断言每页**只有一条**页眉（装饰点重复导致双重装饰时会在这里暴露）；
  * 4. 补一条"画布自带 `-brand` 时不再重复贴页脚"的显式断言。
  */
 
@@ -91,22 +93,16 @@ describe('导出的 PPTX 文件本体', () => {
     const ratioPx2Inch = 96 * (viewportSize / 960);
     const ratioPx2Pt = (96 / 72) * (viewportSize / 960);
 
-    // 走与导出链路**共用**的装饰实现（不是测试自己拼一遍）。
-    const brandedSlides = decorateSlidesWithBrand(canvases, {
-      chapter: CHAPTER,
-      teacher: COURSE.teacher,
-      viewportSize,
-      viewportRatio,
-    });
-
+    // 直接走真实导出入口：装饰由 buildPptxBlob 内部统一添加。
     const blob = await buildPptxBlob(
-      brandedSlides as never,
+      canvases as never,
       slideScenes as never,
       viewportRatio,
       viewportSize,
       ratioPx2Inch,
       ratioPx2Pt,
       'stage-preset-mechanics-03-1',
+      CHAPTER,
     );
     expect(blob.size).toBeGreaterThan(0);
 
@@ -146,6 +142,12 @@ describe('导出的 PPTX 文件本体', () => {
       expect(footer!.offsetY).toBe(maxY);
       // 页眉确实在顶部、贴底标识确实在底部（不是两个都挤在上方）。
       expect(minY).toBeLessThan(maxY / 4);
+
+      // ④ 每页**只有一条**页眉：装饰点重复（双重装饰）会在这里暴露。
+      const headerCount = blocks.filter(
+        (block) => block.text.includes(SCHOOL.college) && block.text.includes(CHAPTER),
+      ).length;
+      expect(headerCount, `${name} 出现了 ${headerCount} 条页眉`).toBe(1);
     }
   }, 120_000);
 
@@ -190,6 +192,7 @@ describe('导出的 PPTX 文件本体', () => {
       96 * (viewportSize / 960),
       (96 / 72) * (viewportSize / 960),
       'stage-preset-mechanics-03-1',
+      CHAPTER,
     );
 
     const zip = await JSZip.loadAsync(await blob.arrayBuffer());

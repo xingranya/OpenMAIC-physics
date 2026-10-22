@@ -215,7 +215,8 @@ function checkDocChunkCount(actual) {
     // 第六轮复审发现部署手册里后者仍写着 51，前一种正则看不见它。
     const matches = [
       ...source.matchAll(/(\d+)\s*个客户端 chunk 全部 200/g),
-      ...source.matchAll(/本次\s*(\d+)\s*个/g),
+      // 「本次 N 个」必须带 chunk 上下文，否则「本次 3 个步骤」这类句子会被误判。
+      ...source.matchAll(/本次\s*(\d+)\s*个(?:客户端)?\s*chunk/g),
     ];
     if (matches.length === 0) {
       record(

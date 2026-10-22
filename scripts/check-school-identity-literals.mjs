@@ -78,6 +78,9 @@ const FORBIDDEN = [
  * 后半截的真校名就漏了（第六轮复审实测的绕过）。
  */
 const ALLOWED_LITERAL_PATTERNS = [
+  // 已知边界：「长江流域大学」这类「白名单片段 + 其它词」的组合会被整条放行
+  // （白名单只放行命中的片段，剩余部分不再含禁止词）。这类字符串并不是校名，
+  // 风险极低，故按"已知静态边界"处理，不追求完美。
   { token: '长江', pattern: /长江(流域|大桥|三角洲|水温|水位|经济带)/ },
 ];
 
@@ -171,7 +174,10 @@ function matchesRule(literal, rule) {
   }
   if (rule.match === 'class-number') {
     if (literal === rule.text) return true;
-    const pattern = new RegExp(`${rule.text}\\s*班`);
+    // 班级/年级学号的各种写法都要覆盖：
+    //   「2601班」「2601 班」「2601  班」「2601级」「2601-2602班」「2601、2602班」
+    // 数字与「班/级」之间允许空白与区间分隔符。
+    const pattern = new RegExp(`${rule.text}\\s*[-–—~、]?\\s*\\d{0,4}\\s*(班|级)`);
     let match;
     while ((match = pattern.exec(literal)) !== null) {
       if (!occurrenceAllowed(literal, rule.text, match.index)) return true;
