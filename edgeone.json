@@ -1,5 +1,11 @@
 {
   "nodeVersion": "24.5.0",
   "buildCommand": "node scripts/sync-maic-importer.mjs && EDGEONE=1 pnpm build",
-  "outputDirectory": ".next"
+  "outputDirectory": ".next",
+  "cloudFunctions": {
+    "regions": {
+      "mainland": [],
+      "overseas": ["ap-singapore"]
+    }
+  }
 }

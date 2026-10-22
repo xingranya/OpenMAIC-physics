@@ -321,6 +321,29 @@ DEFAULT_MODEL=openai:@makers/deepseek-v4-flash
 | 访问无口令保护 | 未配置 `ACCESS_CODE` | 配置后需重新验证 Cookie |
 | 本地 http 演示卡在口令弹窗 | 口令 Cookie 带了 `Secure`，http 下浏览器不回传 | 本地自检时设 `ALLOW_INSECURE_ACCESS_COOKIE=1`（仅限 http://localhost 演示；生产一律带 `Secure`） |
 | 导出的 MP4 不可用 | 渲染服务未部署 | 预期行为：自动降级为导出项目 ZIP |
+| `pnpm install` 报 `ERR_PNPM_EPERM … copyfile … .gitmodules` | 防护策略按文件名拦截 `.gitmodules` 的创建（防 git 子模块劫持），pnpm 写这个上游残留文件时拿到 EPERM | 见下方「`.gitmodules` 拦截的绕法」 |
+| 部署报 `Cloud SSR Node functions package size exceeds 128MiB limit` | 云函数包超平台硬上限 | 见 §8.1d（用 `scripts/prune-edgeone-function.mjs` 裁剪） |
+| 线上动态路由全 502、静态页正常 | 平台侧云函数没被拉起（与包内容无关） | 见 §8.1e 的四个「平台说了算」；取函数运行日志需在控制台看 |
+| 线上访问返回平台自己的 401 页面 | 预设域名有访问保护，需要 `eo_token` | 用 CLI 部署成功时打印的带令牌链接；或绑自定义域名（§8.1f） |
+
+### `.gitmodules` 拦截的绕法
+
+某些受限环境会**按文件名**拦截 `.gitmodules` 的创建。pnpm 往包里写这个
+上游残留文件时就拿到 EPERM，整个安装中断：
+
+```bash
+# 1) 先跑一次安装（会在写 .gitmodules 时失败，但 store 已经填充好了）
+pnpm install --package-import-method=hardlink
+
+# 2) 修 store 索引：把 .gitmodules 从包的索引里摘掉，pnpm 就不会再尝试创建它
+node scripts/fix-pnpm-store-gitmodules.mjs
+
+# 3) 再跑一次安装，这次会成功
+pnpm install --package-import-method=hardlink
+```
+
+原理与适用范围见 `scripts/fix-pnpm-store-gitmodules.mjs` 的文件头注释。
+脚本只改本地 store 缓存（不进版本库），幂等。
 
 ---
 
@@ -546,6 +569,36 @@ node scripts/prune-edgeone-function.mjs --yes      # 真执行
 > 符号链接（平台解包后的字节数与本地完全一致，说明软链被保留）、
 > server.js 的 ESM/CommonJS 入口不兼容（已加 `createRequire` 垫片，仍 502）。
 > 下一步需要**控制台的函数运行日志**（CLI 与公开 API 都取不到）定位平台侧差异。
+
+### 8.1e 云函数在平台侧的四个「平台说了算」（都实测过）
+
+这四项与本地行为不同，是 EdgeOne Makers 的平台约定，排查时先排掉它们：
+
+| 项 | 平台实况 | 本地/仓库里的对应值 | 影响 |
+| --- | --- | --- | --- |
+| **函数运行时版本** | **Nodejs20.19**，由平台固定，改不动 | 控制台「项目设置 → Node.js 版本」与 `edgeone.json` 的 `nodeVersion` 都设成 `24.5.0`，构建日志也确实是 `v24.5.0`，但函数运行时仍显示 `Nodejs20.19` | 产物里的 `engines.node` 必须**匹配平台实际提供的运行时**，否则平台在拉起阶段直接拒绝：运行时间 `0ms`、内存 `0.0000MB`、状态失败 → 动态路由全 502，而静态页（走平台 filesystem handler，不经函数）仍 200 |
+| **云函数包体积** | 解包后 ≤ **128 MiB** | 直接 deploy 是 254.9 MiB | 超限平台拒收（错误码 30），见 §8.1d |
+| **函数地域** | 默认**保留**中国大陆节点（广州） | `edgeone.json` 的 `cloudFunctions.regions.overseas` 只会**新增**海外节点，`mainland: []` 不会移除广州 | 实际部署地域看部署 MetaData 的 `actualRegions`：写了海外仍是 `{mainland: ap-guangzhou, overseas: ap-singapore}`；要去掉大陆节点需在控制台「项目设置 → 函数管理 → 函数地域」里改 |
+| **预设域名访问保护** | `*.edgeone.cool` 需带 `eo_token` | 仓库里没有这个概念 | 不带令牌的请求会拿到**平台自己的 401 页面**（不是应用的 401）；CLI 部署成功时打印的地址带 `?eo_token=…&eo_time=…`，绑定自定义域名后不再需要 |
+
+**⇒ 产物 `engines.node` 为什么必须改**：仓库 `package.json` 写的是上游 OpenMAIC 的
+`"node": ">=22.19.0"`（构建期 Node 是 24.5.0，满足）；但函数运行时是 20.19，
+`>=22.19.0` 在平台上**没有任何运行时能满足**，平台就会在拉起阶段拒收。
+`scripts/prune-edgeone-function.mjs` 因此把**产物副本**的 `engines.node` 放宽到
+`>=20.19.0`（仓库里的不动，仍是上游要求）。
+
+### 8.1f 自定义域名绑定（控制台操作）
+
+```bash
+# 1) 绑定：控制台 → 项目 → 域名管理 → 添加自定义域名 → 填 dun.xran.uk
+# 2) 按控制台提示，在 dun.xran.uk 的 DNS 上加：
+#      CNAME  dun  →  physics-ai-classroom-kchmficm.edgeone.cool
+#      （以及控制台给出的 TXT 归属校验记录）
+# 3) 等控制台把该域名状态从「待配置」变成「已生效」，再开 HTTPS 证书
+```
+
+命令行只能改项目级设置，**自定义域名必须在控制台加**：Pages 的公开 API 没有暴露
+新增自定义域名的 action（`ModifyPagesProject` 带 `CustomDomains` 会被接受但不写入）。
 
 ### 8.2 静态质量门槛
 

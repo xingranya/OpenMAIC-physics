@@ -313,8 +313,7 @@ export default function edgeoneImageLoader({ src, width, quality }) {
  *
  * 修法：给 server.js 加 createRequire 垫片，让它在 ESM 包里也能用 require。
  * 这对以 index.mjs 为入口的平台无副作用（server.js 根本不会被加载）。
- */
-const serverEntry = join(FN_DIR, 'server.js');
+ */ const serverEntry = join(FN_DIR, 'server.js');
 if (existsSync(serverEntry)) {
   const original = readFileSync(serverEntry, 'utf8');
   if (!original.includes('createRequire')) {
@@ -333,4 +332,70 @@ if (existsSync(serverEntry)) {
       console.log('[prune-edgeone-function] 已修正 server.js 的 ESM/CommonJS 入口兼容性');
     }
   }
+}
+
+/**
+ * 声明云函数入口。
+ *
+ * opennext 只产出 `index.mjs`（ESM 入口），**不写 package.json 的 main**。
+ * 平台拉起函数时按 package.json#main（或其默认入口约定）找入口，找不到就直接
+ * 判定函数起不来——线上表现是：静态页 200（走平台的 filesystem handler），
+ * 而所有动态路由 502 `CLOUD_FUNCTION_INVOCATION_FAILED`，日志里
+ * 「运行时间 0ms / 运行内存 0.0000MB / 状态 失败」——函数压根没被启动。
+ *
+ * 这里做两件事，两个入口约定都覆盖到：
+ *   1. package.json 写上 `"main": "index.mjs"`；
+ *   2. 额外放一个 `index.js`，内容是转发到 index.mjs 的 ESM 转发文件，
+ *      （包本身是 type:module，所以 .js 也按 ESM 解释）。
+ *
+ * 另外把 engines.node 绑到 edgeone.json 的 nodeVersion：平台按产物的
+ * engines 判定运行时版本，仓库里的 ">=22.19.0" 在平台上没有对应运行时
+ * （日志里显示的是 Nodejs20.19），函数会在启动前就被拒绝。
+ */
+const fnPkgPath = join(FN_DIR, 'package.json');
+if (existsSync(fnPkgPath)) {
+  const pkg = JSON.parse(readFileSync(fnPkgPath, 'utf8'));
+  let changed = false;
+  if (!pkg.main) {
+    pkg.main = 'index.mjs';
+    changed = true;
+    console.log('[prune-edgeone-function] 已在函数包 package.json 声明 main=index.mjs');
+  }
+  // 运行时版本：平台给 Makers 云函数分配的运行时是 **Nodejs20.19**
+  // （控制台「项目设置 → Node.js 版本」只作用于构建期；项目级 NodejsVersion
+  // 与 edgeone.json 的 nodeVersion 都设成 24.5.0 了，构建日志也确实是
+  // v24.5.0，但函数运行时仍显示 Nodejs20.19 —— 由平台固定，改不动）。
+  //
+  // 产物里如果写着 engines.node >= 22.19.0（上游 OpenMAIC 的要求），平台找不到
+  // 满足该约束的运行时，就会在**拉起阶段**直接拒绝：线上表现为运行时间 0ms、
+  // 运行内存 0.0000MB、状态失败，所有动态路由 502，而静态页（走平台的
+  // filesystem handler，不经过函数）仍然 200。
+  //
+  // 所以这里只把**产物副本**的 engines 放宽到平台实际提供的运行时；
+  // 仓库里的 package.json 仍保持上游要求的 ">=22.19.0"（构建期用的是 24.5.0）。
+  const RUNTIME_ENGINE = '>=20.19.0';
+  if (pkg.engines?.node !== RUNTIME_ENGINE) {
+    pkg.engines = { ...pkg.engines, node: RUNTIME_ENGINE };
+    changed = true;
+    console.log(
+      `[prune-edgeone-function] 已把函数包 engines.node 放宽到平台运行时（${RUNTIME_ENGINE}）`,
+    );
+  }
+  if (changed) {
+    writeFileSync(fnPkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
+  }
+}
+const fnIndexJs = join(FN_DIR, 'index.js');
+if (!existsSync(fnIndexJs) && existsSync(join(FN_DIR, 'index.mjs'))) {
+  writeFileSync(
+    fnIndexJs,
+    [
+      '// EdgeOne Pages 云函数入口：转发到 opennext 的 ESM 入口。',
+      '// 平台可能按 package.json#main 或默认的 index.js 找入口，两个都给上。',
+      "import './index.mjs';",
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+  console.log('[prune-edgeone-function] 已补出 index.js 入口转发文件');
 }
