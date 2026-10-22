@@ -52,7 +52,10 @@ OpenMAIC `main` 分支（v1.2.0+）是 **server-first** 架构：课程生成在
 
 #### 路径 A：EdgeOne CLI 直传
 
-EdgeOne 官方 CLI 支持**直接上传目录部署**，不必先推 Git 仓库：
+EdgeOne 官方 CLI 支持**直接上传目录部署**，不必先推 Git 仓库。
+
+> 本节命令于 2026-10-22 在本机**实测跑通**（CLI 已登录、账号 APPID 1374239834），
+> 实测细节见下方「实测记录」。
 
 ```bash
 # 0) 安装并登录（登录态存在 ~/.edgeone，主对话或 CI 均可直接复用）
@@ -60,18 +63,35 @@ npm install -g edgeone
 edgeone login --site china
 edgeone whoami            # 确认账号与 APPID
 
-# 1) 本地先构建出与平台一致的产物（见 §2.3 的构建配置）
-export EDGEONE=1
-pnpm build:packages && pnpm build
+# 1) 关联项目（项目不存在时 deploy 会自动创建，但 env set 必须先关联）
+edgeone makers link -n <项目名>
 
-# 2) 直传部署
-edgeone makers deploy . --name <项目名> --json
+# 2) 配置环境变量（不必进控制台；写入「生产」环境）
+edgeone makers env set ACCESS_CODE  <≥16位随机口令>
+edgeone makers env set EDGEONE      1
+edgeone makers env set DEFAULT_MODEL openai:@makers/deepseek-v4-flash
+edgeone makers env ls               # 复核
 
-# 3) 后续更新：重新构建后再次 deploy 即可
+# 3) 部署（推荐用仓库自带的一键脚本，见下方「为什么不能直接 deploy」）
+node scripts/deploy-edgeone.mjs
+
+# 3') 或者手工三步（等价于上面那条脚本）
+edgeone pages build --mode prod              # 只构建，产出 .edgeone/
+node scripts/prune-edgeone-function.mjs --yes # 裁剪云函数包到 128MiB 以内
+edgeone makers deploy .tmp/edgeone-stage -n <项目名> -e production --area global --json
+
+# 4) 后续更新：改完代码再次 node scripts/deploy-edgeone.mjs 即可
 ```
 
 要点：
 
+- **CLI 会自己在本地构建**：实测日志里能看到 `[builder] InstallCommand: pnpm install`，
+  即平台按项目的 `packageManager` 字段选择包管理器，**不需要**手动先构建。
+- **不能直接 `edgeone makers deploy`**：EdgeOne 的 Cloud SSR Node 函数包有
+  **128MiB 硬上限**（详见 §8.1d），本项目直接 deploy 会被平台以错误码 30 拒收。
+  `scripts/deploy-edgeone.mjs` 负责「构建 → 裁剪 → 上传」三步。
+- **`--env preview` 有前置条件**：平台要求**先创建一次 production 部署**，
+  报错原文「Please create a production deployment first」。首次部署请直接用 `-e production`。
 - `--json` 输出机器可读 JSON（URL、状态、产物信息），便于脚本化与留证。
 - 默认会自动把 **AI Gateway 密钥**同步进本地 `.env` 并绑定云端凭据；
   若不希望自动绑定，加 `--skip-ai-gateway-sync`。
@@ -79,6 +99,48 @@ edgeone makers deploy . --name <项目名> --json
 - 已有项目必须是「直传（direct upload）」类型才能被 `deploy` 复用。
 - 可用 `edgeone makers env set/ls/pull/rm` 在命令行增删改环境变量，
   不必每次都进控制台。
+- CLI 会在仓库根生成 `.edgeone/project.json`（项目关联信息），已加入 `.gitignore`。
+- **预设域名（`*.edgeone.cool`）带平台级访问保护**：不带 `eo_token` 的请求会拿到
+  平台自己的 401 页面（不是应用的 401）。CLI 部署成功时会打印带令牌的地址：
+  `https://<项目>.edgeone.cool?eo_token=...&eo_time=...`。
+  **正式对外访问应绑定自定义域名**，绑定后不再需要这个令牌。
+  自检脚本用 `--site-query "eo_token=...&eo_time=..."` 传进去。
+
+**实测记录（2026-10-22）**
+
+| 步骤 | 结果 |
+| --- | --- |
+| `edgeone whoami` | 账号 100043806721 / APPID 1374239834（登录态可用） |
+| `edgeone makers deploy -n physics-ai-classroom -e preview` | 报错：需先创建 production 部署 |
+| `edgeone makers deploy -n physics-ai-classroom -e production` | 报错：`pnpm install` 失败——corepack 缓存里没有 `pnpm@10.28.0`（`ENOENT: stat ~/.cache/node/corepack/v1/pnpm/10.28.0`） |
+| `node scripts/deploy-edgeone.mjs` | **部署成功**：`https://physics-ai-classroom-kchmficm.edgeone.cool`，部署 ID `dpj0etfpuvc6`，函数包 122.3 MiB（上限 128 MiB） |
+| 线上静态页（`/physics/overview` 等 SSG 路由） | HTTP 200，首屏标题「大学物理 AI 智慧课堂 · 长江大学文理学院」 |
+| 线上动态路由（`/api/health` 等 SSR 路由） | **HTTP 502 `CLOUD_FUNCTION_INVOCATION_FAILED`**（约 5 秒后失败），详见 §8.1d 末尾 |
+
+**坑：corepack 缓存缺失导致 `pnpm install` 跑不起来**
+
+`package.json` 用 `packageManager: pnpm@10.28.0` 锁定版本，corepack 会去
+`~/.cache/node/corepack/v1/pnpm/10.28.0` 取对应版本；受限环境里该缓存不存在，
+corepack 自己的下载也没成功，于是构建第一步就挂。
+
+解法（任选其一）：
+
+```bash
+# 方案 1：让 corepack 补齐缓存（需要能访问 npm registry）
+corepack prepare pnpm@10.28.0 --activate
+
+# 方案 2：直取发行包做一个 shim 放到 PATH 最前面（本次实测用的办法）
+curl -sSL -o /tmp/pnpm.tgz https://registry.npmjs.org/pnpm/-/pnpm-10.28.0.tgz
+mkdir -p /tmp/pnpm-pkg && tar -xzf /tmp/pnpm.tgz -C /tmp/pnpm-pkg --exclude='*.idea*' --exclude='.git*'
+mkdir -p /tmp/pnpm-bin
+printf '#!/bin/sh\nexec node /tmp/pnpm-pkg/package/bin/pnpm.cjs "$@"\n' > /tmp/pnpm-bin/pnpm
+chmod +x /tmp/pnpm-bin/pnpm
+export PATH="/tmp/pnpm-bin:$PATH"
+pnpm --version   # 应输出 10.28.0
+```
+
+> 注意方案 2 里 `--exclude='*.idea*'`：pnpm 发行包里带 `.idea` 目录，
+> 某些受限文件系统不允许创建其中的文件，不排除会让 `tar` 中途报错。
 
 #### 路径 B：Git 导入（控制台）
 
@@ -420,6 +482,70 @@ node scripts/check-test-baseline.mjs --skip-baseline-run   # 只跑当前树（�
 > 所以判定"本分支是否引入回归"要看**稳定核心**：把这几个文件单独再跑一遍，
 > 两边都失败的才算真回归。脚本会同时列出"相比基线不再失败"的文件
 > （本分支顺手修好的）。
+
+### 8.1d EdgeOne 云函数包 128MiB 硬上限（部署必读）
+
+EdgeOne 的 **Cloud SSR Node 函数包**解包后超过 **128MiB** 会被平台直接拒收：
+
+```
+Error: Cloud SSR Node functions package size exceeds 128MiB limit (422MiB)
+[CI][dp98yk0t9dbh] ✘ Build error  ret code: 30
+```
+
+平台侧只给一个错误码，日志要自己去取（CLI 不打印）：
+
+```bash
+TOKEN=<CLI 登录令牌>   # 见 ~/.edgeone 下的 eo_token 记录
+curl -s -X POST https://pages-api.cloud.tencent.com/v1 \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"Action":"DescribePagesDeploymentLog","ProjectId":"<项目ID>","DeploymentId":"<部署ID>"}'
+# 返回里的 LogUrl 就是上面那份日志
+```
+
+本项目（上游 OpenMAIC 全量 + 物理工作台）打包后 **254.9 MiB**，超限一倍。
+三个大头与实测数值：
+
+| 大头 | 体积 | 为什么可以砍 |
+| --- | --- | --- |
+| `sharp` 的 6 个平台原生变体 | ≈133 MiB | EdgeOne 函数运行时固定 linux-x64；且 EdgeOne CLI 会给 Next 注入自定义图片加载器（`images.loader='custom'`），**Next 自己的 image optimizer 根本不碰 sharp**。应用自己 `import sharp` 用的是 sharp 0.35.4 → libvips 1.3.3，只有 linux-x64 那份是必需的 |
+| 项目源码的整份拷贝 | ≈34 MiB | opennext 把项目根整体复制进函数包；运行时真正需要的只有 `packages/`（workspace 软链目标）、`skills/`、以及 `outputFileTracingIncludes` 点名的那个 mjs |
+| `public/vendor/maic-importer` | ≈5 MiB | maic-importer 是通过 **URL 动态 import** 的静态资源，由静态托管（`.edgeone/assets/vendor/…`）提供，函数包里这份是重复 |
+
+裁剪脚本把这些一起处理掉，并顺带修掉 opennext 的两个运行时坑：
+
+```bash
+node scripts/prune-edgeone-function.mjs            # dry-run，只报告
+node scripts/prune-edgeone-function.mjs --yes      # 真执行
+```
+
+实测：**254.9 MiB → 122.3 MiB**（余量约 5.7 MiB）。
+
+顺带修掉的两个坑（都在脚本里，务必不要跳过这一步）：
+
+1. **opennext 把图片加载器注入完又删掉了**。它的 `injectImageLoader` 会写
+   `.edgeone/image-loader.mjs` 并把 `next.config.ts` 换成 wrapper，
+   随后的 `restoreNextConfig` 又把 loader 文件删了 —— 结果是运行配置里
+   `images.loaderFile` 指向一个**不存在的文件**。脚本会把它补回来。
+2. **运行配置里内联了构建机的绝对路径**。`run-config.json` / `server.js` /
+   `.next/required-server-files.json` 里的 `repoRoot`、`outputFileTracingRoot`、
+   `turbopack.root`、`images.loaderFile` 全是 `/Users/<某人>/<仓库>` 这种本机路径。
+   本地跑得通是因为那条路径真的存在，部署到平台后不存在。脚本把它们统一
+   改写成函数包内的相对路径。
+
+**裁剪必须在构建之后、上传之前**，而 CLI 没有暴露这个钩子。脚本的取巧办法是：
+待部署目录里**只有 `.edgeone` 与 `edgeone.json`** 时，CLI 会判定「产物已就绪」
+并跳过本地构建（CLI 的 `Qee()` 判定），于是流程变成
+`edgeone pages build` → 裁剪 → 把 `.edgeone` 挪进暂存目录 → 从暂存目录 deploy。
+`scripts/deploy-edgeone.mjs` 把这四步串成了一条命令。
+
+> **现状（2026-10-22 实测）**：部署成功，静态页（SSG 路由）线上 HTTP 200，
+> 首屏标题「大学物理 AI 智慧课堂 · 长江大学文理学院」；
+> **动态路由（SSR）线上仍返回 502 `CLOUD_FUNCTION_INVOCATION_FAILED`**（约 5 秒后失败）。
+> 已排除的因素：裁剪内容（同一份包在本地 `node index.mjs` 起来完全正常，
+> `/api/health` 200、耗时 170ms）、平台环境变量（用同款 env 本地复跑同样正常）、
+> 符号链接（平台解包后的字节数与本地完全一致，说明软链被保留）、
+> server.js 的 ESM/CommonJS 入口不兼容（已加 `createRequire` 垫片，仍 502）。
+> 下一步需要**控制台的函数运行日志**（CLI 与公开 API 都取不到）定位平台侧差异。
 
 ### 8.2 静态质量门槛
 

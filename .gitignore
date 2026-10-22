@@ -101,3 +101,6 @@ render-service/.owner-bound-parent-*/
 /.pnpm-store/
 # 本地构建临时目录
 /.tmp/
+
+# EdgeOne CLI 生成的项目关联信息（不属于源码）
+/.edgeone/

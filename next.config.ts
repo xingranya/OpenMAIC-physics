@@ -49,10 +49,35 @@ const nextConfig: NextConfig = {
       // native lib dir for standalone builds. Vercel packages its runtime
       // dependencies itself; including every native variant there bloats each
       // traced function and can push Hobby deployments past 12 bundles.
-      ...(!isVercelBuild
-        ? ['node_modules/.pnpm/@img+sharp-libvips-*/node_modules/@img/sharp-libvips-*/lib/**']
-        : []),
+      // EdgeOne Pages 的云函数包有 **128MiB 硬上限**（超限直接部署失败）。六个
+      // 平台的 libvips 变体合计约 210MiB（darwin/linux/linuxmusl × arm64/x64
+      // × 两个 sharp 版本），仅此一项就把函数包顶到 420MiB。EdgeOne 的函数
+      // 运行时固定是 linux-x64，其余变体在 EdgeOne 上永远不会被 dlopen，
+      // 所以这里只带 linux-x64 的两份（libvips 1.2.4 + 1.3.3，约 34MiB）。
+      ...(isEdgeOneBuild
+        ? [
+            'node_modules/.pnpm/@img+sharp-libvips-linux-x64@*/node_modules/@img/sharp-libvips-linux-x64/lib/**',
+          ]
+        : !isVercelBuild
+          ? ['node_modules/.pnpm/@img+sharp-libvips-*/node_modules/@img/sharp-libvips-*/lib/**']
+          : []),
     ],
+  },
+  // `outputFileTracingIncludes` 只能「加」文件，sharp 的其余平台变体是 Next
+  // 顺着 sharp 的 optionalDependencies 自动追踪进来的，必须用 excludes 剔除。
+  // EdgeOne 的函数运行时是 linux-x64，其余 5 个变体（darwin ×2、linux-arm64、
+  // linuxmusl ×2）在这里永远不会被 dlopen，带上纯属把函数包顶出 128MiB 上限。
+  outputFileTracingExcludes: {
+    '/*': isEdgeOneBuild
+      ? [
+          'node_modules/.pnpm/@img+sharp-libvips-darwin-*/**',
+          'node_modules/.pnpm/@img+sharp-libvips-linux-arm64/**',
+          'node_modules/.pnpm/@img+sharp-libvips-linuxmusl-*/**',
+          'node_modules/.pnpm/@img+sharp-darwin-*/**',
+          'node_modules/.pnpm/@img+sharp-linux-arm64/**',
+          'node_modules/.pnpm/@img+sharp-linuxmusl-*/**',
+        ]
+      : [],
   },
   typescript: {
     tsconfigPath: process.env.NODE_ENV === 'production' ? 'tsconfig.build.json' : 'tsconfig.json',

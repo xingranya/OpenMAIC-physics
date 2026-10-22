@@ -18,6 +18,10 @@ packages/docs/
 .next/
 out/
 
+# EdgeOne Pages 本地构建产物与部署暂存目录
+.edgeone/
+.tmp/
+
 # Generated files
 *.min.js
 *.min.css

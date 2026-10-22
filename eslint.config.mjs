@@ -33,6 +33,11 @@ const eslintConfig = defineConfig([
     'out/**',
     'build/**',
     'next-env.d.ts',
+    // EdgeOne Pages 本地构建产物（.edgeone/）：里面是 opennext 打包出来的
+    // 压缩运行时代码与 node_modules 实体文件，不是本仓库的源码。
+    '.edgeone/**',
+    // EdgeOne CLI 的部署暂存目录（.tmp/edgeone-stage 里放着 .edgeone 产物）：
+    '.tmp/**',
     // Third-party / vendored packages (not our code):
     'packages/docs/**',
     'packages/mathml2omml/**',

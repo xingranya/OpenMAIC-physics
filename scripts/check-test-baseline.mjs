@@ -125,7 +125,10 @@ try {
   }
 
   // ── 3) 比对 ──
-  const introduced = [...currentFailed].filter((file) => !baseFailed.has(file));
+  // 先把「当前失败、基线没失败」的文件**单独再跑一遍**：
+  // 并发敏感的文件单独跑会通过，只剩真正确定性的回归。
+  const candidates = [...currentFailed].filter((file) => !baseFailed.has(file));
+  const introduced = candidates.length > 0 ? rerunIsolated(ROOT, candidates) : candidates;
   const fixed = [...baseFailed].filter((file) => !currentFailed.has(file));
 
   console.log('\n── 结果 ──');

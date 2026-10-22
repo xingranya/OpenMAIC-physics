@@ -23,6 +23,9 @@
  *        --access-code your-code          # 同时验证口令门禁
  *   node scripts/check-physics-e2e.mjs --base-url https://your.site \
  *        --expect-build-id <id>           # 线上部署：显式声明期望的 BUILD_ID
+ *   node scripts/check-physics-e2e.mjs --base-url https://xxx.edgeone.cool \
+ *        --site-query "eo_token=...&eo_time=..." \
+ *        --access-code your-code          # EdgeOne 预设域名：带平台令牌 + 访问码
  *
  * 退出码：全部通过为 0，存在失败项为 1。
  */
@@ -92,8 +95,6 @@ const BRAND_MARKERS = ['长江大学文理学院', '大学物理'];
 const WORKBENCH_MARKER = '正在加载工作台';
 
 const results = [];
-/** 通过口令门禁后拿到的 Cookie，后续 API 检查需要带上。 */
-let authCookie = '';
 
 function record(name, ok, detail) {
   results.push({ name, ok, detail });
@@ -101,12 +102,64 @@ function record(name, ok, detail) {
   process.stdout.write(`[${mark}] ${name}${detail ? ` — ${detail}` : ''}\n`);
 }
 
+/** 判断请求头里是否已经带了 Cookie（兼容 Headers 实例与普通对象）。 */
+function hasCookieHeader(headers) {
+  if (!headers) return false;
+  if (typeof headers.has === 'function') return headers.has('cookie');
+  return Object.keys(headers).some((key) => key.toLowerCase() === 'cookie');
+}
+
+/**
+ * EdgeOne 预设域名（*.edgeone.cool）默认带**平台级**访问保护：没有带
+ * `eo_token` 的请求会拿到平台自己的 401 页面（不是应用的 401）。
+ * 带令牌的第一次访问会由平台下发一枚 HttpOnly Cookie，后续请求带上它即可。
+ * 绑定自定义域名后不需要这一层，SITE_QUERY 留空即可。
+ */
+const SITE_QUERY = argValue('--site-query', '');
+
+/** 平台下发的 Cookie（EdgeOne 预设域名保护层）。 */
+let siteCookie = '';
+
+/** 应用自己的访问码会话 Cookie（middleware 校验 HMAC 签名）。 */
+let authCookie = '';
+
+/** 合并两层 Cookie。 */
+function cookieHeader() {
+  return [siteCookie, authCookie].filter(Boolean).join('; ');
+}
+
+/** 用带 eo_token 的链接换取平台 Cookie。 */
+async function acquireSiteAccess() {
+  if (!SITE_QUERY) return;
+  // 平台把访问 Cookie 下在 **302 响应** 上，所以必须手动跟随一次跳转：
+  // 用 redirect:'follow' 只能看到最后一跳的响应头，会漏掉 Set-Cookie。
+  const first = await fetch(`${BASE_URL}/?${SITE_QUERY}`, { redirect: 'manual' });
+  const setCookies =
+    typeof first.headers.getSetCookie === 'function' ? first.headers.getSetCookie() : [];
+  const pairs = setCookies.map((cookie) => cookie.split(';')[0]).filter(Boolean);
+  siteCookie = pairs.join('; ');
+  process.stdout.write(
+    siteCookie
+      ? `已取得 EdgeOne 预设域名访问 Cookie（${pairs.length} 项）\n`
+      : '警告：带 eo_token 访问未取得平台 Cookie，后续请求可能被平台 401\n',
+  );
+}
+
 async function fetchWithTimeout(path, init = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
+    const headers = { ...(init.headers || {}) };
+    // 门禁（ACCESS_CODE）开启时，未授权请求会被 middleware 拦成 401。
+    // 取到会话 Cookie 之后的每一次请求都必须带上它，否则页面路由全 401，
+    // 自检会把「已登录可用」误判成「站点不可达」。
+    const combined = cookieHeader();
+    if (combined && !hasCookieHeader(headers)) {
+      headers.Cookie = combined;
+    }
     return await fetch(`${BASE_URL}${path}`, {
       ...init,
+      headers,
       signal: controller.signal,
       redirect: 'manual',
     });
@@ -374,19 +427,28 @@ async function checkBuildId() {
 
 async function main() {
   process.stdout.write(`物理 AI 智慧课堂 · 端到端自检\n目标：${BASE_URL}\n\n`);
+  await acquireSiteAccess();
   try {
-    const probe = await fetchWithTimeout('/');
-    if (!probe.ok) throw new Error(`目标站点不可达（HTTP ${probe.status}）`);
+    // 门禁开启时首页会返回 401（这是预期行为，不是「站点不可达」）。
+    // /api/health 在 middleware 的门禁白名单里，用它判定站点是否真的活着。
+    let probe = await fetchWithTimeout('/api/health');
+    if (!probe.ok) {
+      const fallback = await fetchWithTimeout('/');
+      if (!fallback.ok && fallback.status !== 401) {
+        throw new Error(`目标站点不可达（HTTP ${fallback.status}）`);
+      }
+    }
   } catch (error) {
     process.stdout.write(`[FAIL] 目标站点不可达 — ${String(error)}\n`);
     process.exitCode = 1;
     return;
   }
 
+  // 先做门禁校验：它负责取到会话 Cookie，后面的页面/资源检查都要靠这个 Cookie。
+  await checkAccessCode();
   await checkRoutes();
   await checkChunks();
   await checkBuildId();
-  await checkAccessCode();
   await checkProviderDegradation();
 
   const failed = results.filter((item) => !item.ok);
