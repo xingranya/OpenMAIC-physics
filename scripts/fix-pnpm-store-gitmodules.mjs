@@ -53,7 +53,17 @@ const STORE_CANDIDATES = [
   join(process.env.HOME || '', '.pnpm', 'store'),
 ].filter(Boolean);
 
-const TARGET_FILE = '.gitmodules';
+/**
+ * 需要从 store 索引里摘除的文件名。
+ *
+ * 某些防护策略是**按「点号开头的路径」**拦截的：`.gitmodules` 文件会，
+ * 包里带的 `.idea/` 之类的目录同样会。本机实测两类都会触发 EPERM，
+ * 所以这里按「路径中任意一段以点号开头」来判定，而不是只认 `.gitmodules`。
+ */
+const isBlockedPath = (filePath) =>
+  String(filePath)
+    .split('/')
+    .some((segment) => segment.startsWith('.') && segment !== '.' && segment !== '..');
 
 function findStore() {
   for (const candidate of STORE_CANDIDATES) {
@@ -92,11 +102,13 @@ const walk = (dir) => {
     } catch {
       continue;
     }
-    if (!json.files || !Object.prototype.hasOwnProperty.call(json.files, TARGET_FILE)) continue;
-    delete json.files[TARGET_FILE];
+    if (!json.files || !Object.prototype.hasOwnProperty.call(json.files, 'files')) continue;
+    const blocked = Object.keys(json.files).filter(isBlockedPath);
+    if (blocked.length === 0) continue;
+    for (const file of blocked) delete json.files[file];
     writeFileSync(full, JSON.stringify(json));
     patched += 1;
-    console.log(`[fix-pnpm-store-gitmodules] 已摘除 ${TARGET_FILE}：${entry.name}`);
+    console.log(`[fix-pnpm-store-gitmodules] 已摘除 ${blocked.join('、')}：${entry.name}`);
   }
 };
 

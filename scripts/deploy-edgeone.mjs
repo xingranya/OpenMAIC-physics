@@ -168,10 +168,23 @@ if (!SKIP_BUILD) {
       env: {
         // 受限环境的 corepack 缓存可能没有 packageManager 指定的 pnpm；
         // 显式指定安装命令，绕开 corepack 并固定到仓库内的内容寻址 store。
+        //
+        // 安装命令是「装 → 修 store → 再装」：
+        //   某些防护策略会**按文件名**拦截 `.gitmodules` 的创建，pnpm 往包里写这个
+        //   文件时直接 EPERM，整个安装中断。真正的解药是先修 store 索引
+        //   （scripts/fix-pnpm-store-gitmodules.mjs 把该条目从索引里摘掉，pnpm 就不会
+        //   再尝试创建它），再重跑一次安装。
+        //
+        // 这里**不能**用 `--ignore-scripts`：它会跳过 root postinstall，
+        // 于是 `packages/*/dist`（不在版本控制里，只由 postinstall 生成）不会被构建，
+        // 干净机器上的构建链会断在第一步。
         InstallCommand:
           process.env.InstallCommand ||
-          'pnpm install --frozen-lockfile --ignore-scripts --package-import-method=hardlink --store-dir=' +
-            join(ROOT, '.pnpm-store'),
+          [
+            `pnpm install --frozen-lockfile --package-import-method=hardlink --store-dir=${join(ROOT, '.pnpm-store')}`,
+            `node scripts/fix-pnpm-store-gitmodules.mjs`,
+            `pnpm install --frozen-lockfile --package-import-method=hardlink --store-dir=${join(ROOT, '.pnpm-store')}`,
+          ].join(' ; '),
         CI: 'true',
       },
     });
@@ -195,7 +208,15 @@ if (!existsSync(EDGEONE_DIR)) {
  * 又会因为 macOS 专有环境变量让边缘函数在平台上加载即崩。
  */
 const edgeBundle = join(EDGEONE_DIR, 'edge-functions', 'index.js');
-if (existsSync(edgeBundle)) {
+if (!existsSync(edgeBundle)) {
+  // fail-closed：产物里找不到 edge 函数 bundle，说明 CLI 改了产物路径或构建异常。
+  // 此时**不能**静默放行——门禁一旦形同虚设，本机凭据就可能随产物上线。
+  throw new Error(
+    `产物泄露门禁找不到 edge 函数产物：${relative(ROOT, edgeBundle)}。` +
+      '请确认 edgeone CLI 的产物路径未变更，或该产物本就不含 edge 函数。',
+  );
+}
+{
   const bundle = readFileSync(edgeBundle, 'utf8');
   const problems = [];
 
@@ -265,11 +286,19 @@ renameSync(EDGEONE_DIR, join(STAGE_DIR, '.edgeone'));
 cpSync(join(ROOT, 'edgeone.json'), join(STAGE_DIR, 'edgeone.json'));
 
 try {
+  // 鉴权令牌只在**部署这一步**透传，不进 CLEAN_ENV_KEYS：
+  // 构建子进程的 env 会被 CLI 内联进 edge 产物（已实测），
+  // 把令牌放进白名单等于把令牌写进产物。
+  const deployEnv = {};
+  if (process.env.EDGEONE_PAGES_API_TOKEN) {
+    deployEnv.EDGEONE_PAGES_API_TOKEN = process.env.EDGEONE_PAGES_API_TOKEN;
+  }
   run(
     'edgeone',
     ['makers', 'deploy', '.', '-n', PROJECT_NAME, '-e', 'production', '--area', AREA, '--json'],
     {
       cwd: STAGE_DIR,
+      env: deployEnv,
     },
   );
 } finally {

@@ -102,11 +102,51 @@ function record(name, ok, detail) {
   process.stdout.write(`[${mark}] ${name}${detail ? ` — ${detail}` : ''}\n`);
 }
 
-/** 判断请求头里是否已经带了 Cookie（兼容 Headers 实例与普通对象）。 */
-function hasCookieHeader(headers) {
-  if (!headers) return false;
-  if (typeof headers.has === 'function') return headers.has('cookie');
-  return Object.keys(headers).some((key) => key.toLowerCase() === 'cookie');
+/**
+ * 把多份 Cookie 头按 **cookie 名**合并去重（同名保留先出现的）。
+ *
+ * EdgeOne 预设域名有两层 Cookie：
+ *   - 平台保护层下发的 eo_token / eo_time；
+ *   - 应用门禁下发的 openmaic_access。
+ * 两层都要带，缺任何一层都会被对应的保护层拦成 401。
+ * 之前调用点显式传 `headers: { Cookie: xxx }` 会把平台那层**顶掉**，
+ * 于是「已登录可用」被误判成「站点不可达」，甚至在解析平台 401 的 HTML 时崩栈。
+ */
+function mergeCookies(...sources) {
+  const seen = new Map();
+  for (const source of sources) {
+    if (!source) continue;
+    for (const part of String(source).split(';')) {
+      const piece = part.trim();
+      if (!piece) continue;
+      const eq = piece.indexOf('=');
+      const name = eq === -1 ? piece : piece.slice(0, eq);
+      if (!seen.has(name)) seen.set(name, piece);
+    }
+  }
+  return [...seen.values()].join('; ');
+}
+
+/**
+ * 安全读取 JSON。
+ *
+ * 平台保护层拦下来的响应是 **HTML**（401 页面），`response.json()` 会抛
+ * SyntaxError 让整个自检脚本带着未捕获的 Promise rejection 崩掉，后续检查一项都跑不了。
+ * 这里统一容错：解析失败返回 null，由调用方按「状态码不对」记录失败。
+ */
+async function readJson(response) {
+  let text = '';
+  try {
+    text = await response.text();
+  } catch {
+    return null;
+  }
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -149,14 +189,15 @@ async function fetchWithTimeout(path, init = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
-    const headers = { ...(init.headers || {}) };
+    // 用 Headers 实例统一承载请求头：既能正确读取调用方传入的 Headers，
+    // 也避免 `{ ...init.headers }` 展开 Headers 实例得到空对象的问题。
+    const headers = new Headers(init.headers || {});
     // 门禁（ACCESS_CODE）开启时，未授权请求会被 middleware 拦成 401。
     // 取到会话 Cookie 之后的每一次请求都必须带上它，否则页面路由全 401，
     // 自检会把「已登录可用」误判成「站点不可达」。
-    const combined = cookieHeader();
-    if (combined && !hasCookieHeader(headers)) {
-      headers.Cookie = combined;
-    }
+    // **平台 Cookie 与应用 Cookie 必须合并**：调用方显式传了 Cookie 也不能把平台那层丢掉。
+    const combined = mergeCookies(headers.get('cookie'), cookieHeader());
+    if (combined) headers.set('cookie', combined);
     return await fetch(`${BASE_URL}${path}`, {
       ...init,
       headers,
@@ -296,7 +337,15 @@ function checkDocChunkCount(actual) {
 
 async function checkAccessCode() {
   const status = await fetchWithTimeout('/api/access-code/status');
-  const statusJson = await status.json();
+  const statusJson = await readJson(status);
+  if (!statusJson) {
+    record(
+      'ACCESS_CODE 门禁',
+      false,
+      `GET /api/access-code/status 返回 HTTP ${status.status}（非 JSON，可能是平台访问保护层拦截）`,
+    );
+    return;
+  }
   if (!statusJson.enabled) {
     record('ACCESS_CODE 门禁', true, '未配置 ACCESS_CODE（本地演示形态），跳过门禁校验');
     return;
@@ -353,8 +402,8 @@ async function checkAccessCode() {
   const authenticated = await fetchWithTimeout('/api/access-code/status', {
     headers: { Cookie: cookie },
   });
-  const authJson = await authenticated.json();
-  if (authJson.authenticated === true) {
+  const authJson = await readJson(authenticated);
+  if (authJson?.authenticated === true) {
     record(
       'ACCESS_CODE 会话生效',
       true,
@@ -374,9 +423,13 @@ async function checkProviderDegradation() {
   const response = await fetchWithTimeout('/api/server-providers', {
     headers: authCookie ? { Cookie: authCookie } : {},
   });
-  const json = await response.json();
-  if (response.status !== 200 || json.success !== true) {
-    record('模型供给可查询（降级前提）', false, `HTTP ${response.status}`);
+  const json = await readJson(response);
+  if (response.status !== 200 || !json?.success) {
+    record(
+      '模型供给可查询（降级前提）',
+      false,
+      `HTTP ${response.status}${json ? '' : '（响应非 JSON）'}`,
+    );
     return;
   }
   const providerCount = Object.keys(json.providers ?? {}).length;

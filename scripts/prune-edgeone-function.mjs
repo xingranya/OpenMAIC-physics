@@ -35,21 +35,51 @@
  *   node scripts/prune-edgeone-function.mjs            # dry-run，只报告
  *   node scripts/prune-edgeone-function.mjs --yes      # 真正执行
  */
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { builtinModules, createRequire } from 'node:module';
+import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { pathToFileURL } from 'node:url';
+import {
+  cpSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import { delimiter, dirname, join, relative, resolve } from 'node:path';
 
 const ROOT = process.cwd();
 const FN_DIR = join(ROOT, '.edgeone', 'cloud-functions', 'ssr-node');
 const APPLY = process.argv.includes('--yes');
+
+/**
+ * 工作区包在运行期真正需要的文件：package.json + dist + 许可/说明。
+ * 源码（src）、测试、配置在函数包里用不到，却有十几 MiB。
+ */
+const RUNTIME_FILES = new Set(['package.json', 'LICENSE', 'README.md', 'README-zh.md']);
 
 /** 函数包里必须保留的顶层条目（其余整个删掉）。 */
 const KEEP_TOP_LEVEL = new Set([
   // 运行时代码与依赖
   '.next',
   'node_modules',
+  'deps', // 依赖目录改名后的落点（平台会剥离 node_modules，详见 renameDependenciesToDeps）
   'packages', // workspace 包的软链目标：node_modules/@openmaic/* -> ../../packages/...
   'skills', // agent runtime 在运行时读 skills/**
-  'public', // 静态资源兜底（静态托管已在 .edgeone/assets 里）
+  // 注意：'public' **不在**保留清单里。
+  // 它的全部内容（avatars / brand / logos / vendor/…）已经由平台托管在
+  // `.edgeone/assets/` 下（见构建日志的 Collecting/Uploading static files），
+  // 静态请求走平台的 filesystem handler，不经过云函数；
+  // 函数包里再放一份纯属重复，白占几 MiB。
   'lib', // 只保留 outputFileTracingIncludes 点名的那个 mjs（见 pruneLib）
   // 运行时配置与入口
   'package.json',
@@ -85,6 +115,9 @@ const KEEP_SHARP_PNPM = new Set([
   '@img+sharp-linux-x64@0.35.4',
 ]);
 
+/** 扁平布局（node-linker=hoisted）下要保留的 @img 包名。 */
+const KEEP_SHARP_HTML = new Set(['sharp-linux-x64', 'sharp-libvips-linux-x64']);
+
 /** 需要删掉的顶层文件（构建/测试/工具链配置，运行时一律不用）。 */
 const DROP_TOP_FILES = new Set([
   'pnpm-lock.yaml',
@@ -111,9 +144,23 @@ const DROP_TOP_FILES = new Set([
   'comfyui-setup-instructions.md',
 ]);
 
-/** 递归统计目录体积（字节）。 */
+/**
+ * 递归统计目录体积（字节）。
+ *
+ * 目录里的**符号链接**指向的目标不计入：它们在函数包内是「指针」，
+ * 真实字节落在被指向的位置，单独计一次即可，避免重复计数。
+ * 传入的若是**文件**则直接返回其大小（早期版本对文件调用 readdir 会抛异常，
+ * 被 catch 吞掉后返回 0，导致「预计释放体积」算不准）。
+ */
 function dirSize(dir) {
   let total = 0;
+  let stat;
+  try {
+    stat = statSync(dir);
+  } catch {
+    return 0;
+  }
+  if (!stat.isDirectory()) return stat.size;
   const stack = [dir];
   while (stack.length > 0) {
     const current = stack.pop();
@@ -125,6 +172,7 @@ function dirSize(dir) {
     }
     for (const entry of entries) {
       const full = join(current, entry.name);
+      if (entry.isSymbolicLink()) continue;
       if (entry.isDirectory()) {
         stack.push(full);
       } else if (entry.isFile()) {
@@ -180,6 +228,10 @@ if (existsSync(libDir)) {
 }
 
 // 3) sharp 的非 linux-x64 原生变体。
+//    两种布局都要覆盖：
+//      - pnpm 软链布局：node_modules/.pnpm/@img+sharp-<平台>@<版本>/
+//      - 扁平布局（node-linker=hoisted）：node_modules/@img/sharp-<平台>/
+//    扁平布局下 libvips 的 5 个平台变体各约 18 MiB，不裁就是 90 MiB 纯浪费。
 const pnpmDir = join(FN_DIR, 'node_modules', '.pnpm');
 if (existsSync(pnpmDir)) {
   for (const entry of readdirSync(pnpmDir, { withFileTypes: true })) {
@@ -188,6 +240,17 @@ if (existsSync(pnpmDir)) {
       entry.name.startsWith('@img+sharp-libvips-') || entry.name.startsWith('@img+sharp-');
     if (isSharpNative && !KEEP_SHARP_PNPM.has(entry.name)) {
       doomed.push(join('node_modules', '.pnpm', entry.name));
+    }
+  }
+}
+const imgDir = join(FN_DIR, 'node_modules', '@img');
+if (existsSync(imgDir)) {
+  for (const entry of readdirSync(imgDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    if (!entry.name.startsWith('sharp-')) continue;
+    // 只保留 linux-x64 的 sharp 与 libvips（EdgeOne 函数运行时固定 linux-x64）。
+    if (!KEEP_SHARP_HTML.has(entry.name)) {
+      doomed.push(join('node_modules', '@img', entry.name));
     }
   }
 }
@@ -232,8 +295,29 @@ for (const target of targets) {
   rmSync(full, { recursive: true, force: true });
 }
 
+// 4.5) node_modules 拍平：把 pnpm 的符号链接布局改成平台能识别的真实目录布局。
+//      必须在裁剪删除**之后**做：否则会被裁掉的 darwin 原生变体又被实体化回来。
+flattenNodeModules(FN_DIR);
+
+// 4.6) 依赖目录改名成 deps（平台上传时会剥离任何名为 node_modules 的目录）。
+renameDependenciesToDeps(FN_DIR);
+
+// 4.7) 实体化 Turbopack 的外部模块别名（源取工作区，落到 deps/<别名>）。
+materializeExternalAliases(FN_DIR, ROOT);
+
+// 4.75) 补齐产物用到、但函数包顶层没有的传递依赖（源取工作区）。
+ensureRuntimePackages(FN_DIR, ROOT);
+
+// 4.8) 写入 ESM 解析钩子：裸标识符 → deps/。
+writeEsmResolveHooks(FN_DIR);
+
+// 4.9) 拍平后的强制校验（任何不满足都中止部署）。
+verifyFlattenedPackage(FN_DIR);
+
 const after = dirSize(FN_DIR);
 console.log(`[prune-edgeone-function] 裁剪完成：${mib(before)} MiB → ${mib(after)} MiB`);
+
+/**
 
 /**
  * 运行时路径修复：把配置里内联的**本机绝对路径**换成函数包内的相对路径。
@@ -335,6 +419,1345 @@ if (existsSync(serverEntry)) {
 }
 
 /**
+ * 运行时监听加固：让函数进程**双栈监听**，消除「平台连不上函数」这一整类故障。
+ *
+ * opennext 生成的 bootstrap.js 里写死了：
+ *   const SERVER_HOST = 'localhost';
+ *   const SERVER_PORT = 9000;
+ *   server.listen(SERVER_PORT, SERVER_HOST, ...)
+ *
+ * `server.listen(port, 'localhost')` 的绑定地址取决于**运行机器上 localhost 的解析顺序**：
+ * Node ≥17 默认 verbatim 解析，macOS/Linux 上 `localhost` 常常先解析出 `::1`，
+ * 于是函数只监听 IPv6 的 `[::1]:9000`，**IPv4 的 `127.0.0.1:9000` 完全不通**。
+ * 本机实测正是如此：进程占住的是 `TCP [::1]:9000 (LISTEN)`，curl 127.0.0.1 直接连接失败。
+ *
+ * 平台侧若按 IPv4 回连 127.0.0.1:9000，就会连不上，表现为函数「运行时间 0ms /
+ * 运行内存 0.0000MB / 状态失败」，所有走云函数的路由 502
+ * （CLOUD_FUNCTION_INVOCATION_FAILED）——因为函数进程压根没接到任何请求。
+ *
+ * 修法：去掉 host 参数，`server.listen(SERVER_PORT)` 会监听 `::`（双栈，IPv4 映射地址
+ * 同样可达），**只放宽、不收紧**：IPv4 与 IPv6 两条路都能连上。
+ */
+const bootstrapEntry = join(FN_DIR, 'bootstrap.js');
+if (existsSync(bootstrapEntry)) {
+  const original = readFileSync(bootstrapEntry, 'utf8');
+  const patched = original.replace(
+    'server.listen(SERVER_PORT, SERVER_HOST, () => {',
+    [
+      '// [patched] 去掉 host 参数，改为双栈监听（`::`），',
+      '// 保证平台无论用 127.0.0.1 还是 [::1] 回连都能命中。',
+      'server.listen(SERVER_PORT, () => {',
+    ].join('\n'),
+  );
+  if (patched !== original) {
+    writeFileSync(bootstrapEntry, patched);
+    console.log('[prune-edgeone-function] 已把函数监听改为双栈（不再绑定单个 localhost 解析结果）');
+  }
+}
+
+/**
+ * 入口可观测性：给 index.mjs 加启动日志、失败原因捕获与**兜底诊断服务器**。
+ *
+ * 原版 index.mjs 是三行静态 import + 调用，**任何 import 期异常都在日志落地前抛出**，
+ * 平台侧只能看到「函数起不来」或一个通用错误页，看不到原因。
+ *
+ * 改写后：
+ *   1. 启动即打印 Node 版本/平台/架构；
+ *   2. 动态 import + try/catch，失败时把**完整报错与环境探针**打到 stderr；
+ *   3. 更关键：失败时**自己起一个最小 HTTP 服务器**（占用平台预期的 9000 端口），
+ *      把诊断文本原样写进 HTTP 响应体。这样平台返回的就是我们的正文而不是通用错误页，
+ *      线上排查可以直接读出真实原因——EdgeOne Pages 控制台不暴露 SSR 函数的 stdout。
+ *
+ * 语义与原版一致（同样的模块、同样的调用顺序），只多了日志、错误兜底与诊断。
+ */
+const indexEntry = join(FN_DIR, 'index.mjs');
+if (existsSync(indexEntry)) {
+  const original = readFileSync(indexEntry, 'utf8');
+  // 幂等标记必须用**本版独有**的字符串：早期版本只打印启动日志、
+  // 失败即 process.exit(1)，若沿用那个标记做守卫，新版就永远不会被写入。
+  // （每次给入口加可观测能力时，同步换掉这里的标记。）
+  if (!original.includes('entry-diag-version: 6')) {
+    writeFileSync(
+      indexEntry,
+      [
+        '// EdgeOne Pages 云函数入口（opennext 生成，本文件为可观测性改写版）。',
+        '// entry-diag-version: 8',
+        "import { createHmac } from 'node:crypto';",
+        '// 与原版语义一致：加载 bootstrap/handler → 启动框架服务器；',
+        '// 额外把启动阶段信息、失败原因与诊断文本暴露出来，便于线上排障。',
+        "console.log('[ssr-node] entry start', process.version, process.platform, process.arch);",
+        '',
+        '/**',
+        ' * 依赖解析接线。',
+        ' *',
+        ' * 平台在**上传/解包**时会剥离任何名为 `node_modules` 的目录，',
+        ' * 所以依赖在产物里被改名为 `deps`。运行时把两条解析路径都接上：',
+        " *   - CJS：`require('next/…')` 走 NODE_PATH → deps；",
+        " *   - ESM：`await import('pg-<hash>')`（Turbopack 的 externalImport）",
+        ' *     由 esm-hooks.mjs 的 resolve 钩子映射到 deps。',
+        ' *',
+        ' * 注意：运行时文件系统**只读**，建不了 node_modules 软链，',
+        ' * 所以不能用「建软链」的办法兜底，只能用 NODE_PATH + 解析钩子。',
+        ' */',
+        'async function registerEsmHooks() {',
+        "  const { register } = await import('node:module');",
+        "  register('./esm-hooks.mjs', import.meta.url);",
+        "  console.log('[ssr-node] ESM 解析钩子已注册（deps/ 作为裸标识符解析目标）');",
+        '}',
+        '',
+        'await registerEsmHooks();',
+        '',
+        '/**',
+        ' * 平台把依赖放在 deps/（node_modules 会被剥离，且运行时只读、建不了软链）。',
+        ' * CJS 的裸标识符解析只认 node_modules 目录，但 NODE_PATH 以兜住它：',
+        " * 把 deps 加进 NODE_PATH 后，require('next/…') 就能解析到 deps/next。",
+        ' */',
+        'async function extendNodePath() {',
+        "  const path = await import('node:path');",
+        "  const { Module } = await import('node:module');",
+        "  const deps = path.join(process.cwd(), 'deps');",
+        '  const current = process.env.NODE_PATH;',
+        '  process.env.NODE_PATH = current ? deps + path.delimiter + current : deps;',
+        '  Module._initPaths();',
+        "  console.log('[ssr-node] NODE_PATH = ' + process.env.NODE_PATH);",
+        '}',
+        '',
+        'await extendNodePath();',
+        '',
+        '/** 把**平台上真实的文件系统状态**打出来：目录里到底有什么。 */',
+        'async function reportRuntimeEnvironment() {',
+        "  const fs = await import('node:fs');",
+        "  const path = await import('node:path');",
+        '  const lines = [];',
+        "  lines.push('cwd: ' + process.cwd());",
+        '  const list = (dir) => {',
+        '    try {',
+        "      return fs.readdirSync(dir).slice(0, 120).join(',');",
+        '    } catch (error) {',
+        "      return 'ERR ' + error.code;",
+        '    }',
+        '  };',
+        "  lines.push('cwd entries: ' + list(process.cwd()));",
+        "  lines.push('deps entries: ' + list(path.join(process.cwd(), 'deps')));",
+        "  lines.push('deps/next exists: ' + fs.existsSync(path.join(process.cwd(), 'deps', 'next')));",
+        "  lines.push('deps/next/dist exists: ' + fs.existsSync(path.join(process.cwd(), 'deps', 'next', 'dist')));",
+        "  lines.push('deps/next/start-server.js exists: ' + fs.existsSync(path.join(process.cwd(), 'deps', 'next', 'dist', 'server', 'lib', 'start-server.js')));",
+        "  lines.push('/var/user entries: ' + list('/var/user'));",
+        "  lines.push('.next entries: ' + list(path.join(process.cwd(), '.next')));",
+        "  lines.push('.edgeone entries: ' + list(path.join(process.cwd(), '.edgeone')));",
+        "  lines.push('/var/user/node_modules entries: ' + list('/var/user/node_modules'));",
+        "  return lines.join('\\n');",
+        '}',
+        '',
+        "console.log('[ssr-node] runtime env:\\n' + (await reportRuntimeEnvironment()));",
+        '',
+        '/** 收集环境探针：出错时把关键事实一起回传。 */',
+        'async function collectDiagnostics(error) {',
+        '  const lines = [];',
+        '  const push = (key, value) => lines.push(`${key}: ${value}`);',
+        '  const detail = error && (error.stack || error.message) ? error.stack || error.message : String(error);',
+        "  push('error', detail);",
+        "  push('node', `${process.version} ${process.platform} ${process.arch}`);",
+        "  push('cwd', process.cwd());",
+        '  try {',
+        "    const fs = await import('node:fs');",
+        "    push('cwd entries', fs.readdirSync(process.cwd()).slice(0, 80).join(','));",
+        '    for (const file of [',
+        "      'package.json',",
+        "      '.next/required-server-files.json',",
+        "      '.next/routes-manifest.json',",
+        "      '.next/server/app-paths-manifest.json',",
+        "      'deps/next/package.json',",
+        "      'run-config.json',",
+        "      'config.json',",
+        "      'handler.js',",
+        "      'bootstrap.js',",
+        '    ]) {',
+        "      let size = 'MISSING';",
+        '      try {',
+        '        size = `${fs.statSync(file).size} bytes`;',
+        '      } catch {',
+        '        /* 保持 MISSING */',
+        '      }',
+        '      push(`file ${file}`, size);',
+        '    }',
+        "    push('next version', JSON.parse(fs.readFileSync('deps/next/package.json', 'utf8')).version);",
+        '  } catch (probeError) {',
+        "    push('fs probe failed', probeError && probeError.message);",
+        '  }',
+        "  push('env keys', Object.keys(process.env).sort().join(','));",
+        "  return lines.join('\\n');",
+        '}',
+        '',
+        '/**',
+        ' * 访问码门禁（把 middleware.ts 的 401 规则补回函数入口）。',
+        ' *',
+        ' * 为什么必须在函数里做：EdgeOne Pages **不部署 Next 中间件**——',
+        ' * 实测产物的 .next/server/middleware-manifest.json 里 middleware 为空，',
+        ' * 平台的 edge function 里也没有这段逻辑。',
+        ' * 于是 middleware.ts 里「API 未授权 → 401」这条规则在平台上等于不存在，',
+        ' * 所有 /api/* 路由裸奔（实测 /api/chat、/api/stages 未授权也能打到）。',
+        ' *',
+        ' * 规则与 middleware.ts 完全一致：',
+        ' *   - 白名单：/api/access-code/**、/api/health；',
+        ' *   - 其余 /api/* 必须带合法的 openmaic_access Cookie；',
+        ' *   - 页面路由照旧放行（前端弹口令框）。',
+        ' *',
+        ' * Cookie 形态：<毫秒时间戳>.<HMAC-SHA256(时间戳, ACCESS_CODE) 的小写 hex>',
+        ' * 有效期 7 天，允许 5 分钟时钟超前（与 lib/server/access-token-shared.ts 一致）。',
+        ' */',
+        'const ACCESS_TOKEN_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;',
+        'const ACCESS_TOKEN_CLOCK_SKEW_MS = 5 * 60 * 1000;',
+        "const ACCESS_TOKEN_WHITELIST = ['/api/access-code/', '/api/health'];",
+        '',
+        'function parseCookieHeader(header) {',
+        '  const out = {};',
+        '  if (!header) return out;',
+        "  for (const part of header.split(';')) {",
+        "    const index = part.indexOf('=');",
+        '    if (index === -1) continue;',
+        '    const name = part.slice(0, index).trim();',
+        '    if (!name || name in out) continue;',
+        '    out[name] = decodeURIComponent(part.slice(index + 1).trim());',
+        '  }',
+        '  return out;',
+        '}',
+        '',
+        'function isValidAccessToken(token, accessCode, now) {',
+        '  if (!token) return false;',
+        "  const dot = token.indexOf('.');",
+        '  if (dot === -1) return false;',
+        '  const timestamp = token.slice(0, dot);',
+        '  const signature = token.slice(dot + 1);',
+        '  if (!/^\\d+$/.test(timestamp)) return false;',
+        '  const timestampMs = Number(timestamp);',
+        '  if (!Number.isFinite(timestampMs)) return false;',
+        '  const ageMs = now - timestampMs;',
+        '  if (ageMs > ACCESS_TOKEN_MAX_AGE_MS) return false;',
+        '  if (ageMs < -ACCESS_TOKEN_CLOCK_SKEW_MS) return false;',
+        '  if (!/^[0-9a-f]{64}$/.test(signature)) return false;',
+        "  const expected = createHmac('sha256', accessCode).update(timestamp).digest('hex');",
+        '  if (signature.length !== expected.length) return false;',
+        '  let mismatch = 0;',
+        '  for (let i = 0; i < signature.length; i += 1) {',
+        '    mismatch |= signature.charCodeAt(i) ^ expected.charCodeAt(i);',
+        '  }',
+        '  return mismatch === 0;',
+        '}',
+        '',
+        '/**',
+        ' * 取请求路径：',
+        ' * opennext 的 bootstrap 把 **Node 的 IncomingMessage** 传给 handler',
+        ' *（request.url 是相对路径，Cookie 在 request.headers.cookie），',
+        ' * 但同一份入口也可能收到 WHATWG Request（request.url 绝对、headers.get）。',
+        ' * 两种形态都要支持，否则门禁会静默失效。',
+        ' */',
+        'function readRequestPathname(request) {',
+        '  try {',
+        "    return new URL(request.url || '/', 'http://localhost').pathname;",
+        '  } catch {',
+        "    return '/';",
+        '  }',
+        '}',
+        '',
+        'function readCookieHeader(request) {',
+        '  const headers = request && request.headers;',
+        "  if (!headers) return '';",
+        "  if (typeof headers.get === 'function') return headers.get('cookie') || '';",
+        "  return headers.cookie || '';",
+        '}',
+        '',
+        'function createAccessGate(handler) {',
+        '  return async (request, context) => {',
+        '    const accessCode = process.env.ACCESS_CODE;',
+        '    if (!accessCode) return handler(request, context);',
+        '    const pathname = readRequestPathname(request);',
+        "    if (!pathname.startsWith('/api/')) return handler(request, context);",
+        '    const whitelisted = ACCESS_TOKEN_WHITELIST.some(',
+        '      (prefix) => pathname === prefix || pathname.startsWith(prefix),',
+        '    );',
+        '    if (whitelisted) return handler(request, context);',
+        '    const cookies = parseCookieHeader(readCookieHeader(request));',
+        '    if (isValidAccessToken(cookies.openmaic_access, accessCode, Date.now())) {',
+        '      return handler(request, context);',
+        '    }',
+        "    console.warn('[ssr-node] 未授权访问被拦截：' + pathname);",
+        '    return new Response(',
+        "      JSON.stringify({ success: false, errorCode: 'INVALID_REQUEST', error: 'Access code required' }),",
+        "      { status: 401, headers: { 'content-type': 'application/json' } },",
+        '    );',
+        '  };',
+        '}',
+        '',
+        'try {',
+        "  const { createFrameworkServer, importShim } = await import('./bootstrap.js');",
+        "  const { default: handler } = await import('./handler.js');",
+        '  importShim();',
+        '  createFrameworkServer(createAccessGate(handler));',
+        "  console.log('[ssr-node] framework server listening（访问码门禁已启用）');",
+        '} catch (error) {',
+        '  const diagnostics = await collectDiagnostics(error);',
+        "  console.error('[ssr-node] bootstrap failed:\\n' + diagnostics);",
+        '  // 兜底：自己监听平台预期的 9000 端口，把诊断文本回给调用方。',
+        "  const { createServer } = await import('node:http');",
+        '  const fallback = createServer((req, res) => {',
+        "    res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' });",
+        "    res.end('[ssr-node] bootstrap failed\\n' + diagnostics);",
+        '  });',
+        "  fallback.on('error', (err) => console.error('[ssr-node] fallback server error:', err));",
+        "  fallback.listen(9000, () => console.log('[ssr-node] fallback diagnostics server listening'));",
+        '}',
+        '',
+      ].join('\n'),
+      'utf-8',
+    );
+    console.log(
+      '[prune-edgeone-function] 已改写 index.mjs（启动日志 + 失败诊断 + 兜底诊断服务器）',
+    );
+  }
+}
+
+/**
+ * 判断一个软链是不是**工作区包**（指向 ../../packages/...）。
+ *
+ * 用 readlink 的**原始目标字符串**判断，而不是 realpath：
+ * 软链一旦断链（函数包里的 packages/ 被删掉），realpath 直接抛错，
+ * 于是这个包会被「静默跳过」——最后留在产物里的是一条断链软链，
+ * 平台不物化它，运行时必然 MODULE_NOT_FOUND。
+ */
+function isWorkspaceLink(linkPath) {
+  try {
+    const raw = readlinkSync(linkPath).split('\\').join('/');
+    return raw.includes('packages/');
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 列出 node_modules 下的包条目（处理 @scope 两级结构）。
+ * 返回 [{ name, full }]，name 是包名（scoped 包形如 `@scope/pkg`）。
+ */
+function listPackageEntries(dir) {
+  const out = [];
+  let names = [];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return out;
+  }
+  for (const name of names) {
+    if (name.startsWith('.')) continue;
+    const full = join(dir, name);
+    if (name.startsWith('@')) {
+      let scoped = [];
+      try {
+        scoped = readdirSync(full);
+      } catch {
+        continue;
+      }
+      for (const sub of scoped) out.push({ name: `${name}/${sub}`, full: join(full, sub) });
+    } else {
+      out.push({ name, full });
+    }
+  }
+  return out;
+}
+
+/**
+ * node_modules **拍平**：把 pnpm 的「符号链接布局」改成 npm 式的「真实目录布局」。
+ *
+ * ## 为什么必须拍平（这是线上 502 的真正根因）
+ *
+ * opennext 打包时会把仓库的 node_modules 原样拷进函数包，而仓库用 pnpm，
+ * 于是 `node_modules/next` 之类的条目是**符号链接**：
+ *
+ *   node_modules/next -> .pnpm/next@16.3.3_.../node_modules/next
+ *
+ * **EdgeOne Pages 的上传/解包不会物化符号链接**：符号链接条目被跳过，
+ * 真实字节虽然以 `.pnpm/...` 的形式上传了，但顶层没有 `node_modules/next` 这个入口。
+ * 运行时 `require('next/dist/server/lib/start-server.js')` 于是直接失败：
+ *
+ *   Error: Cannot find module 'next/dist/server/lib/start-server.js'
+ *     at Object.<anonymous> (/var/user/.edgeone/dist/run/next.cjs:41:30)
+ *
+ * 表现就是：静态页（走平台 filesystem handler）200，
+ * 所有走云函数的路由 500 INTERNAL_CLOUD_FUNCTION_ERROR / 502 CLOUD_FUNCTION_INVOCATION_FAILED。
+ *
+ * 本机跑得通是因为本机文件系统认得符号链接——**这正是本地无法复现线上故障的原因**。
+ *
+ * ## 拍平做了什么
+ *
+ *   1. 以 `.pnpm/node_modules/<name>` 的指向为「标准实例」，把每个包的**真实文件**
+ *      复制到顶层 `node_modules/<name>`（顶层原来是符号链接，先删再复制）；
+ *   2. 个别包要求非标准版本的依赖（实测 2 处：fetch-blob→web-streams-polyfill、
+ *      gaxios→node-fetch），把那个版本**嵌套**到使用方自己的 node_modules 下，
+ *      保持 Node 的解析语义；
+ *   3. 工作区包（`@openmaic/*`、`mathml2omml`、`pptxgenjs`，指向 `packages/`）
+ *      同样实体化；
+ *   4. 删掉 `node_modules/.pnpm` 与顶层的 `packages/`（内容已进 node_modules）。
+ *
+ * 拍平后包体反而更小：.pnpm 的重复实例与 packages/ 的源码都不再需要。
+ */
+function flattenNodeModules(fnDir) {
+  const nmDir = join(fnDir, 'node_modules');
+  const pnpmDir = join(nmDir, '.pnpm');
+  if (!existsSync(pnpmDir)) return { skipped: 'node_modules/.pnpm 不存在，无需拍平' };
+
+  /** 列出 node_modules 下的包条目（处理 @scope 两级结构）。 */
+  const listEntries = (dir) => {
+    const out = [];
+    let names = [];
+    try {
+      names = readdirSync(dir);
+    } catch {
+      return out;
+    }
+    for (const name of names) {
+      if (name.startsWith('.')) continue;
+      const full = join(dir, name);
+      if (name.startsWith('@')) {
+        let scoped = [];
+        try {
+          scoped = readdirSync(full);
+        } catch {
+          continue;
+        }
+        for (const sub of scoped) out.push({ name: `${name}/${sub}`, full: join(full, sub) });
+      } else {
+        out.push({ name, full });
+      }
+    }
+    return out;
+  };
+
+  /** 读一个包目录的 package.json（读不到就当作没有依赖信息）。 */
+  const readManifest = (dir) => {
+    try {
+      return JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
+    } catch {
+      return null;
+    }
+  };
+
+  /** 递归复制目录内容，跳过 node_modules，并把符号链接解引用成真实文件。 */
+  const copyTree = (src, dest) => {
+    const srcStat = lstatSync(src);
+    if (srcStat.isSymbolicLink()) {
+      const real = realpathSync(src);
+      if (lstatSync(real).isDirectory()) {
+        copyTree(real, dest);
+      } else {
+        cpSync(real, dest, { dereference: true });
+      }
+      return;
+    }
+    if (srcStat.isDirectory()) {
+      mkdirSafe(dest);
+      for (const entry of readdirSync(src)) {
+        if (entry === 'node_modules') continue;
+        copyTree(join(src, entry), join(dest, entry));
+      }
+      return;
+    }
+    cpSync(src, dest, { dereference: true });
+  };
+
+  const mkdirSafe = (dir) => {
+    try {
+      mkdirSync(dir, { recursive: true });
+    } catch {
+      /* 目录已存在或不可创建，后续写入会暴露问题 */
+    }
+  };
+
+  // ---- 1) 标准实例：.pnpm/node_modules/<name> 的指向 ----
+  const canonical = new Map();
+  for (const entry of listEntries(join(pnpmDir, 'node_modules'))) {
+    try {
+      if (!lstatSync(entry.full).isSymbolicLink()) continue;
+      canonical.set(entry.name, realpathSync(entry.full));
+    } catch {
+      /* 断链的符号链接（被裁剪掉的平台原生变体）跳过 */
+    }
+  }
+
+  // ---- 2) 顶层实体化 ----
+  // 需要实体化的有两类：
+  //   a) `.pnpm/node_modules/<name>` 的标准实例（pnpm 的去重入口）；
+  //   b) **顶层自己就是符号链接**的条目——其中包含 Turbopack 为外部包生成的
+  //      **哈希别名**（形如 `pg-4c0d8067d674414d`，运行时用
+  //      `await import('pg-4c0d8067d674414d')` 加载 `serverExternalPackages` 里的包）。
+  //      这些别名**必须保留**，否则运行时会报
+  //      `Cannot find package 'pg-<hash>'`，函数直接起不来。
+  //      所以这里一律「实体化」而不是「删掉」。
+  const materializeTargets = new Map(canonical);
+  for (const entry of listEntries(nmDir)) {
+    try {
+      if (!lstatSync(entry.full).isSymbolicLink()) continue;
+      // **工作区包**（软链指向 ../../packages/...）不在这里实体化：
+      // 它们由下面的「第 4 步」单独处理——源取**工作区**的 packages/，
+      // 并且只拷运行期需要的部分（package.json + dist + 许可）。
+      // 放在函数包内部解析会踩两个坑：
+      //   1) 函数包里的 packages/ 副本与 node_modules 里的软链目标可能是同一份
+      //      inode，Node 的 cpSync 会直接报 "src and dest cannot be the same"；
+      //   2) 第 5 步会删掉函数包里的 packages/，届时软链全部断链。
+      if (isWorkspaceLink(entry.full)) continue;
+      materializeTargets.set(entry.name, realpathSync(entry.full));
+    } catch {
+      /* 断链的符号链接（被裁掉的平台原生变体）后面统一清理 */
+    }
+  }
+
+  let materialized = 0;
+  for (const [name, realDir] of materializeTargets) {
+    const dest = join(nmDir, name);
+    // 目标已经是**实体目录**（上一轮已实体化）→ 跳过，避免 src===dest。
+    // 注意：这里不能用 realpath 比较——realpath 会**跟随软链**，软链指向的真实目录
+    // 恰好就是 realDir，比出来永远「相等」，会把所有待实体化的软链全部跳过。
+    if (existsSync(dest) && !lstatSync(dest).isSymbolicLink()) continue;
+    // 顶层多数包**原本并不存在**（pnpm 只在顶层放直接依赖），
+    // 所以这里必须先判断存在性再操作，不能让 lstatSync 的异常把整包跳过。
+    try {
+      if (existsSync(dest)) {
+        // 软链必须用 unlink 删除：fs.rmSync 对「指向目录的软链」不加 recursive
+        // 会抛 ERR_FS_EISDIR，异常一旦被吞掉，这个包就会被整包跳过（next/react… 全丢）；
+        // 而加 recursive 又会**跟随软链删掉目标目录的内容**（实测把 deps/ 掏空）。
+        removePath(dest);
+      }
+    } catch {
+      /* 删不掉就跳过这一项 */
+      continue;
+    }
+    try {
+      copyTree(realDir, dest);
+      materialized += 1;
+    } catch (error) {
+      console.warn(`[prune-edgeone-function] 拍平失败：${name} — ${error.message}`);
+    }
+  }
+  // ---- 3) 版本冲突的嵌套处理 ----
+  let nested = 0;
+  for (const [name, realDir] of canonical) {
+    const manifest = readManifest(realDir);
+    if (!manifest) continue;
+    const deps = { ...(manifest.dependencies || {}), ...(manifest.optionalDependencies || {}) };
+    // pnpm 里这个包的依赖实例放在同一个 instance 目录的 node_modules 下
+    const instanceDir = join(pnpmDir, relative(join(pnpmDir, 'node_modules'), realDir));
+    const instanceParent = realDir.slice(0, realDir.length - `/${name}`.length);
+    for (const dep of Object.keys(deps)) {
+      const link = join(instanceParent, dep);
+      let depReal;
+      try {
+        if (!lstatSync(link).isSymbolicLink()) continue;
+        depReal = realpathSync(link);
+      } catch {
+        continue;
+      }
+      const canonDep = canonical.get(dep);
+      if (!canonDep || canonDep === depReal) continue;
+      // 该包需要的是非标准版本 → 嵌套一份到它自己的 node_modules 下
+      const nestedDest = join(nmDir, name, 'node_modules', dep);
+      try {
+        rmSync(nestedDest, { recursive: true, force: true });
+        copyTree(depReal, nestedDest);
+        nested += 1;
+      } catch (error) {
+        console.warn(`[prune-edgeone-function] 嵌套版本失败：${name} → ${dep} — ${error.message}`);
+      }
+      void instanceDir;
+    }
+  }
+
+  // ---- 4) 工作区包实体化（指向 packages/ 的符号链接）----
+  //
+  // 源取**工作区**的 packages/<name>，而不是函数包里的副本：
+  //   - 函数包里的副本会被第 5 步删掉，源没了就无从拷贝；
+  //   - 函数包里的副本与 node_modules 软链目标可能指向同一份 inode，
+  //     Node 的 cpSync 会判定 "src and dest cannot be the same" 直接失败。
+  // 工作区是唯一权威来源（packages/*/dist 由 postinstall 构建，不在版本控制里）。
+  let workspaces = 0;
+  for (const entry of listEntries(nmDir)) {
+    let target = null;
+    let raw = null;
+    try {
+      if (!lstatSync(entry.full).isSymbolicLink()) continue;
+      if (!isWorkspaceLink(entry.full)) continue;
+      // 软链形如 ../../packages/@openmaic/dsl → 取出 packages/ 之后的相对名
+      raw = readlinkSync(entry.full).split('\\').join('/');
+      const marker = raw.lastIndexOf('packages/');
+      if (marker === -1) continue;
+      target = join(ROOT, 'packages', raw.slice(marker + 'packages/'.length));
+    } catch {
+      continue;
+    }
+    if (!existsSync(target)) {
+      console.warn(
+        `[prune-edgeone-function] 工作区包在仓库里不存在，跳过：${entry.name}（${target}）`,
+      );
+      continue;
+    }
+    const dest = entry.full;
+    try {
+      if (existsSync(dest) && !lstatSync(dest).isSymbolicLink()) {
+        workspaces += 1;
+        continue;
+      }
+      removePath(dest);
+      mkdirSync(dest, { recursive: true });
+      // 工作区包只拷**运行期需要**的部分：package.json + dist + 许可/说明。
+      // 源码与测试在函数包里用不到，却有十几 MiB。
+      copyRuntimeTree(target, dest);
+      workspaces += 1;
+      console.log(
+        `[prune-edgeone-function] 工作区包实体化：${entry.name} ← ${relative(ROOT, target)}` +
+          `（软链目标 ${raw}，产物 ${lstatSync(dest).isSymbolicLink() ? '仍是软链' : '已是实体目录'}）`,
+      );
+    } catch (error) {
+      console.warn(`[prune-edgeone-function] 工作区包实体化失败：${entry.name} — ${error.message}`);
+    }
+  }
+
+  // ---- 5) 删掉 .pnpm 与顶层 packages/ ----
+  let freed = 0;
+  try {
+    freed += dirSize(pnpmDir);
+    rmSync(pnpmDir, { recursive: true, force: true });
+  } catch {
+    /* 忽略 */
+  }
+  const packagesDir = join(fnDir, 'packages');
+  if (existsSync(packagesDir)) {
+    try {
+      freed += dirSize(packagesDir);
+      rmSync(packagesDir, { recursive: true, force: true });
+    } catch {
+      /* 忽略 */
+    }
+  }
+
+  // ---- 5.5) 清理**断链**的顶层符号链接 ----
+  // 只有目标已经不存在的断链才删（被裁掉的平台原生变体，如 @img/sharp-darwin-*）。
+  // **能解析的一律保留**：Turbopack 的外部包哈希别名（`pg-<hash>` 等）
+  // 就长这样，删掉等于让运行时找不到模块。
+  let dropped = 0;
+  for (const entry of listEntries(nmDir)) {
+    try {
+      if (!lstatSync(entry.full).isSymbolicLink()) continue;
+      realpathSync(entry.full);
+      // 能解析 → 说明它已被实体化过或仍可用，保留
+      continue;
+    } catch {
+      /* 断链，删掉 */
+    }
+    try {
+      removePath(entry.full);
+      dropped += 1;
+    } catch {
+      /* 忽略 */
+    }
+  }
+  if (dropped > 0) {
+    console.log(`[prune-edgeone-function] 清理断链的顶层符号链接 ${dropped} 个`);
+  }
+
+  console.log(
+    `[prune-edgeone-function] node_modules 已拍平：实体化 ${materialized} 个包、嵌套 ${nested} 个冲突版本、工作区包 ${workspaces} 个；` +
+      `释放 ${mib(freed)} MiB`,
+  );
+  return { materialized, nested, workspaces, freed };
+}
+
+/**
+ * 实体化 Turbopack 的**外部模块别名**。
+ *
+ * Next 16 的 Turbopack 会为 serverExternalPackages 里的包生成带哈希的别名目录，
+ * 例如 `pg-4c0d8067d674414d`，运行时由 `[turbopack]_runtime.js` 里的
+ * `externalImport(id)` 执行 `await import(id)` 加载。
+ *
+ * 关键点：
+ *   - `externalImport` 走的是**原生 ESM 动态导入**，ESM 只认 `node_modules` 目录，
+ *     而平台在上传/解包时会剥离任何名为 `node_modules` 的目录 →
+ *     运行时必然报 `Cannot find package 'pg-<hash>'`，函数起不来。
+ *   - 所以别名必须以**实体目录**的形态待在 `deps/` 下，再由运行时的
+ *     ESM 解析钩子把裸标识符映射到 deps/（见 index.mjs 与 esm-hooks.mjs）。
+ *
+ * 别名的**实体来源**取自**工作区**的 `.next/node_modules`：
+ * 函数包里的那份是软链（指向 .pnpm），而函数包内的 .pnpm 已被拍平步骤删掉，
+ * 在函数包内部解析必然断链；工作区里 .pnpm 还在，软链解析得开。
+ */
+function materializeExternalAliases(fnDir, workspaceRoot) {
+  const depsDir = join(fnDir, 'deps');
+  const fnAliasDir = join(fnDir, '.next', 'node_modules');
+  const wsAliasDir = join(workspaceRoot, '.next', 'node_modules');
+  if (!existsSync(fnAliasDir) && !existsSync(wsAliasDir)) return 0;
+
+  /** 递归复制目录内容，跳过 node_modules，并把符号链接解引用成真实文件。 */
+  const copyTree = (src, dest) => {
+    const srcStat = lstatSync(src);
+    if (srcStat.isSymbolicLink()) {
+      const real = realpathSync(src);
+      if (lstatSync(real).isDirectory()) copyTree(real, dest);
+      else cpSync(real, dest, { dereference: true });
+      return;
+    }
+    if (srcStat.isDirectory()) {
+      mkdirSync(dest, { recursive: true });
+      for (const entry of readdirSync(src)) {
+        if (entry === 'node_modules') continue;
+        copyTree(join(src, entry), join(dest, entry));
+      }
+      return;
+    }
+    cpSync(src, dest, { dereference: true });
+  };
+
+  // 名字清单以**产物**为准（它才是这次构建真正要用到的别名）。
+  const names = new Set();
+  for (const entry of listPackageEntries(fnAliasDir)) names.add(entry.name);
+  for (const entry of listPackageEntries(wsAliasDir)) names.add(entry.name);
+
+  let aliases = 0;
+  const failed = [];
+  for (const name of names) {
+    const dest = join(depsDir, name);
+    if (existsSync(dest)) continue;
+    // 先试工作区（软链在那里解析得开），再退回产物自带的那份（多数已是实体目录）。
+    const candidates = [join(wsAliasDir, name), join(fnAliasDir, name)];
+    let source = null;
+    for (const candidate of candidates) {
+      try {
+        if (!existsSync(candidate)) continue;
+        source = realpathSync(candidate);
+        if (existsSync(source)) break;
+        source = null;
+      } catch {
+        source = null;
+      }
+    }
+    if (!source) {
+      failed.push(name);
+      continue;
+    }
+    try {
+      mkdirSync(dirname(dest), { recursive: true });
+      copyTree(source, dest);
+      aliases += 1;
+    } catch (error) {
+      failed.push(`${name}（${error.message}）`);
+    }
+  }
+  if (aliases > 0) {
+    console.log(`[prune-edgeone-function] 已实体化外部模块别名 ${aliases} 个到 deps/`);
+  }
+  if (failed.length > 0) {
+    throw new Error(
+      `外部模块别名实体化失败：${failed.join('、')}。` +
+        '这些别名是 Turbopack 为 serverExternalPackages 生成的哈希别名，' +
+        '运行时会被 externalImport 直接 import，缺一个函数就起不来。',
+    );
+  }
+  return aliases;
+}
+
+/**
+ * 复制一个包目录里**运行期需要**的部分：package.json + dist + 许可/说明文件。
+ * 源码（src）、测试、配置等一律不要——工作区包加起来有十几 MiB 源码，运行期用不到。
+ */
+function copyRuntimeTree(src, dest) {
+  let source = src;
+  try {
+    if (lstatSync(src).isSymbolicLink()) source = realpathSync(src);
+  } catch {
+    return;
+  }
+  // 源与目标指向同一处（软链自环）→ 直接跳过，否则 cpSync 会报
+  // "src and dest cannot be the same"。
+  try {
+    if (realpathSync(source) === realpathSync(dest)) return;
+  } catch {
+    /* 目标还不存在，按正常拷贝处理 */
+  }
+  const srcStat = lstatSync(source);
+  if (srcStat.isDirectory()) {
+    mkdirSync(dest, { recursive: true });
+    for (const entry of readdirSync(source)) {
+      if (entry === 'node_modules') continue;
+      if (entry !== 'dist' && !RUNTIME_FILES.has(entry)) continue;
+      copyRuntimeTree(join(source, entry), join(dest, entry));
+    }
+    return;
+  }
+  cpSync(source, dest, { dereference: true });
+}
+
+/**
+ * 删除一个路径。
+ *
+ * **软链必须用 unlink，不能用 rm(recursive)**：rmSync 对「指向目录的软链」会
+ * **跟随软链删掉目标目录里的内容**（实测把 deps/ 掏空），这是数据丢失级陷阱。
+ */
+function removePath(target) {
+  let isLink = false;
+  try {
+    isLink = lstatSync(target).isSymbolicLink();
+  } catch {
+    /* 不存在就当删掉了 */
+    return;
+  }
+  if (isLink) {
+    // **异常不许吞**：吞掉会让「软链其实没删掉」变成静默失败——
+    // 后续拷贝会穿过软链写进目标目录，Node 的 cpSync 随后报
+    // "src and dest cannot be the same"，根因却完全看不出来。
+    unlinkSync(target);
+    return;
+  }
+  rmSync(target, { recursive: true, force: true });
+}
+
+/**
+ * 判断一个包目录能否被 **ESM** 解析：按 package.json 的 `exports["."].import`
+ * （或 `module` / `main`）找到入口文件并确认它存在。
+ *
+ * 外部包大量是 ESM-only（exports 只声明 `import` 条件），`require.resolve`
+ * 对它们必然失败，但运行期用的是 `await import()`——所以要用这个判据。
+ */
+function esmEntryExists(dir) {
+  try {
+    const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
+    const root = pkg.exports?.['.'];
+    const target =
+      typeof root === 'string' ? root : (root?.import ?? root?.default ?? root?.require);
+    if (target) return existsSync(join(dir, target));
+    if (pkg.module) return existsSync(join(dir, pkg.module));
+    if (pkg.main) return existsSync(join(dir, pkg.main));
+    return existsSync(join(dir, 'index.js'));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 把依赖目录改名为 `deps`，并把 Turbopack 的外部模块别名并进去。
+ *
+ * ## 为什么必须改名
+ *
+ * **EdgeOne Pages 会在上传/解包时剥离任何名为 `node_modules` 的目录**
+ * （实测：函数包根与 `.next/node_modules` 下的 node_modules 都没了，
+ * `/var/user/node_modules` 不存在）。因此**只要依赖待在 node_modules 里，
+ * 就一定到不了运行时**——无论里面是软链还是实体目录、无论用 pnpm 还是 npm 布局。
+ *
+ * ## 为什么改名就够
+ *
+ * 平台剥离发生在**上传时**，而**运行时**我们仍然可以自己把入口接上：
+ * 入口 index.mjs 在 import handler 之前运行，它会创建
+ *   - `<包根>/node_modules        -> deps`（CJS 解析 `require('next/…')` 用）
+ *   - `<包根>/.next/node_modules  -> deps`（ESM 解析 `import('pg-<hash>')` 用）
+ * 于是 CJS 与 ESM 两条解析路径都重新可用，且**不依赖平台是否物化符号链接**
+ * （这两个符号链接是运行时在可写目录里新建的）。
+ */
+function renameDependenciesToDeps(fnDir) {
+  const nmDir = join(fnDir, 'node_modules');
+  const depsDir = join(fnDir, 'deps');
+  // 注意：existsSync 会跟随符号链接，对**悬空软链**返回 false，
+  // 这里必须用 lstatSync 判断「这个路径条目是否存在」。
+  let nmStat = null;
+  try {
+    nmStat = lstatSync(nmDir);
+  } catch {
+    nmStat = null;
+  }
+  if (!nmStat) return 0;
+
+  // 1) 先把 node_modules 改名成 deps（**必须先做**：否则后面合并别名时
+  //    deps 会被重建，刚并进去的别名就丢了）。
+  removePath(depsDir);
+  // node_modules 可能是上一次失败留下的**悬空软链**（指向已被删掉的 deps），
+  // 这种情况下必须删掉而不是改名，否则会把软链本身改名成 deps。
+  if (lstatSync(nmDir).isSymbolicLink()) {
+    removePath(nmDir);
+    console.log('[prune-edgeone-function] 清除了上一次残留的 node_modules 悬空软链');
+  } else {
+    renameSync(nmDir, depsDir);
+  }
+
+  // 2) `.next/node_modules` 整个删掉：里面是 Turbopack 的外部模块别名（软链），
+  //    平台会剥离任何名为 node_modules 的目录，留着也没有意义。
+  //    别名的**实体内容**由 materializeExternalAliases 从工作区取，
+  //    直接落到 deps/<别名> 下。
+  const aliasDir = join(fnDir, '.next', 'node_modules');
+  if (existsSync(aliasDir)) {
+    removePath(aliasDir);
+  }
+  const size = dirSize(depsDir);
+  console.log(
+    `[prune-edgeone-function] 依赖目录已改名为 deps（${mib(size)} MiB）；` +
+      '运行时由 NODE_PATH（CJS）与 ESM 解析钩子（ESM）把裸标识符指向 deps/',
+  );
+  return size;
+}
+
+/**
+ * 把 ESM 解析钩子拷进函数包。
+ *
+ * 钩子本体是**独立文件** `scripts/edgeone-esm-hooks.mjs`，原样拷进去——
+ * 不在脚本里再抄一份模板字符串，否则两边迟早漂移，
+ * 而漂移的后果是「本地门禁全绿、线上 Cannot find package」。
+ * 独立文件还能被单测直接验证（tests/deploy/esm-hooks.test.ts）。
+ */
+function writeEsmResolveHooks(fnDir) {
+  const source = join(ROOT, 'scripts', 'edgeone-esm-hooks.mjs');
+  if (!existsSync(source)) {
+    throw new Error(`找不到 ESM 解析钩子源文件：${relative(ROOT, source)}`);
+  }
+  const target = join(fnDir, 'esm-hooks.mjs');
+  cpSync(source, target);
+  console.log('[prune-edgeone-function] 已写入 ESM 解析钩子 esm-hooks.mjs');
+}
+
+/**
+ * 递归复制目录内容，跳过嵌套 node_modules，并把符号链接解引用成真实文件。
+ */
+function copyTreeDereferenced(src, dest) {
+  const srcStat = lstatSync(src);
+  if (srcStat.isSymbolicLink()) {
+    const real = realpathSync(src);
+    if (lstatSync(real).isDirectory()) copyTreeDereferenced(real, dest);
+    else cpSync(real, dest, { dereference: true });
+    return;
+  }
+  if (srcStat.isDirectory()) {
+    mkdirSync(dest, { recursive: true });
+    for (const entry of readdirSync(src)) {
+      if (entry === 'node_modules') continue;
+      copyTreeDereferenced(join(src, entry), join(dest, entry));
+    }
+    return;
+  }
+  cpSync(src, dest, { dereference: true });
+}
+
+/**
+ * 工作区里「装了哪些包」的索引。
+ *
+ * 两种布局都要覆盖：
+ *   - hoisted（node-linker=hoisted）：顶层 node_modules/<name>；
+ *   - pnpm 隔离布局：node_modules/.pnpm/<实例>/node_modules/<name>。
+ *
+ * 这个索引是**判定「某个裸标识符到底是不是依赖」的依据**：
+ * 产物里会 require 一些工作区根本没装的包（例如 @aws-sdk/signature-v4-crt，
+ * 它是 AWS SDK 的可选 Rust 加速实现，SDK 内部用 try/catch 包着，
+ * 缺失属预期行为）。这类 require 不该让门禁失败；
+ * 但凡是**工作区里装了**的，就必须出现在 deps/ 里。
+ */
+function buildWorkspacePackageIndex(workspaceRoot) {
+  const index = new Set();
+  const add = (dir, prefix) => {
+    let entries = [];
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (entry.name.startsWith('.')) continue;
+      if (entry.name.startsWith('@')) {
+        add(join(dir, entry.name), `${prefix}${entry.name}/`);
+        continue;
+      }
+      index.add(`${prefix}${entry.name}`);
+    }
+  };
+  add(join(workspaceRoot, 'node_modules'), '');
+  const pnpmDir = join(workspaceRoot, 'node_modules', '.pnpm');
+  let entries = [];
+  try {
+    entries = readdirSync(pnpmDir, { withFileTypes: true });
+  } catch {
+    entries = [];
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    add(join(pnpmDir, entry.name, 'node_modules'), '');
+  }
+  return index;
+}
+
+/** 在工作区里找一个包的**真实目录**（顶层优先，其次 pnpm 实例）。 */
+function resolveWorkspacePackage(workspaceRoot, name) {
+  const segments = name.split('/');
+  const top = join(workspaceRoot, 'node_modules', ...segments);
+  try {
+    if (existsSync(top)) return realpathSync(top);
+  } catch {
+    /* 断链则继续找 */
+  }
+  const pnpmDir = join(workspaceRoot, 'node_modules', '.pnpm');
+  let entries = [];
+  try {
+    entries = readdirSync(pnpmDir);
+  } catch {
+    return null;
+  }
+  for (const entry of entries) {
+    const candidate = join(pnpmDir, entry, 'node_modules', ...segments);
+    try {
+      if (existsSync(candidate)) return realpathSync(candidate);
+    } catch {
+      /* 忽略 */
+    }
+  }
+  return null;
+}
+
+/**
+ * Turbopack 外部模块别名的名字形状：`<包名>-<16 位十六进制哈希>`。
+ *
+ * 判定落在**根包名**上：别名的子路径（如 `<别名>/node`）也是别名，
+ * 只看整串会因为末尾不是哈希而漏判。
+ */
+function looksLikeExternalAlias(spec) {
+  const root = spec.startsWith('@') ? spec.split('/').slice(0, 2).join('/') : spec.split('/')[0];
+  return /-[0-9a-f]{12,}$/.test(root);
+}
+
+/**
+ * 补齐产物用到、但函数包顶层没有的包。
+ *
+ * 产物里会 require/import 一些**传递依赖**（例如 `@aws-sdk/signature-v4-crt`：
+ * 它是 `@aws-sdk/client-s3` 的依赖，不是本项目的直接依赖）。pnpm 的隔离布局下
+ * 顶层只放直接依赖，于是这些包在函数包的 node_modules 顶层**根本不存在**；
+ * 平台剥离 node_modules 之后，它们也没有别的来路 → 运行时 MODULE_NOT_FOUND。
+ *
+ * 这里按产物里**真实用到**的裸标识符，把缺的那些从**工作区**实体化到 deps/。
+ * 工作区是 hoisted 布局，传递依赖都在顶层，直接复制即可。
+ */
+function ensureRuntimePackages(fnDir, workspaceRoot) {
+  const depsDir = join(fnDir, 'deps');
+  const { esm, cjs } = collectBareSpecifiers(join(fnDir, '.next', 'server'));
+  const roots = new Set();
+  for (const spec of [...esm, ...cjs]) {
+    if (builtinModules.includes(spec)) continue;
+    if (spec.startsWith('next/')) continue;
+    const segments = spec.split('/');
+    roots.add(spec.startsWith('@') ? segments.slice(0, 2).join('/') : segments[0]);
+  }
+
+  const workspaceIndex = buildWorkspacePackageIndex(workspaceRoot);
+  let added = 0;
+  const failed = [];
+  const optional = [];
+  for (const name of roots) {
+    const dest = join(depsDir, name);
+    if (existsSync(dest)) continue;
+    const real = resolveWorkspacePackage(workspaceRoot, name);
+    if (!real || !existsSync(real)) {
+      // 工作区里根本没装 → 这是**可选依赖**（如 AWS SDK 的 Rust 加速件），
+      // 产物里的 require 期望它失败并降级，不该让门禁失败。
+      if (workspaceIndex.has(name) || looksLikeExternalAlias(name)) failed.push(name);
+      else optional.push(name);
+      continue;
+    }
+    try {
+      mkdirSync(dirname(dest), { recursive: true });
+      copyTreeDereferenced(real, dest);
+      added += 1;
+    } catch (error) {
+      failed.push(`${name}（${error.message}）`);
+    }
+  }
+  if (added > 0) {
+    console.log(`[prune-edgeone-function] 已从工作区补齐 ${added} 个传递依赖到 deps/`);
+  }
+  if (optional.length > 0) {
+    console.log(
+      `[prune-edgeone-function] ${optional.length} 个可选依赖未安装（预期运行期降级）：${optional.join('、')}`,
+    );
+  }
+  if (failed.length > 0) {
+    throw new Error(
+      `产物用到的以下包在函数包与工作区里都找不到：${failed.join('、')}。` +
+        '它们会被运行期直接 import/require，缺一个就是 MODULE_NOT_FOUND。',
+    );
+  }
+  return added;
+}
+
+/**
+ * 拍平后的**强制校验**。
+ *
+ * 三件事必须同时成立，任何一条不满足都直接中止部署（fail-closed）：
+ *   1. 函数包里不允许残留任何符号链接（平台不物化符号链接 → 残留即 MODULE_NOT_FOUND）；
+ *   2. 产物里真实引用到的**裸标识符**，其根包必须存在于 `deps/`；
+ *   3. 这些裸标识符必须**真的能被解析**：
+ *      CJS 走 NODE_PATH，ESM 走 esm-hooks.mjs 的 resolve 钩子。
+ *
+ * ## 为什么校验必须发生在「工作区之外」
+ *
+ * 函数包位于仓库内（.edgeone/cloud-functions/ssr-node），而 Node 的 CJS 解析会
+ * **沿父目录逐级向上找 node_modules**：函数包里没有 node_modules 时，
+ * 它会一路找到**仓库根的 node_modules**——探针照样全绿，
+ * 门禁验证的根本不是将要上线的那份产物（早期版本就栽在这里，
+ * 还因为 `symlinkSync` 没被 import 而静默跳过建链，断言恒真）。
+ *
+ * 所以校验用的探针目录放在仓库之外：向上找不到任何 node_modules，
+ * 只有 deps/ 一条路——这才与平台上的情形一致
+ * （平台剥离 node_modules，运行时只读，也建不了软链）。
+ */
+async function verifyFlattenedPackage(fnDir) {
+  const depsDir = join(fnDir, 'deps');
+
+  // ---- 1) 残留符号链接 ----
+  const examples = [];
+  let remainingLinks = 0;
+  const countLinks = (dir) => {
+    let entries = [];
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const full = join(dir, entry.name);
+      if (entry.isSymbolicLink()) {
+        remainingLinks += 1;
+        if (examples.length < 5) examples.push(relative(fnDir, full));
+        continue;
+      }
+      if (entry.isDirectory()) countLinks(full);
+    }
+  };
+  countLinks(fnDir);
+  if (remainingLinks > 0) {
+    throw new Error(
+      `拍平后函数包内仍有 ${remainingLinks} 个符号链接（如 ${examples.join('、')}），` +
+        '平台不会物化它们，函数必然起不来。请检查 scripts/prune-edgeone-function.mjs 的拍平逻辑。',
+    );
+  }
+
+  // ---- 2) 产物里真实用到的裸标识符 ----
+  const { esm: esmSpecifiers, cjs: cjsSpecifiers } = collectBareSpecifiers(
+    join(fnDir, '.next', 'server'),
+  );
+  const allSpecifiers = new Set([...esmSpecifiers, ...cjsSpecifiers]);
+  // 判定「这个裸标识符到底是不是一个依赖」：
+  //   - 工作区里装了 → 是依赖，deps/ 里必须有；
+  //   - 名字是 Turbopack 外部别名形状（pkg-<哈希>）→ 是依赖，必须有；
+  //   - 其余（工作区没装的可选依赖，如 @aws-sdk/signature-v4-crt）
+  //     是 SDK 内部 try/catch 包着的可选加速件，缺失属预期行为，不算失败。
+  const workspaceIndex = buildWorkspacePackageIndex(ROOT);
+  const rootOf = (spec) => {
+    const segments = spec.split('/');
+    return spec.startsWith('@') ? segments.slice(0, 2).join('/') : segments[0];
+  };
+  const isEnforceable = (spec) => {
+    if (builtinModules.includes(spec)) return false;
+    if (spec.startsWith('next/')) return false;
+    const root = rootOf(spec);
+    return workspaceIndex.has(root) || looksLikeExternalAlias(spec);
+  };
+  const missingPackages = [];
+  for (const spec of allSpecifiers) {
+    if (!isEnforceable(spec)) continue;
+    const root = rootOf(spec);
+    if (!existsSync(join(depsDir, ...root.split('/')))) {
+      missingPackages.push(`${spec}（缺 ${root}）`);
+    }
+  }
+  if (missingPackages.length > 0) {
+    throw new Error(
+      `拍平后以下裸标识符在 deps/ 里没有对应包：${missingPackages.join('、')}。` +
+        '平台剥离 node_modules 后这些包只能从 deps/ 解析，缺一个就是运行时 MODULE_NOT_FOUND。',
+    );
+  }
+
+  // ---- 3) 在工作区之外建探针目录：node_modules -> deps ----
+  // 这条软链模拟「平台剥离 node_modules 后，我们把解析入口接到 deps/」的结果。
+  const probeDir = join(tmpdir(), `edgeone-fn-probe-${process.pid}`);
+  mkdirSync(probeDir, { recursive: true });
+  writeFileSync(
+    join(probeDir, 'package.json'),
+    JSON.stringify({ name: 'edgeone-fn-probe', version: '0.0.0', private: true }),
+  );
+  try {
+    symlinkSync(depsDir, join(probeDir, 'node_modules'), 'dir');
+  } catch (error) {
+    throw new Error(`无法建立校验探针（${probeDir}/node_modules -> deps）：${error.message}`);
+  }
+
+  try {
+    // ---- 4) CJS 解析：关键模块 + 产物里 require() 的裸标识符 ----
+    const probeRequire = createRequire(join(probeDir, 'package.json'));
+    // 这些是**运行期真正外置**（不被打进 bundle）的包，缺一个函数就起不来。
+    const probe = [
+      'next/dist/server/lib/start-server.js',
+      'next/dist/server/load-manifest.external.js',
+      'react',
+      'react-dom',
+      'pg',
+      'sharp',
+      'postcss',
+      'shiki',
+    ];
+    const unresolved = [];
+    for (const spec of probe) {
+      try {
+        probeRequire.resolve(spec);
+      } catch {
+        unresolved.push(spec);
+      }
+    }
+    for (const spec of cjsSpecifiers) {
+      if (!isEnforceable(spec)) continue;
+      try {
+        probeRequire.resolve(spec);
+      } catch {
+        unresolved.push(spec);
+      }
+    }
+
+    // ---- 5) ESM 解析：子进程里真注册钩子、真 import ----
+    const esmFailures = await verifyEsmImports(
+      fnDir,
+      probeDir,
+      [...esmSpecifiers].filter(isEnforceable),
+    );
+
+    console.log(
+      `[prune-edgeone-function] 拍平校验：残留符号链接 0 个，关键模块 ${probe.length - unresolved.length}/${probe.length} 可解析，` +
+        `裸标识符 ${allSpecifiers.size} 个（CJS ${cjsSpecifiers.size} / ESM ${esmSpecifiers.size}），` +
+        `ESM 实测失败 ${esmFailures.length} 个`,
+    );
+
+    if (unresolved.length > 0) {
+      throw new Error(
+        `拍平后以下模块仍无法解析：${unresolved.join('、')}。平台会因缺少模块直接 5xx。`,
+      );
+    }
+    if (esmFailures.length > 0) {
+      throw new Error(
+        `拍平后以下 ESM 标识符无法通过解析钩子加载：${esmFailures.join('、')}。` +
+          'Turbopack 的 externalImport 走的是原生 import(id)，缺了就报 Cannot find package。',
+      );
+    }
+  } finally {
+    rmSync(probeDir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * 在子进程里**真实**验证 ESM 解析：注册产物里的 esm-hooks.mjs，
+ * 然后逐个 import 产物里用到的裸标识符。
+ *
+ * 子进程的工作目录放在工作区之外，因此默认解析**找不到**任何 node_modules——
+ * 能解析成功就只可能是钩子把标识符指向了 deps/。
+ * 这与平台上的情形一致（平台剥离 node_modules）。
+ */
+async function verifyEsmImports(fnDir, probeDir, esmSpecifiers) {
+  const targets = [...esmSpecifiers].filter(
+    (spec) => !builtinModules.includes(spec) && !spec.startsWith('next/'),
+  );
+  if (targets.length === 0) return [];
+
+  const hooksUrl = pathToFileURL(join(fnDir, 'esm-hooks.mjs')).href;
+  const probeFile = join(probeDir, 'esm-probe.mjs');
+  writeFileSync(
+    probeFile,
+    [
+      "import { register } from 'node:module';",
+      `register(${JSON.stringify(hooksUrl)});`,
+      'const failures = [];',
+      'for (const spec of ' + JSON.stringify(targets) + ') {',
+      '  try {',
+      '    await import(spec);',
+      '  } catch (error) {',
+      '    failures.push(spec + ": " + (error && error.code ? error.code : String(error)));',
+      '  }',
+      '}',
+      "console.log('ESM_PROBE_RESULT ' + JSON.stringify(failures));",
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+
+  const result = spawnSync(process.execPath, [probeFile], {
+    cwd: probeDir,
+    encoding: 'utf8',
+  });
+  const stdout = result.stdout || '';
+  const match = stdout.match(/ESM_PROBE_RESULT (\[.*\])/);
+  if (!match) {
+    throw new Error(
+      'ESM 解析探针没有产出结果（子进程异常退出）。' +
+        `stdout: ${stdout.trim().slice(0, 400)} / stderr: ${(result.stderr || '').trim().slice(0, 600)}`,
+    );
+  }
+  return JSON.parse(match[1]);
+}
+
+/**
+ * 扫描产物里**真实调用点**上的裸标识符。
+ *
+ * 匹配源必须打在真正的调用点上：
+ *   - `require("x")` —— CJS 引用；
+ *   - `import("x")` —— 字面量形式的 ESM 动态导入；
+ *   - `.y("x")` —— Turbopack 的 externalImport 调用点
+ *     （`.next/server/chunks/[turbopack]_runtime.js` 里
+ *      `contextPrototype.y = externalImport`，externalImport 内部执行 `await import(id)`）。
+ *
+ * 早期版本用的是 `externalImport\("..."` 这个正则，它**打不中任何调用点**
+ * （产物里根本没有 `externalImport("x")` 这种写法），于是「别名全部可解析」
+ * 恒真——门禁形同虚设，缺包照样上线。
+ */
+function collectBareSpecifiers(dir) {
+  const esm = new Set();
+  const cjs = new Set();
+  const walk = (current) => {
+    let entries = [];
+    try {
+      entries = readdirSync(current, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const full = join(current, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+        continue;
+      }
+      if (!entry.name.endsWith('.js')) continue;
+      let text = '';
+      try {
+        text = readFileSync(full, 'utf8');
+      } catch {
+        continue;
+      }
+      // 注意：模板字面量（`import("${t}")`）不是包名，必须排除；
+      // `node:` 前缀的是内置模块，也排除。
+      const isPackageName = (value) =>
+        typeof value === 'string' &&
+        value.length > 0 &&
+        !value.includes('${') &&
+        !value.includes('\\') &&
+        !value.startsWith('node:') &&
+        !value.startsWith('.') &&
+        !value.startsWith('/');
+      for (const match of text.matchAll(/require\(\s*["']([^"']+)["']\s*\)/g)) {
+        if (isPackageName(match[1])) cjs.add(match[1]);
+      }
+      for (const match of text.matchAll(/import\(\s*["']([^"']+)["']\s*\)/g)) {
+        if (isPackageName(match[1])) esm.add(match[1]);
+      }
+      for (const match of text.matchAll(/\.y\(\s*["']([^"']+)["']\s*\)/g)) {
+        if (isPackageName(match[1])) esm.add(match[1]);
+      }
+    }
+  };
+  walk(dir);
+  return { esm, cjs };
+}
+
+/**
  * 声明云函数入口。
  *
  * opennext 只产出 `index.mjs`（ESM 入口），**不写 package.json 的 main**。
@@ -379,6 +1802,30 @@ if (existsSync(fnPkgPath)) {
     changed = true;
     console.log(
       `[prune-edgeone-function] 已把函数包 engines.node 放宽到平台运行时（${RUNTIME_ENGINE}）`,
+    );
+  }
+  /**
+   * **去掉函数包的依赖清单（dependencies / devDependencies / peerDependencies）。**
+   *
+   * 这是平台侧一个很隐蔽的约定：SCF 系的函数运行时看到 package.json 里声明了
+   * `dependencies`，就会**认为依赖由它自己安装**，于是把包里**已经打好的
+   * node_modules 整个剥掉**（平台侧实测：/var/user 下没有 node_modules 目录，
+   * 函数日志报 `Cannot find module 'next/dist/server/lib/start-server.js'`）。
+   *
+   * 而我们的依赖清单里有 `@openmaic/dsl: workspace:*` 这类工作区协议，
+   * 平台根本装不上 → 依赖两头落空。
+   *
+   * 所以：**产物副本里不带依赖清单**。依赖已经由裁剪阶段的「拍平」完整放进
+   * 函数包的 node_modules 了，运行期不需要任何安装。
+   * （仓库根 package.json 的 dependencies 一行不改，那边是给本地开发用的。）
+   */
+  if (pkg.dependencies || pkg.devDependencies || pkg.peerDependencies) {
+    delete pkg.dependencies;
+    delete pkg.devDependencies;
+    delete pkg.peerDependencies;
+    changed = true;
+    console.log(
+      '[prune-edgeone-function] 已移除函数包的依赖清单（避免平台剥掉已拍平的 node_modules）',
     );
   }
   if (changed) {

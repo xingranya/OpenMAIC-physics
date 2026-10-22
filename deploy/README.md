@@ -113,9 +113,9 @@ edgeone makers deploy .tmp/edgeone-stage -n <项目名> -e production --area glo
 | `edgeone whoami` | 账号 100043806721 / APPID 1374239834（登录态可用） |
 | `edgeone makers deploy -n physics-ai-classroom -e preview` | 报错：需先创建 production 部署 |
 | `edgeone makers deploy -n physics-ai-classroom -e production` | 报错：`pnpm install` 失败——corepack 缓存里没有 `pnpm@10.28.0`（`ENOENT: stat ~/.cache/node/corepack/v1/pnpm/10.28.0`） |
-| `node scripts/deploy-edgeone.mjs` | **部署成功**：`https://physics-ai-classroom-kchmficm.edgeone.cool`，部署 ID `dpj0etfpuvc6`，函数包 122.3 MiB（上限 128 MiB） |
+| `node scripts/deploy-edgeone.mjs` | **部署成功**：`https://physics-ai-classroom-kchmficm.edgeone.cool`，部署 ID `dpq39pdntzqq`，函数包 116.5 MiB（上限 128 MiB） |
 | 线上静态页（`/physics/overview` 等 SSG 路由） | HTTP 200，首屏标题「大学物理 AI 智慧课堂 · 长江大学文理学院」 |
-| 线上动态路由（`/api/health` 等 SSR 路由） | **HTTP 502 `CLOUD_FUNCTION_INVOCATION_FAILED`**（约 5 秒后失败），详见 §8.1d 末尾 |
+| 线上动态路由（`/api/health`、`/physics/overview`、`/teacher/dashboard` 等 SSR 路由） | **HTTP 200**（修复前是 502 / 500），根因与修法见 §8.1e；线上自检 `node scripts/check-physics-e2e.mjs --base-url <地址> --access-code <码>` **24 / 24 通过** |
 
 **坑：corepack 缓存缺失导致 `pnpm install` 跑不起来**
 
@@ -164,8 +164,8 @@ cd OpenMAIC
 | 配置项 | 值 | 原因 |
 | --- | --- | --- |
 | 包管理器 | pnpm | 仓库是 pnpm workspace |
-| 安装命令 | `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 pnpm install --frozen-lockfile` | Playwright 只用于 e2e，EdgeOne 构建不需要浏览器；跳过可显著缩短构建并避免二进制下载失败 |
-| 构建命令 | `EDGEONE=1 pnpm build:packages && EDGEONE=1 pnpm build` | 先构建 8 个工作区包，再跑 Next.js 生产构建。**`EDGEONE=1` 必须带上**：它决定 `next.config.ts` 不产出 standalone 产物（平台自己托管 Next.js 运行时） |
+| 安装命令 | `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 pnpm install --frozen-lockfile` | Playwright 只用于 e2e，EdgeOne 构建不需要浏览器；跳过可显著缩短构建并避免二进制下载失败。**不要加 `--ignore-scripts`**：root `postinstall` 会跑 `pnpm run build:packages`，构建 8 个工作区包（它们的 `dist/` 不在版本控制里），跳过就等于干净机器上构建链断在第一步 |
+| 构建命令 | `node scripts/sync-maic-importer.mjs && EDGEONE=1 pnpm build` | 与仓库里的 `edgeone.json` **完全一致**（CLI 读 `edgeone.json` 优先于控制台输入，两者不一致时以文件为准）。工作区包已由安装命令的 postinstall 构建，这里只需把 importer 产物同步到 `public/vendor/` 再跑 Next.js 生产构建。**`EDGEONE=1` 必须带上**：它决定 `next.config.ts` 不产出 standalone 产物（平台自己托管 Next.js 运行时） |
 | 输出目录 | 保持默认 | EdgeOne 的 Next.js 适配器接管产物 |
 | Node 版本 | 24.5.0 | 见 §1 |
 
@@ -186,7 +186,7 @@ cd OpenMAIC
 >
 > 这两条**症状不同、成因也不同**，排查时不要混为一谈：我们做过对照实验
 > （同一份产物、只改运行期判定值，standalone 与非 standalone 两种形态下
-> 49 个客户端 chunk 全部 200），所以"形态不一致 → chunk 500"并不成立；
+> 44 个客户端 chunk 全部 200），所以"形态不一致 → chunk 500"并不成立；
 > 真正会打空按钮的是上面第二条。
 
 > **关于 `build:packages`**
@@ -323,8 +323,8 @@ DEFAULT_MODEL=openai:@makers/deepseek-v4-flash
 | 导出的 MP4 不可用 | 渲染服务未部署 | 预期行为：自动降级为导出项目 ZIP |
 | `pnpm install` 报 `ERR_PNPM_EPERM … copyfile … .gitmodules` | 防护策略按文件名拦截 `.gitmodules` 的创建（防 git 子模块劫持），pnpm 写这个上游残留文件时拿到 EPERM | 见下方「`.gitmodules` 拦截的绕法」 |
 | 部署报 `Cloud SSR Node functions package size exceeds 128MiB limit` | 云函数包超平台硬上限 | 见 §8.1d（用 `scripts/prune-edgeone-function.mjs` 裁剪） |
-| 线上动态路由全 502、静态页正常 | 平台侧云函数没被拉起（与包内容无关） | 见 §8.1e 的四个「平台说了算」；取函数运行日志需在控制台看 |
-| 线上访问返回平台自己的 401 页面 | 预设域名有访问保护，需要 `eo_token` | 用 CLI 部署成功时打印的带令牌链接；或绑自定义域名（§8.1f） |
+| 线上动态路由全 5xx、静态页正常 | 平台**不物化符号链接**，函数包里 `node_modules/next` 等入口在平台上不存在 | 见 §8.1e（拍平）；取函数运行日志需在控制台「日志分析」里展开 SSR 行 |
+| 线上访问返回平台自己的 401 页面 | 预设域名有访问保护，需要 `eo_token` | 用 CLI 部署成功时打印的带令牌链接；或绑自定义域名（§8.1g） |
 
 ### `.gitmodules` 拦截的绕法
 
@@ -465,7 +465,7 @@ node scripts/check-physics-e2e.mjs --base-url http://127.0.0.1:3434
 | 检查项 | 通过条件 |
 | --- | --- |
 | 15 条关键路由 | HTTP 200，且首帧含校名与「正在加载工作台」水合安全标记 |
-| 客户端 chunk | 页面引用的**每一个** chunk 都是 200（本次 49 个客户端 chunk） |
+| 客户端 chunk | 页面引用的**每一个** chunk 都是 200（本次 44 个客户端 chunk） |
 | 口令门禁 | 未授权 401、错误口令 401、正确口令放行、带 Cookie 会话生效 |
 | 模型降级前提 | 未配置模型 Key 时 provider 为空，生成路径优雅降级 |
 
@@ -525,69 +525,181 @@ curl -s -X POST https://pages-api.cloud.tencent.com/v1 \
 # 返回里的 LogUrl 就是上面那份日志
 ```
 
-本项目（上游 OpenMAIC 全量 + 物理工作台）打包后 **254.9 MiB**，超限一倍。
+本项目（上游 OpenMAIC 全量 + 物理工作台）打包后 **295.1 MiB**，超限一倍多。
 三个大头与实测数值：
 
 | 大头 | 体积 | 为什么可以砍 |
 | --- | --- | --- |
 | `sharp` 的 6 个平台原生变体 | ≈133 MiB | EdgeOne 函数运行时固定 linux-x64；且 EdgeOne CLI 会给 Next 注入自定义图片加载器（`images.loader='custom'`），**Next 自己的 image optimizer 根本不碰 sharp**。应用自己 `import sharp` 用的是 sharp 0.35.4 → libvips 1.3.3，只有 linux-x64 那份是必需的 |
-| 项目源码的整份拷贝 | ≈34 MiB | opennext 把项目根整体复制进函数包；运行时真正需要的只有 `packages/`（workspace 软链目标）、`skills/`、以及 `outputFileTracingIncludes` 点名的那个 mjs |
+| 项目源码的整份拷贝 | ≈34 MiB | opennext 把项目根整体复制进函数包；运行时真正需要的只有**工作区包的运行期部分**（`package.json` + `dist` + 许可，已实体化进 `deps/`）、`skills/`、以及 `outputFileTracingIncludes` 点名的那个 mjs |
 | `public/vendor/maic-importer` | ≈5 MiB | maic-importer 是通过 **URL 动态 import** 的静态资源，由静态托管（`.edgeone/assets/vendor/…`）提供，函数包里这份是重复 |
 
-裁剪脚本把这些一起处理掉，并顺带修掉 opennext 的两个运行时坑：
+裁剪脚本把这些一起处理掉，并顺带修掉 opennext 的**四个**运行时坑：
 
 ```bash
 node scripts/prune-edgeone-function.mjs            # dry-run，只报告
 node scripts/prune-edgeone-function.mjs --yes      # 真执行
 ```
 
-实测：**254.9 MiB → 122.3 MiB**（余量约 5.7 MiB）。
+实测：**295.1 MiB → 116.5 MiB**（裁剪 + 拍平 + 别名/工作区包实体化之后；
+只裁剪、不拍平时是 151.6 MiB，仍超限）。
 
-顺带修掉的两个坑（都在脚本里，务必不要跳过这一步）：
+### 8.1e 云函数依赖为什么必须改名成 `deps`（**线上 5xx 的真正根因**）
 
-1. **opennext 把图片加载器注入完又删掉了**。它的 `injectImageLoader` 会写
-   `.edgeone/image-loader.mjs` 并把 `next.config.ts` 换成 wrapper，
-   随后的 `restoreNextConfig` 又把 loader 文件删了 —— 结果是运行配置里
-   `images.loaderFile` 指向一个**不存在的文件**。脚本会把它补回来。
-2. **运行配置里内联了构建机的绝对路径**。`run-config.json` / `server.js` /
-   `.next/required-server-files.json` 里的 `repoRoot`、`outputFileTracingRoot`、
-   `turbopack.root`、`images.loaderFile` 全是 `/Users/<某人>/<仓库>` 这种本机路径。
-   本地跑得通是因为那条路径真的存在，部署到平台后不存在。脚本把它们统一
-   改写成函数包内的相对路径。
+这一条是本项目踩得最深的坑，也是**本地永远复现不出来**的一类故障。
 
-**裁剪必须在构建之后、上传之前**，而 CLI 没有暴露这个钩子。脚本的取巧办法是：
-待部署目录里**只有 `.edgeone` 与 `edgeone.json`** 时，CLI 会判定「产物已就绪」
-并跳过本地构建（CLI 的 `Qee()` 判定），于是流程变成
-`edgeone pages build` → 裁剪 → 把 `.edgeone` 挪进暂存目录 → 从暂存目录 deploy。
-`scripts/deploy-edgeone.mjs` 把这四步串成了一条命令。
+**症状**：静态页（SSG 路由，走平台 filesystem handler）线上 200，
+**所有走云函数的路由**（`/api/**`、`/physics/*`、`/teacher/*` …）线上 5xx：
 
-> **现状（2026-10-22 实测）**：部署成功，静态页（SSG 路由）线上 HTTP 200，
-> 首屏标题「大学物理 AI 智慧课堂 · 长江大学文理学院」；
-> **动态路由（SSR）线上仍返回 502 `CLOUD_FUNCTION_INVOCATION_FAILED`**（约 5 秒后失败）。
-> 已排除的因素：裁剪内容（同一份包在本地 `node index.mjs` 起来完全正常，
-> `/api/health` 200、耗时 170ms）、平台环境变量（用同款 env 本地复跑同样正常）、
-> 符号链接（平台解包后的字节数与本地完全一致，说明软链被保留）、
-> server.js 的 ESM/CommonJS 入口不兼容（已加 `createRequire` 垫片，仍 502）。
-> 下一步需要**控制台的函数运行日志**（CLI 与公开 API 都取不到）定位平台侧差异。
+```
+502 CLOUD_FUNCTION_INVOCATION_FAILED     # 函数压根没起来
+500 INTERNAL_CLOUD_FUNCTION_ERROR        # 函数起来了，但执行期报错
+```
 
-### 8.1e 云函数在平台侧的四个「平台说了算」（都实测过）
+**平台函数日志（控制台「日志分析」→ SSR 行右侧展开）先后给出过两条错误**，
+它们是**同一个根因的两个阶段**：
+
+```
+# 阶段一：CJS 侧
+Error: Cannot find module 'next/dist/server/lib/start-server.js'
+  at Object.<anonymous> (/var/user/.edgeone/dist/run/next.cjs:41:30)
+
+# 阶段二：ESM 侧（CJS 修好之后才暴露出来）
+Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'pg-587764f78a6c7a9c'
+```
+
+**根因（四条实测事实拼起来才是完整答案）**：
+
+1. opennext 的运行时 `next.cjs` 用**裸标识符** `require('next/…')` 加载 Next——
+   CJS 解析只认 `node_modules` 目录；
+2. **EdgeOne Pages 在上传/解包时会剥离任何名为 `node_modules` 的目录**
+   （实测：函数包根与 `.next/node_modules` 下的都没了，`/var/user/node_modules` 不存在）。
+   这与依赖是软链还是实体目录无关——**连 npm 式的扁平布局也一样被剥**；
+3. **函数运行时文件系统是只读的**（`EROFS: read-only file system`），
+   所以「在运行时把 `node_modules` 补回来」这条路也走不通；
+4. **ESM 不认 `NODE_PATH`**——ESM 只沿父目录逐级找 `node_modules`。
+   而 Turbopack 的外部模块加载器正是原生 ESM 动态导入：
+
+   ```
+   .next/server/chunks/[turbopack]_runtime.js
+     async function externalImport(id) { raw = await import(id); }
+     contextPrototype.y = externalImport;
+   // 产物里的调用点：e.y("pg-587764f78a6c7a9c")
+   ```
+
+⇒ 叠加的结果就是：依赖**一定到不了运行时**；只修 CJS 的话，
+ESM 侧会以「Cannot find package」的形式继续 5xx。
+
+**修法（已实现，在 `scripts/prune-edgeone-function.mjs` 里）**：
+
+1. 裁剪阶段把函数包的 `node_modules` **改名成 `deps`**（名字不含 `node_modules`，平台就
+   不剥离它——实测 `deps/` 能完整到达平台）；
+2. 把 Turbopack 为 `serverExternalPackages` 生成的**哈希别名**
+   （形如 `pg-587764f78a6c7a9c`）与工作区包（`@openmaic/*` 等）一并**实体化**到 `deps/`；
+   工作区包的实体源取**仓库里的 `packages/`**，不取函数包里的副本（后者会被裁掉）；
+3. 入口 `index.mjs` 在加载 handler **之前**做两件事：
+   - `process.env.NODE_PATH = <包根>/deps` + `Module._initPaths()`
+     → CJS 的 `require('next/…')` 立刻可解析；
+   - `module.register('./esm-hooks.mjs')` 注册 **ESM 解析钩子**
+     → ESM 的 `await import('pg-<hash>')` 在默认解析失败时回退到 `deps/`
+     （钩子按 package.json 的 `exports`/`module`/`main` 找入口，
+     也支持 `<别名>/<子路径>` 这种 exports 子路径）。
+   **不用**「运行时建 node_modules 软链」的办法——运行时只读，建不出来；
+4. 裁剪脚本带 **fail-closed 门禁**（见 §8.1e-2）：残留符号链接、关键模块不可解析、
+   产物里真实引用到的裸标识符缺包、ESM 实际导入失败——任何一条都中止部署。
+
+> **为什么本地跑得通、本地也曾经跑不通**：本机文件系统认得符号链接、也认得
+> `node_modules`，所以「同一份包本地 200、线上 5xx」是常态。
+> 现在本地自检已经**模拟**了平台行为（依赖改名 + 只读约束下的解析路径），
+> 本地与线上首次达成一致。
+
+### 8.1e-2 门禁必须打在「真正的匹配源」上（三次假绿的教训）
+
+这三条是本项目在修 §8.1e 时**真实踩到**的坑，值得写进手册——
+它们都属于「断言恒真」型缺陷：测出来是绿的，线上照样 500。
+
+| 假绿 | 现象 | 真相 | 现在的做法 |
+| --- | --- | --- | --- |
+| **软链从没被真正摘掉** | 裁剪日志刷「拍平失败：`src and dest cannot be the same`」，看起来像 Node 的怪癖 | 摘链用的 `unlinkSync` **从未被 import** → `ReferenceError` 被 `catch` 吞掉 → 软链还在 → 后续拷贝穿过软链写进目标目录，Node 的 `cpSync` 判定 src 与 dest 是同一个 inode | 补上 import；摘链**不再吞掉异常**；软链一律用 unlink 语义，不用递归删除（后者会跟随软链掏空目标目录） |
+| **产物里的「别名全部可解析」恒真** | 门禁每次都报「外部模块别名全部可解析」 | 门禁用的正则是 `externalImport\\("..."`，而产物里**根本没有这种写法**（真实调用点是 `e.y("pg-<hash>")`）→ 一个都没匹配上 | 扫描改成打在真实调用点上：`require("x")`、`import("x")`、`.y("x")` |
+| **探针其实解析到了工作区的 node_modules** | 关键模块 8/8「可解析」 | 探针的 `createRequire` 指向函数包，但函数包在**仓库内**，Node 会沿父目录向上找到**仓库根的 node_modules** → 验的根本不是要上线的那份产物 | 探针目录改到**仓库之外**（`tmpdir()`），那里向上找不到任何 `node_modules`，只剩 `deps/` 一条路——与平台情形一致 |
+
+门禁现在还会**起一个子进程**（`node`，工作目录在仓库之外）真实注册钩子并
+`import()` 产物里用到的每一个 ESM 裸标识符——不是「目录存在就算过」，
+而是**真的能加载**。本地可用 `Node 20.19`（平台同款运行时）复现：
+
+```bash
+# 用平台同版本运行时验证 ESM 解析钩子
+.tmp/node20/bin/node .tmp/esm-probe.mjs \
+  "$PWD/.edgeone/cloud-functions/ssr-node" pg-<hash> undici shiki-<hash> …
+# 期望：全部 OK，失败 0/9
+```
+
+### 8.1e-3 EdgeOne Pages **不部署 Next 中间件** → 访问码门禁要自己实现
+
+`middleware.ts` 里那条「API 未授权 → 401」的规则，是本项目「ACCESS_CODE 生效、
+未授权访问被拦截」这条验收标准的实现者。但实测发现：
+
+- 产物里的 `.next/server/middleware-manifest.json`，`middleware` 字段是**空的**；
+- 平台侧的 `.edgeone/edge-functions/index.js` 里也**没有**这段逻辑。
+
+⇒ **Next 中间件在 EdgeOne Pages 上根本没有部署**，中间件里的 401 规则等于不存在：
+所有 `/api/*` 路由对未授权请求是敞开的（实测 `/api/chat`、`/api/stages`
+未带 Cookie 也能打到路由）。
+
+**修法**：在云函数入口 `index.mjs` 里把同一条规则**补回来**——包装 opennext 的
+handler，在调用前校验 `openmaic_access` Cookie：
+
+```
+Cookie 形态：<毫秒时间戳>.<HMAC-SHA256(时间戳, ACCESS_CODE) 的小写 hex>
+有效期 7 天，允许 5 分钟时钟超前（与 lib/server/access-token-shared.ts 一致）
+白名单：/api/access-code/**、/api/health
+其余 /api/*：无合法 Cookie → 401 {"success":false,"errorCode":"INVALID_REQUEST",...}
+页面路由：照旧放行（前端弹口令框），与 middleware.ts 语义一致
+```
+
+两个容易踩空的细节（都实测过）：
+
+1. opennext 的 bootstrap 传给 handler 的是 **Node 的 `IncomingMessage`**
+   （`request.url` 是相对路径、Cookie 在 `request.headers.cookie`），
+   不是 WHATWG `Request`。门禁必须同时支持两种形态——
+   否则 `new URL(request.url)` 直接抛错，被 catch 吞掉后**门禁静默失效**；
+2. 门禁要放在**入口**（`index.mjs`），不是放在应用源码里：
+   源码里的中间件平台不会部署。
+
+本地验证（用平台同款 Node 20.19 起函数包）：
+
+```
+未授权 GET /api/stages      → 401 {"success":false,"errorCode":"INVALID_REQUEST",...}
+伪造签名 GET /api/chat      → 401
+过期令牌 GET /api/chat      → 401
+合法 Cookie GET /api/chat   → 405（已到达路由，说明门禁放行）
+白名单 GET /api/health      → 200
+```
+
+### 8.1f 云函数在平台侧的四个「平台说了算」（都实测过）
 
 这四项与本地行为不同，是 EdgeOne Makers 的平台约定，排查时先排掉它们：
 
 | 项 | 平台实况 | 本地/仓库里的对应值 | 影响 |
 | --- | --- | --- | --- |
-| **函数运行时版本** | **Nodejs20.19**，由平台固定，改不动 | 控制台「项目设置 → Node.js 版本」与 `edgeone.json` 的 `nodeVersion` 都设成 `24.5.0`，构建日志也确实是 `v24.5.0`，但函数运行时仍显示 `Nodejs20.19` | 产物里的 `engines.node` 必须**匹配平台实际提供的运行时**，否则平台在拉起阶段直接拒绝：运行时间 `0ms`、内存 `0.0000MB`、状态失败 → 动态路由全 502，而静态页（走平台 filesystem handler，不经函数）仍 200 |
-| **云函数包体积** | 解包后 ≤ **128 MiB** | 直接 deploy 是 254.9 MiB | 超限平台拒收（错误码 30），见 §8.1d |
+| **函数运行时版本** | **Nodejs20.19**，由平台固定，改不动 | 控制台「项目设置 → Node.js 版本」与 `edgeone.json` 的 `nodeVersion` 都设成 `24.5.0`，构建日志也确实是 `v24.5.0`，但函数运行时仍显示 `Nodejs20.19` | 产物里的 `engines.node` 应当**匹配平台实际提供的运行时**。仓库 `package.json` 写的是上游要求的 `>=22.19.0`，平台上没有满足它的运行时，平台可能在拉起阶段直接拒收。本项目把**产物副本**放宽到 `>=20.19.0`（仓库里的不动）。⚠️ 注意：仓库里 `@earendil-works/pi-ai` / `pi-agent-core` 自报 `>=22.19.0`、`svg-pathdata` 自报 `>=22.16.0`，在 Node 20.19 上属**未声明支持**，涉及 AI 助教与导出路径时需留意 |
+| **云函数包体积** | 解包后 ≤ **128 MiB** | 直接 deploy 是 295.1 MiB，裁剪+拍平+依赖实体化后 116.5 MiB | 超限平台拒收（错误码 30），见 §8.1d / §8.1e |
 | **函数地域** | 默认**保留**中国大陆节点（广州） | `edgeone.json` 的 `cloudFunctions.regions.overseas` 只会**新增**海外节点，`mainland: []` 不会移除广州 | 实际部署地域看部署 MetaData 的 `actualRegions`：写了海外仍是 `{mainland: ap-guangzhou, overseas: ap-singapore}`；要去掉大陆节点需在控制台「项目设置 → 函数管理 → 函数地域」里改 |
 | **预设域名访问保护** | `*.edgeone.cool` 需带 `eo_token` | 仓库里没有这个概念 | 不带令牌的请求会拿到**平台自己的 401 页面**（不是应用的 401）；CLI 部署成功时打印的地址带 `?eo_token=…&eo_time=…`，绑定自定义域名后不再需要 |
 
 **⇒ 产物 `engines.node` 为什么必须改**：仓库 `package.json` 写的是上游 OpenMAIC 的
 `"node": ">=22.19.0"`（构建期 Node 是 24.5.0，满足）；但函数运行时是 20.19，
-`>=22.19.0` 在平台上**没有任何运行时能满足**，平台就会在拉起阶段拒收。
+`>=22.19.0` 在平台上**没有任何运行时能满足**，平台就可能在拉起阶段拒收。
 `scripts/prune-edgeone-function.mjs` 因此把**产物副本**的 `engines.node` 放宽到
 `>=20.19.0`（仓库里的不动，仍是上游要求）。
 
-### 8.1f 自定义域名绑定（控制台操作）
+**⇒ 但它不是本项目 5xx 的根因**：带 `engines` 放宽的包部署后，函数日志里已经出现
+`[ssr-node] framework server listening`（说明函数**起来了**，内存占用 ~17MB），
+真正的报错是 `Cannot find module 'next/dist/server/lib/start-server.js'`
+—— 根因是**平台不物化符号链接**，见 §8.1e。
+
+### 8.1g 自定义域名绑定（控制台操作）
 
 ```bash
 # 1) 绑定：控制台 → 项目 → 域名管理 → 添加自定义域名 → 填 dun.xran.uk
@@ -599,6 +711,14 @@ node scripts/prune-edgeone-function.mjs --yes      # 真执行
 
 命令行只能改项目级设置，**自定义域名必须在控制台加**：Pages 的公开 API 没有暴露
 新增自定义域名的 action（`ModifyPagesProject` 带 `CustomDomains` 会被接受但不写入）。
+
+⚠️ **中国区产品要求域名已完成 ICP 备案**。控制台在填写 `dun.xran.uk` 时会直接提示
+「检测到当前域名未在工信部备案，将无法被顺利添加」，「下一步」不会推进到 DNS 配置步骤。
+这与「函数地域必须保留广州节点」是同一套约束：**中国区 Pages 产品默认带大陆节点，
+大陆节点与自定义域名都受备案约束**。
+
+**要让 `dun.xran.uk` 可用，只能走国际站产品**（见 §8.1h）：国际站没有大陆节点，
+自定义域名也不要求备案。
 
 ### 8.2 静态质量门槛
 
@@ -641,7 +761,7 @@ ALLOW_INSECURE_ACCESS_COOKIE=1 EDGEONE=1 ./node_modules/.bin/next start -p 3434
    运行期会按 standalone 处理非 standalone 产物，静态资源路由异常，
    表现为**路由 404 或静态资源缺失**——不是 chunk 500。
    （我们用对照实验确认过：同一份产物只改运行期判定值时，两种形态的
-   49 个客户端 chunk 全部 200。）
+   44 个客户端 chunk 全部 200。）
 
 ### 8.5 清理残留的本地服务进程（现场演示前必做）
 
@@ -686,6 +806,46 @@ lsof -nP -iTCP -sTCP:LISTEN | grep node || echo "已清空"
 > 「BUILD_ID 与目标产物一致」必须通过。
 
 ---
+
+### 8.1h 中国区 vs 国际站：为什么「不含中国大陆」必须换产品（不是改配置）
+
+EdgeOne Pages 是**两个独立产品**，由**不同的 API 域名**区分，账号体系相同但
+**令牌按区域隔离**：
+
+| | 中国区 | 国际站 |
+| --- | --- | --- |
+| Pages API | `https://pages-api.cloud.tencent.com/v1` | `https://pages-api.edgeone.ai/v1` |
+| 控制台 | `console.cloud.tencent.com/edgeone/makers` | `console.tencentcloud.com/edgeone/makers` |
+| CLI 参数 | `--area global`（落在中国区） | `--area overseas`（落在国际站） |
+| 默认函数地域 | **ap-guangzhou（广州，大陆）** | **ap-singapore（新加坡，无大陆）** |
+| 自定义域名 | 要求 **ICP 备案** | 不要求备案 |
+
+**为什么「函数地域不含大陆」在配置层面做不到**：CLI 会把
+`cloudFunctions.regions.mainland: []` 原样发给平台（部署 MetaData 的 `conf` 里
+能看到 `"mainland": []`），但平台**会强制回写一个大陆节点**：
+
+```
+actualRegions = { "mainland": "ap-guangzhou", "overseas": "ap-singapore" }
+```
+
+即：`regions` 只**增不减**，`mainland: []` 会被忽略。控制台「项目设置 → 函数管理 →
+函数地域」里也只能改大陆节点的具体城市（广州/上海/南京/北京/成都），
+**不能清空大陆组**。
+
+**自定义域名同理**：`dun.xran.uk` 未备案时，控制台直接提示「检测到当前域名未在
+工信部备案，将无法被顺利添加」，流程卡在域名管理页。
+
+**⇒ 结论**：要同时满足「加速区域不含中国大陆」+「自定义域名免备案」，
+只能把项目建在**国际站产品**上：
+
+```bash
+# 需要国际站区域的令牌（中国区令牌会报 Code 109 "The Token usage region is incorrect"）
+edgeone login            # 在国际站控制台登录后执行，拿到 global 区令牌
+edgeone makers deploy . -n physics-ai-classroom -e production --area overseas
+```
+
+国际站项目的默认函数地域就是 `ap-singapore`（无大陆节点），
+自定义域名也不要求 ICP 备案。
 
 ## 9. EdgeOne Makers 平台能力速查（2026-06 官方文档）
 
