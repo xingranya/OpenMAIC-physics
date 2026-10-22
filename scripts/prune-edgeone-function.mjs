@@ -35,7 +35,7 @@
  *   node scripts/prune-edgeone-function.mjs            # dry-run，只报告
  *   node scripts/prune-edgeone-function.mjs --yes      # 真正执行
  */
-import { builtinModules, createRequire } from 'node:module';
+import { builtinModules, createRequire, Module } from 'node:module';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
@@ -51,7 +51,6 @@ import {
   renameSync,
   rmSync,
   statSync,
-  symlinkSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -608,7 +607,9 @@ if (existsSync(indexEntry)) {
         ' */',
         'const ACCESS_TOKEN_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;',
         'const ACCESS_TOKEN_CLOCK_SKEW_MS = 5 * 60 * 1000;',
-        "const ACCESS_TOKEN_WHITELIST = ['/api/access-code/', '/api/health'];",
+        '// 与 middleware.ts 精确一致：/api/access-code/ 是前缀，/api/health 是精确匹配。',
+        "const ACCESS_TOKEN_PREFIX_WHITELIST = ['/api/access-code/'];",
+        "const ACCESS_TOKEN_EXACT_WHITELIST = ['/api/health'];",
         '',
         'function parseCookieHeader(header) {',
         '  const out = {};',
@@ -618,7 +619,16 @@ if (existsSync(indexEntry)) {
         '    if (index === -1) continue;',
         '    const name = part.slice(0, index).trim();',
         '    if (!name || name in out) continue;',
-        '    out[name] = decodeURIComponent(part.slice(index + 1).trim());',
+        '    const raw = part.slice(index + 1).trim();',
+        '    // 畸形百分号转义（%zz / %）会让 decodeURIComponent 抛 URIError，',
+        '    // 异常一路冒到框架层就变成 502 —— 未授权客户端能用一个坏 Cookie',
+        '    // 把任意 /api/* 打成 502。Next 自己的 cookie 解析是 try/catch 吞掉的，',
+        '    // 这里保持一致：解析失败就当这个 Cookie 没有值。',
+        '    try {',
+        '      out[name] = decodeURIComponent(raw);',
+        '    } catch {',
+        '      out[name] = raw;',
+        '    }',
         '  }',
         '  return out;',
         '}',
@@ -673,9 +683,9 @@ if (existsSync(indexEntry)) {
         '    if (!accessCode) return handler(request, context);',
         '    const pathname = readRequestPathname(request);',
         "    if (!pathname.startsWith('/api/')) return handler(request, context);",
-        '    const whitelisted = ACCESS_TOKEN_WHITELIST.some(',
-        '      (prefix) => pathname === prefix || pathname.startsWith(prefix),',
-        '    );',
+        '    const whitelisted =',
+        '      ACCESS_TOKEN_EXACT_WHITELIST.includes(pathname) ||',
+        '      ACCESS_TOKEN_PREFIX_WHITELIST.some((prefix) => pathname.startsWith(prefix));',
         '    if (whitelisted) return handler(request, context);',
         '    const cookies = parseCookieHeader(readCookieHeader(request));',
         '    if (isValidAccessToken(cookies.openmaic_access, accessCode, Date.now())) {',
@@ -1500,6 +1510,10 @@ function ensureRuntimePackages(fnDir, workspaceRoot) {
  * 门禁验证的根本不是将要上线的那份产物（早期版本就栽在这里，
  * 还因为 `symlinkSync` 没被 import 而静默跳过建链，断言恒真）。
  *
+ * 现在 CJS 探针走的是 **NODE_PATH**（与生产运行时同一条解析路径：
+ * 平台上没有 node_modules，入口就是把 deps 挂进 NODE_PATH），
+ * 探针目录放在仓库之外，向上找不到任何 node_modules。
+ *
  * 所以校验用的探针目录放在仓库之外：向上找不到任何 node_modules，
  * 只有 deps/ 一条路——这才与平台上的情形一致
  * （平台剥离 node_modules，运行时只读，也建不了软链）。
@@ -1556,20 +1570,12 @@ async function verifyFlattenedPackage(fnDir) {
     const root = rootOf(spec);
     return workspaceIndex.has(root) || looksLikeExternalAlias(spec);
   };
-  const missingPackages = [];
-  for (const spec of allSpecifiers) {
-    if (!isEnforceable(spec)) continue;
-    const root = rootOf(spec);
-    if (!existsSync(join(depsDir, ...root.split('/')))) {
-      missingPackages.push(`${spec}（缺 ${root}）`);
-    }
-  }
-  if (missingPackages.length > 0) {
-    throw new Error(
-      `拍平后以下裸标识符在 deps/ 里没有对应包：${missingPackages.join('、')}。` +
-        '平台剥离 node_modules 后这些包只能从 deps/ 解析，缺一个就是运行时 MODULE_NOT_FOUND。',
-    );
-  }
+  // 注意：这里**不再**做「deps/ 里有没有这个包」的静态判断——
+  // 装配阶段（materializeExternalAliases / ensureRuntimePackages）已经 fail-closed 过一次，
+  // 静态判断在它之后跑必然恒空，等于一条没有牙齿的断言（第十一轮复审 I-2）。
+  // 真正能发现「包其实装不上」的是下面两把探针：
+  //   - CJS 探针：用 NODE_PATH 真解析每一个裸标识符；
+  //   - ESM 探针：起子进程真 import 每一个裸标识符。
 
   // ---- 3) 在工作区之外建探针目录：node_modules -> deps ----
   // 这条软链模拟「平台剥离 node_modules 后，我们把解析入口接到 deps/」的结果。
@@ -1579,11 +1585,12 @@ async function verifyFlattenedPackage(fnDir) {
     join(probeDir, 'package.json'),
     JSON.stringify({ name: 'edgeone-fn-probe', version: '0.0.0', private: true }),
   );
-  try {
-    symlinkSync(depsDir, join(probeDir, 'node_modules'), 'dir');
-  } catch (error) {
-    throw new Error(`无法建立校验探针（${probeDir}/node_modules -> deps）：${error.message}`);
-  }
+  // CJS 探针走 **NODE_PATH**，与生产运行时**同一条解析路径**：
+  // 入口 index.mjs 运行时也是把 deps 挂进 NODE_PATH（平台上没有 node_modules 可用）。
+  // 用软链代替会测到另一条机制——机制不同，结论就不能代表线上。
+  const previousNodePath = process.env.NODE_PATH;
+  process.env.NODE_PATH = previousNodePath ? `${depsDir}${delimiter}${previousNodePath}` : depsDir;
+  Module._initPaths();
 
   try {
     // ---- 4) CJS 解析：关键模块 + 产物里 require() 的裸标识符 ----
@@ -1641,6 +1648,12 @@ async function verifyFlattenedPackage(fnDir) {
       );
     }
   } finally {
+    if (previousNodePath === undefined) {
+      delete process.env.NODE_PATH;
+    } else {
+      process.env.NODE_PATH = previousNodePath;
+    }
+    Module._initPaths();
     rmSync(probeDir, { recursive: true, force: true });
   }
 }
