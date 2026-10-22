@@ -601,6 +601,9 @@ ESM 侧会以「Cannot find package」的形式继续 5xx。
    - `process.env.NODE_PATH = <包根>/deps` + `Module._initPaths()`
      → CJS 的 `require('next/…')` 立刻可解析；
    - `module.register('./esm-hooks.mjs')` 注册 **ESM 解析钩子**
+     （钩子本体是仓库里的独立文件 `scripts/edgeone-esm-hooks.mjs`，
+     裁剪脚本**原样拷贝**进函数包，不在脚本里再抄一份模板字符串；
+     `tests/deploy/esm-hooks.test.ts` 直接验证这一个文件）
      → ESM 的 `await import('pg-<hash>')` 在默认解析失败时回退到 `deps/`
      （钩子按 package.json 的 `exports`/`module`/`main` 找入口，
      也支持 `<别名>/<子路径>` 这种 exports 子路径）。
