@@ -1678,9 +1678,18 @@ async function verifyFlattenedPackage(fnDir) {
   const minCjsSpecifiers = 10;
   const minEsmSpecifiers = Math.max(1, Math.min(3, aliasDirCount));
   if (cjsSpecifiers.size < minCjsSpecifiers || esmSpecifiers.size < minEsmSpecifiers) {
+    // 只打印**真正越界**的那一项。两个条件并排列出会出现「CJS 32 < 10」
+    // 这种字面为假的描述，读者会以为自己看错了——第十三轮独立复审
+    // 把它列为信息级问题：报错信息必须指向真正出问题的那一项。
+    const violations = [];
+    if (cjsSpecifiers.size < minCjsSpecifiers) {
+      violations.push(`CJS ${cjsSpecifiers.size} < ${minCjsSpecifiers}`);
+    }
+    if (esmSpecifiers.size < minEsmSpecifiers) {
+      violations.push(`ESM ${esmSpecifiers.size} < ${minEsmSpecifiers}`);
+    }
     throw new Error(
-      `裸标识符扫描结果异常偏少（CJS ${cjsSpecifiers.size} < ${minCjsSpecifiers} 或 ` +
-        `ESM ${esmSpecifiers.size} < ${minEsmSpecifiers}；产物里的外部别名共 ${aliasDirCount} 个）。` +
+      `裸标识符扫描结果异常偏少（${violations.join('、')}；产物里的外部别名共 ${aliasDirCount} 个）。` +
         '这通常意味着 Turbopack 的产物压缩形态变了、扫描器的正则打不中真实调用点——' +
         '此时门禁会「扫不到就等于没问题」，是恒真断言，必须先修扫描器。',
     );
