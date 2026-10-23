@@ -36,7 +36,7 @@ import {
 } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { outsideRepoTemp } from './edgeone-temp.mjs';
+import { assertProbeOutsideRepo, detectRepoRoot, outsideRepoTemp } from './edgeone-temp.mjs';
 
 /**
  * 硬链接复制一棵树。
@@ -69,14 +69,57 @@ function linkTree(src, dest) {
 }
 
 /**
+ * 解析访问码：显式参数 → 环境变量 → 仓库根的 `.env`。
+ *
+ * ## 为什么不能硬编码
+ *
+ * 访问码是「课堂门禁」的钥匙。仓库根的 `.env` 被 `.gitignore` 明确排除
+ * （`.env*`），意图很清楚：**密钥不进仓库**。
+ *
+ * 但本脚本原先把访问码**硬编码**在源码里——于是它随公开仓库一起发布，
+ * `.env` 的排除形同虚设。任何拿到仓库的人都能直接进课堂。
+ *
+ * 现在改为三级查找，三者都拿不到就返回空串（由调用方 fail-closed）。
+ *
+ * ## 为什么 `.env` 要相对**仓库根**找
+ *
+ * 部署脚本给子进程的环境是**收窄**过的（只放 PATH / HOME / TMPDIR 等），
+ * `ACCESS_CODE` 不会出现在子进程的 `process.env` 里；能拿到它的唯一途径
+ * 就是读仓库根的 `.env` 文件。而子进程的 cwd 是仓库根，所以按仓库根解析
+ * 最稳（不依赖调用时的 cwd）。
+ */
+export function readAccessCode(explicit, repoRoot = detectRepoRoot()) {
+  if (explicit && explicit.trim()) return explicit.trim();
+  const fromEnv = process.env.ACCESS_CODE;
+  if (fromEnv && fromEnv.trim()) return fromEnv.trim();
+  try {
+    const text = readFileSync(join(repoRoot, '.env'), 'utf8');
+    for (const line of text.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const match = /^ACCESS_CODE\s*=\s*(.*)$/.exec(trimmed);
+      if (!match) continue;
+      const value = match[1].trim().replace(/^["']|["']$/g, '');
+      if (value) return value;
+    }
+  } catch {
+    /* 没有 .env（或读不到）：继续往下走 */
+  }
+  return '';
+}
+
+/**
  * 从产物的路由清单里取出全部可访问路径。
  *
  * 清单的键是**文件路径**（`/api/stages/[id]/route`），最后一段 `route`/`page`
  * 是文件名而不是 URL 的一部分——不去掉的话，请求 `/api/stages/route` 会被
  * `/api/stages/[id]` 接住（id="route"），测的就不是我们想测的路由了。
  * 动态段（[id]）用占位值替换：只关心「这条路由会不会加载失败」。
+ *
+ * 导出供数字门禁复用（`scripts/check-doc-metrics.mjs`）——路由数必须用
+ * **同一套**口径实测，否则文档里的数字和门禁永远对不上。
  */
-function collectRoutes(fnDir) {
+export function collectRoutes(fnDir) {
   const manifestPath = join(fnDir, '.next', 'app-path-routes-manifest.json');
   if (!existsSync(manifestPath)) return [];
   let manifest;
@@ -136,17 +179,60 @@ async function waitForServer(base, timeoutMs = 60000) {
  * @returns {Promise<{
  *   up: boolean, routes: string[], failures: Array<{route:string,status:any,head?:string}>,
  *   loadErrors: string[], nativeOnly: string[], statusByCode: Map<string, number>,
- *   stderr: string, stdout: string
+ *   probeDir: string, stderr: string, stdout: string
  * }>}
  */
 export async function runRuntimeProbe(fnDir, options = {}) {
   const nodeBin = options.nodeBin || process.execPath;
-  const accessCode = options.accessCode || 'WcHjF5BXIDSY7PAA72WHIfs6CwMx';
+  const repoRoot = options.repoRoot || detectRepoRoot();
+  const accessCode = readAccessCode(options.accessCode, repoRoot);
   const port = options.port || detectPort(fnDir);
 
-  const workDir = outsideRepoTemp('edgeone-runtime');
+  const workDir = options.workDir || outsideRepoTemp('edgeone-runtime', repoRoot);
   const pkgDir = join(workDir, 'pkg');
-  linkTree(fnDir, pkgDir);
+
+  // 「探针在仓库之外」这道不变量，必须在**调用点**独立成立。
+  //
+  // 为什么不能只靠 outsideRepoTemp()：它是被调用方——有人把这一行换成
+  // `join(process.cwd(), '.tmp', …)` 时，outsideRepoTemp 根本不会执行，
+  // 探针就落进仓库，Node 沿父目录找到仓库根的 node_modules，把产物里缺失的
+  // 文件全给补齐。于是门禁 exit 0 全绿，还照样打印「通过：仓库外运行」，
+  // 而产物其实缺 yaml/nanoid —— 这正是「本地全绿、线上空体 500」的成因。
+  //
+  // 所以这道断言既不依赖被调用方守规矩，也不依赖仓库根判得准：
+  // assertProbeOutsideRepo 同时检查「不在仓库内」与「向上无 node_modules」。
+  //
+  // 它排在凭据检查**之前**：探针落位是门禁自身的完整性前提——
+  // 探针都不在仓库外，后面测的一切都不可信。
+  try {
+    assertProbeOutsideRepo(workDir, repoRoot);
+    linkTree(fnDir, pkgDir);
+    // 复制完再查一次：产物自身若带了 node_modules，同样会污染解析。
+    assertProbeOutsideRepo(pkgDir, repoRoot);
+  } catch (error) {
+    try {
+      rmSync(workDir, { recursive: true, force: true });
+    } catch {
+      /* 沙箱可能不允许删仓库外的目录：硬链接不占额外空间，可放着 */
+    }
+    throw error;
+  }
+
+  // 没有访问码就**拒绝放行**：拿不到凭据时绝大多数路由会返回 401，
+  // 门禁只能探到「函数起没起来」，探不到「跑起来会不会炸」——
+  // 而后者正是这道门禁存在的理由。宁可明确报错，也不要静默降级。
+  if (!accessCode) {
+    try {
+      rmSync(workDir, { recursive: true, force: true });
+    } catch {
+      /* 同上 */
+    }
+    throw new Error(
+      '拿不到访问码，无法做运行期门禁。\n' +
+        `  查找顺序：--access-code 参数 → ACCESS_CODE 环境变量 → ${join(repoRoot, '.env')}\n` +
+        '  请在其中任一处提供访问码后重跑。',
+    );
+  }
 
   const child = spawn(nodeBin, ['index.mjs'], {
     cwd: pkgDir,
@@ -198,6 +284,7 @@ export async function runRuntimeProbe(fnDir, options = {}) {
       loadErrors: [],
       nativeOnly: [],
       statusByCode: new Map(),
+      probeDir: workDir,
       stderr,
       stdout,
     };
@@ -282,6 +369,7 @@ export async function runRuntimeProbe(fnDir, options = {}) {
     nativeOnly: allLoadErrors.filter((line) => NATIVE_MISMATCH.test(line)),
     nativeFailures,
     statusByCode,
+    probeDir: workDir,
     stderr,
     stdout,
   };
@@ -311,11 +399,29 @@ export function extractMissingPackages(loadErrors) {
 
 // ---- CLI ----
 async function main() {
+  const argv = process.argv.slice(2);
+  const accessCodeFlag = argv.indexOf('--access-code');
+  const accessCode = accessCodeFlag >= 0 ? argv[accessCodeFlag + 1] : undefined;
+  const positional = argv.filter((arg, index) => {
+    if (arg === '--access-code') return false;
+    if (accessCodeFlag >= 0 && index === accessCodeFlag + 1) return false;
+    return !arg.startsWith('--');
+  });
+
   const fnDir = resolve(
-    process.argv[2] || join(process.cwd(), '.edgeone', 'cloud-functions', 'ssr-node'),
+    positional[0] || join(process.cwd(), '.edgeone', 'cloud-functions', 'ssr-node'),
   );
-  const nodeBin = process.argv[3] || process.execPath;
-  const result = await runRuntimeProbe(fnDir, { nodeBin });
+  const nodeBin = positional[1] || process.execPath;
+
+  let result;
+  try {
+    result = await runRuntimeProbe(fnDir, { nodeBin, accessCode });
+  } catch (error) {
+    // 断言类失败（探针落进仓库、拿不到访问码等）必须给出可读信息，
+    // 而不是一坨 unhandled rejection 栈。
+    console.error(`[verify-edgeone-runtime] ${error.message}`);
+    process.exit(1);
+  }
 
   if (!result.up) {
     console.error('[verify-edgeone-runtime] 函数包没能起来：');
@@ -328,6 +434,9 @@ async function main() {
     .map(([k, v]) => `${k}×${v}`)
     .join('  ');
   console.log(`[verify-edgeone-runtime] 探测 ${result.routes.length} 条路由：${summary}`);
+  console.log(
+    `[verify-edgeone-runtime] 探针目录 ${result.probeDir}（已断言：不在仓库内、向上无 node_modules）`,
+  );
   if (result.loadErrors.length > 0) {
     console.log(`[verify-edgeone-runtime] 运行期外部模块加载失败 ${result.loadErrors.length} 类：`);
     // 展示时再截断：解析必须用完整行（包路径往往在第 200 个字符之后）。
@@ -357,7 +466,7 @@ async function main() {
     console.error('[verify-edgeone-runtime] 函数包在仓库外跑不出健康状态，拒绝放行。');
     process.exit(1);
   }
-  console.log('[verify-edgeone-runtime] 通过：仓库外运行无 5xx、无外部模块加载失败。');
+  console.log('[verify-edgeone-runtime] 通过：在仓库外运行无 5xx、无外部模块加载失败。');
   process.exit(0);
 }
 

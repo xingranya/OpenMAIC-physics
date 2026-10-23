@@ -102,7 +102,15 @@ async function main() {
   let totalRepaired = 0;
   let totalBytes = 0;
   for (let round = 1; round <= MAX_ROUNDS; round += 1) {
-    const result = await runRuntimeProbe(FN_DIR, { nodeBin: NODE_BIN });
+    let result;
+    try {
+      result = await runRuntimeProbe(FN_DIR, { nodeBin: NODE_BIN });
+    } catch (error) {
+      // 探针落进仓库这类断言失败，必须显式失败：
+      // 补包循环复用同一个探针，探针一旦失效，它会认为「什么都不缺」而空转。
+      console.error(`[repair-edgeone-runtime-deps] ${error.message}`);
+      process.exit(1);
+    }
     if (!result.up) {
       console.error('[repair-edgeone-runtime-deps] 函数包起不来，无法据此补包：');
       console.error(result.stderr.slice(-3000));
