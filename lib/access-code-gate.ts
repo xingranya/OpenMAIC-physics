@@ -60,3 +60,113 @@ export function resolveAccessGate(outcome: AccessGateOutcome): AccessGateState {
     authenticated: Boolean(record.authenticated),
   };
 }
+
+/**
+ * 「提交访问码」的结果分类。
+ *
+ * - `ok` → 码正确；
+ * - `invalid-code` → 服务端明确判定码不对（HTTP 401）；
+ * - `rate-limited` → 尝试次数超限（HTTP 429）；
+ * - `not-reached` → **请求没到达我们的 API**。
+ */
+export type AccessCodeVerifyOutcome =
+  | { kind: 'ok' }
+  | { kind: 'invalid-code' }
+  | { kind: 'rate-limited' }
+  | { kind: 'not-reached' };
+
+/** 一次「提交访问码」的原始结果。 */
+export type AccessCodeVerifyResponse =
+  | { kind: 'response'; status: number; body: unknown }
+  | { kind: 'network-error' };
+
+/**
+ * 提交访问码的请求参数。
+ *
+ * ## 为什么必须 `redirect: 'manual'`
+ *
+ * 预设域（`*.edgeone.dev`）要求带 `eo_token`，缺了会被平台 **302** 到它
+ * 自己的访问保护页。默认的 `redirect: 'follow'` 会跟过去，于是我们看到的是
+ * **平台的 401 HTML 页面**——状态码 401 看起来就像「访问码错了」，
+ * 而实际上码完全正确、只是请求根本没到我们的 API。
+ *
+ * 手动处理重定向后，平台的拦截表现为 `opaqueredirect`（status 0），
+ * 才能与真正的 401 区分开。**这一条是本次修复的关键**：
+ * 没有它，界面会继续把「被平台拦截」说成「访问码错误」。
+ */
+export function accessCodeVerifyRequestInit(code: string): RequestInit {
+  return {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code }),
+    redirect: 'manual',
+  };
+}
+
+/**
+ * 响应体是不是**我方 API** 的错误 JSON。
+ *
+ * `apiError()` 产出的形状是 `{ success: false, errorCode, error }`。
+ * 若响应体不是这个形状（例如平台塞的 HTML 错误页），说明响应被中间层
+ * 替换了 —— 那种情况下**不能**把 401 判成「访问码错误」。
+ */
+function isOurApiError(body: unknown): boolean {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) return false;
+  return (body as { success?: unknown }).success === false;
+}
+
+/**
+ * 把「提交访问码」的结果分成四类，**让界面能说清到底哪里不对**。
+ *
+ * ## 为什么必须分四类（而不是一律「访问码错误」）
+ *
+ * 之前弹框把三种完全不同的失败都报成同一句「访问码错误」，其中两种
+ * **与访问码本身无关**：
+ *
+ * 1. **被平台访问保护拦截**：预设域（`*.edgeone.dev`）要求带
+ *    `eo_token` 查询参数，缺了会被平台 **302** 到它自己的访问保护页。
+ *    浏览器跟随后拿到的是平台的 401 HTML，而不是我们 API 的 JSON 响应。
+ *    此时**即使访问码完全正确**，界面也会说「访问码错误」——
+ *    演示现场会把人引到完全错误的方向上去（实测踩到过）。
+ * 2. **网络层失败**（连接被拒 / 超时 / DNS 失败）：同样与码无关。
+ *
+ * 这与本文件上方那条原则是同一件事：**网络层失败与服务端明确拒绝必须
+ * 分开**。状态查询那侧已经分开了，提交这一侧漏了。
+ *
+ * 所以这里把「没到达我们的 API」单列一类，界面据此提示
+ * 「检查网络或访问地址」，而不是让操作者反复重输一个本来就没错的码。
+ */
+export function classifyAccessCodeVerify(
+  outcome: AccessCodeVerifyResponse,
+): AccessCodeVerifyOutcome {
+  if (outcome.kind === 'network-error') {
+    // fetch 本身失败：服务端联系不上，与码无关。
+    return { kind: 'not-reached' };
+  }
+  // 被平台 302 拦截的情况不用单独分支：`redirect: 'manual'` 下它表现为
+  // opaqueredirect（status 0），落进下面的 `status < 200` 即可。
+  if (outcome.status === 429) {
+    // 尝试次数超限——是「等一会」，不是「码错了」。
+    return isOurApiError(outcome.body) ? { kind: 'rate-limited' } : { kind: 'not-reached' };
+  }
+  if (outcome.status === 401) {
+    // 服务端明确判定：码不对。
+    // **但只有响应体是我方 API 的错误 JSON 时才算**——平台若直接回 401 +
+    // HTML，那是我们没被请求到，不是码错。
+    return isOurApiError(outcome.body) ? { kind: 'invalid-code' } : { kind: 'not-reached' };
+  }
+  if (outcome.status < 200 || outcome.status >= 300) {
+    // 其他状态码（含 5xx）都不能算「码错了」——那是服务端异常。
+    return { kind: 'not-reached' };
+  }
+  const body = outcome.body;
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    // 2xx 但响应体不是我们的 API 的 JSON：中间层把响应换掉了（例如
+    // 平台的 HTML 错误页）。不是码的问题。
+    return { kind: 'not-reached' };
+  }
+  const record = body as { success?: unknown; valid?: unknown };
+  return record.success === true && record.valid === true
+    ? { kind: 'ok' }
+    : { kind: 'not-reached' };
+}
