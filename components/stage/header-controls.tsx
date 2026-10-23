@@ -5,7 +5,6 @@ import {
   Archive,
   Download,
   FileDown,
-  Film,
   Loader2,
   Monitor,
   Moon,
@@ -22,11 +21,6 @@ import { useMediaGenerationStore } from '@/lib/store/media-generation';
 import { useExportPPTX } from '@/lib/export/use-export-pptx';
 import { useExportClassroom } from '@/lib/export/use-export-classroom';
 import { isScriptExportReady, useExportScript } from '@/lib/export/use-export-script';
-import { isVideoExportEnabled } from '@/lib/config/feature-flags';
-import { useVideoRenderStore } from '@/lib/store/video-render';
-import { CircularProgress } from '@/components/ui/circular-progress';
-import { VideoExportDialog } from './video-export-dialog';
-import { LanguageSwitcher } from '../language-switcher';
 import { SettingsDialog } from '../settings';
 import {
   DropdownMenu,
@@ -81,7 +75,6 @@ export function HeaderControls({
   const { t } = useI18n();
   const { theme, setTheme } = useTheme();
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [videoDialogOpen, setVideoDialogOpen] = useState(false);
 
   // Export plumbing — uses the stage / media task stores to check
   // readiness, then hands off to the export hooks. Available in both
@@ -95,13 +88,6 @@ export function HeaderControls({
   const { exporting: isExporting, exportPPTX, exportResourcePack } = useExportPPTX();
   const { exporting: isExportingZip, exportClassroomZip } = useExportClassroom();
   const { exporting: isExportingScript, exportScriptDocx, exportScriptMd } = useExportScript();
-  const videoExportEnabled = isVideoExportEnabled();
-  // Video render lives in a global store so its progress ring stays on the
-  // export button even after the menu closes / scenes switch mid-render.
-  const videoRendering = useVideoRenderStore(
-    (s) => s.status === 'compiling' || s.status === 'rendering',
-  );
-  const videoRenderPercent = useVideoRenderStore((s) => s.percent);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
 
   // Keep the original full-generation gate for the export menu. Script files
@@ -146,10 +132,6 @@ export function HeaderControls({
             : 'bg-white/60 dark:bg-gray-800/60 border border-gray-100/50 dark:border-gray-700/50 px-2 py-1.5',
         )}
       >
-        {/* Language — Radix DropdownMenu so its menu portals to body
-            and never gets clipped by an ancestor's overflow-hidden. */}
-        <LanguageSwitcher />
-
         {/* Theme — same Portal-backed DropdownMenu pattern. Non-modal keeps
             Radix from body scroll-locking a fixed-height classroom layout. */}
         <DropdownMenu modal={false}>
@@ -283,10 +265,6 @@ export function HeaderControls({
           >
             {isExporting || isExportingZip || isExportingScript ? (
               <Loader2 className="w-4 h-4 animate-spin" />
-            ) : videoRendering ? (
-              // Persistent ring: video render runs in the background; keep it
-              // visible on the button whether or not the menu is open.
-              <CircularProgress value={videoRenderPercent} size={20} className="text-primary" />
             ) : (
               <Download className="w-4 h-4" />
             )}
@@ -371,29 +349,10 @@ export function HeaderControls({
               </DropdownMenuItem>
             </DropdownMenuSubContent>
           </DropdownMenuSub>
-          {videoExportEnabled && (
-            <DropdownMenuItem
-              disabled={!canExport}
-              onSelect={() => setVideoDialogOpen(true)}
-              className="cursor-pointer gap-2.5 border-t border-gray-200 dark:border-gray-700"
-              title={canExport ? undefined : t('export.mediaPending')}
-            >
-              <Film className="w-4 h-4 text-gray-400 shrink-0" />
-              <div>
-                <div>{t('export.video')}</div>
-                <div className="text-[11px] text-gray-400 dark:text-gray-500">
-                  {t('export.videoDesc')}
-                </div>
-              </div>
-            </DropdownMenuItem>
-          )}
         </DropdownMenuContent>
       </DropdownMenu>
 
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
-      {videoExportEnabled && (
-        <VideoExportDialog open={videoDialogOpen} onOpenChange={setVideoDialogOpen} />
-      )}
     </div>
   );
 }

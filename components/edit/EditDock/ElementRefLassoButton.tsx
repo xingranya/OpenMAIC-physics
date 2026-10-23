@@ -47,8 +47,8 @@ import { useI18n } from '@/lib/hooks/use-i18n';
 import { useCanvasStore } from '@/lib/store/canvas';
 import { useElementRefsForSession, useElementRefsStore } from '@/lib/store/element-refs';
 import { useStageStore } from '@/lib/store/stage';
-import { useWorkbenchStore } from '@/lib/workbench/session-store';
-import { MAX_ELEMENT_REFS } from '@/lib/workbench/element-refs';
+import { useWorkbenchStore } from '@/lib/session/session-store';
+import { MAX_ELEMENT_REFS } from '@/lib/session/element-refs';
 import { clearCuePreview } from '@/components/edit/ActionsBar/cue-preview';
 
 export function ElementRefLassoButton({ sceneId }: { readonly sceneId: string }) {

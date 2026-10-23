@@ -85,9 +85,6 @@ import { GET as getManifest } from '@/app/api/stages/[id]/manifest/route';
 import { GET as getFreshness } from '@/app/api/stages/[id]/freshness/route';
 import { GET as getMaterials, POST as postMaterials } from '@/app/api/materials/route';
 import { GET as getMaterial } from '@/app/api/materials/[id]/route';
-import { GET as getFolders, POST as postFolders } from '@/app/api/folders/route';
-import { DELETE as deleteFolder, PATCH as patchFolder } from '@/app/api/folders/[id]/route';
-import { POST as postFolderMembers } from '@/app/api/folders/members/route';
 import { GET as getStageMeta } from '@/app/api/stage-meta/[stageId]/route';
 import { GET as getStageStatus } from '@/app/api/stages/[id]/status/route';
 import { POST as postGenerationComplete } from '@/app/api/stages/[id]/generation-complete/route';
@@ -214,57 +211,6 @@ const ROUTES: RouteCase[] = [
       getMaterial(
         new NextRequest(`http://localhost/api/materials/${MATERIAL_ID}?sessionId=${SESSION_ID}`),
         params(MATERIAL_ID),
-      ),
-    happyStatus: 200,
-  },
-  {
-    name: 'GET /api/folders',
-    call: () => getFolders(new NextRequest('http://localhost/api/folders')),
-    happyStatus: 200,
-  },
-  {
-    name: 'POST /api/folders',
-    call: () =>
-      postFolders(
-        new NextRequest('http://localhost/api/folders', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: 'Day 1' }),
-        }),
-      ),
-    happyStatus: 200,
-  },
-  {
-    name: 'PATCH /api/folders/[id]',
-    call: () =>
-      patchFolder(
-        new NextRequest(`http://localhost/api/folders/${FOLDER_ID}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: 'Renamed' }),
-        }),
-        params(FOLDER_ID),
-      ),
-    happyStatus: 200,
-  },
-  {
-    name: 'DELETE /api/folders/[id]',
-    call: () =>
-      deleteFolder(
-        new NextRequest(`http://localhost/api/folders/${FOLDER_ID}`, { method: 'DELETE' }),
-        params(FOLDER_ID),
-      ),
-    happyStatus: 200,
-  },
-  {
-    name: 'POST /api/folders/members',
-    call: () =>
-      postFolderMembers(
-        new NextRequest('http://localhost/api/folders/members', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ stageId: STAGE_ID, folderId: FOLDER_ID }),
-        }),
       ),
     happyStatus: 200,
   },

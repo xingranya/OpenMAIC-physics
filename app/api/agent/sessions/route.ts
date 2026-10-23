@@ -19,7 +19,7 @@ import {
 } from '@/lib/server/agent-runtime/session-materials';
 import { withRequestOwnerId } from '@/lib/server/agent-runtime/with-owner';
 import { buildRequestOrigin, isValidClassroomId } from '@/lib/server/classroom-storage';
-import { decodeCourseRefs } from '@/lib/workbench/course-refs';
+import { decodeCourseRefs } from '@/lib/session/course-refs';
 
 export const runtime = 'nodejs';
 

@@ -30,7 +30,6 @@ import type { MediaTask } from '@/lib/store/media-generation';
 import { useMediaGenerationStore } from '@/lib/store/media-generation';
 import { useSettingsStore } from '@/lib/store/settings';
 import { resolveThumbnailMediaValue } from '@/lib/utils/stage-storage';
-import { resolveVideoExportMediaBinding } from '@/lib/video-export-app/collect';
 import { resolveActionVideoMedia } from '@/lib/action/engine';
 import type { StageStore } from '@/lib/api/stage-api';
 
@@ -554,16 +553,6 @@ describe('real media consumer matrix', () => {
 
   it.each(cases)('PPTX exporter binding: $name', (entry) => {
     const binding = resolvePptxMediaBinding(entry.ref, entry.task, entry.lease, entry.disabled);
-    expectSafeBinding(binding.src, binding.resolution, entry.expected, entry.retryable);
-  });
-
-  it.each(cases)('video exporter binding: $name', (entry) => {
-    const binding = resolveVideoExportMediaBinding(
-      entry.ref,
-      entry.task,
-      entry.lease,
-      entry.disabled,
-    );
     expectSafeBinding(binding.src, binding.resolution, entry.expected, entry.retryable);
   });
 });

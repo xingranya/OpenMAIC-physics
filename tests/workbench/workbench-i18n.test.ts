@@ -9,12 +9,12 @@ import {
   workbenchZh,
 } from '@/lib/i18n/workbench';
 import { supportedLocales } from '@/lib/i18n/locales';
-import { skillDisplayLabel, skillTitle } from '@/lib/workbench/agent-skills';
+import { skillDisplayLabel, skillTitle } from '@/lib/session/agent-skills';
 
 const en = createWorkbenchTranslator('en-US');
 
 // Upstream adaptation: the reference's `workbench locale presentation` block
-// drove `presentTool` from `components/workbench/chat/tool-presentation` (the
+// drove `presentTool` from the (now removed) workbench tool presentation table (the
 // workbench UI slice, not ported here) — dropped. The twelve-locale contract,
 // the built-in skill names and the hardcoded-copy sweep below are all kept,
 // and the two pure translator checks from that block survive in their own
@@ -216,11 +216,9 @@ describe('built-in skill names', () => {
  */
 describe('workbench hardcoded-copy contract', () => {
   const CJK = /[　-〿㐀-鿿＀-￯]/u;
-  // Upstream adaptation: `components/workbench` and `app/workbench` ship with
-  // the workbench UI slices, so this sweep currently covers only the data-layer
-  // sources in `lib/workbench` (21 files). The UI slices must extend `roots`
-  // back to the full reference list.
-  const roots = ['lib/workbench'];
+  // Upstream adaptation: the workbench UI slices are gone, so this sweep now
+  // covers only the surviving data-layer sources in `lib/session`.
+  const roots = ['lib/session'];
 
   const walk = (relative: string): string[] => {
     const absolute = path.join(process.cwd(), relative);
@@ -234,7 +232,7 @@ describe('workbench hardcoded-copy contract', () => {
   const files = roots.flatMap((root) => walk(root));
 
   it('found the workbench sources', () => {
-    expect(files.length).toBeGreaterThanOrEqual(15);
+    expect(files.length).toBeGreaterThanOrEqual(13);
   });
 
   it.each(files)('%s has no hardcoded CJK copy', (relative) => {

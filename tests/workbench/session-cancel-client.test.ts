@@ -6,7 +6,7 @@ import {
   terminalStatusFromCancelError,
   useWorkbenchStore,
   WorkbenchApiError,
-} from '@/lib/workbench/session-store';
+} from '@/lib/session/session-store';
 
 afterEach(() => {
   vi.unstubAllGlobals();

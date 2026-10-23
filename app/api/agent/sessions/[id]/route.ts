@@ -6,7 +6,7 @@ import { isAgentRuntimeConfigured } from '@/lib/config/feature-flags';
 import { apiError } from '@/lib/server/api-response';
 import { getAgentSessionStore } from '@/lib/server/agent-runtime/store';
 import { withRequestOwnerId } from '@/lib/server/agent-runtime/with-owner';
-import { normalizeSessionTitleOverride } from '@/lib/workbench/session-title';
+import { normalizeSessionTitleOverride } from '@/lib/session/session-title';
 
 export const runtime = 'nodejs';
 

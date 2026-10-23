@@ -18,7 +18,7 @@ import {
   fetchScenesByIds,
   fetchStageManifest,
   type StageManifest,
-} from '@/lib/workbench/stage-freshness';
+} from '@/lib/session/stage-freshness';
 
 // Upstream adaptation: the reference had a `vi.mock('@/lib/live-mode')` here
 // and a D1-F5 case asserting that a non-live build short-circuits before any

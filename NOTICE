@@ -78,13 +78,21 @@ This product is a derivative work of OpenMAIC, developed by THU-MAIC.
     相关的上游测试文件（测试上述已移除模块）。
 
   保留但运行时禁用 / Retained but disabled at runtime:
-    Agent Workbench 与 /workspace：上游自带服务端门禁，
-      NEXT_PUBLIC_PRO_WORKBENCH_ENABLED 未设时中间件对 /workbench 返回 404，
-      /workspace 自动重定向。
     pg / @electric-sql/pglite 依赖：lib/persistence/server-provider.ts 在类型层
       静态引用 pg，删除依赖会破坏类型检查；运行时无 DATABASE_URL，该路径不可达。
-    app/api/export-video/：上游已实现优雅降级（未设 RENDER_SERVICE_URL 时导出
-      项目 ZIP），保留以维持降级路径。
+
+  已删除的上游外壳 / Removed upstream shell:
+    Agent Workbench（/workbench、/workspace、components/workbench/、lib/workbench/）
+      与 app/api/folders/**：产品为中文单语课堂，无需多会话工作台；
+      其中被课堂页与 app/api/agent/** 真实依赖的会话/面板层已迁至
+      lib/session/ 与 lib/classroom/classroom-exit.ts。
+    app/api/export-video/ 与 lib/video-export*/：MP4 渲染需 Docker + Chromium，
+      与 EdgeOne 无状态边缘模型互斥；导出改为 PPTX / 课堂 ZIP / 剧本。
+      其中课堂 ZIP 导出链依赖的 lib/video-export/archive-media.ts 已迁至
+      lib/export/archive-media.ts 保留。
+    app/api/comfyui-workflows、app/api/azure-voices、components/language-switcher.tsx、
+      app/eval/whiteboard、eval/**、lib/rag、lib/live、comfyui-setup-instructions.md、
+      Dockerfile、docker-compose.yml：与本产品无关的上游外壳。
 
 
 第三方组件 / Third-party components

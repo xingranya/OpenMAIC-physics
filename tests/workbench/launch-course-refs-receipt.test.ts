@@ -23,8 +23,8 @@ import {
   foldEvent,
   type WorkbenchEvent,
   type WorkbenchFold,
-} from '@/lib/workbench/session-store';
-import type { CourseRef } from '@/lib/workbench/course-refs';
+} from '@/lib/session/session-store';
+import type { CourseRef } from '@/lib/session/course-refs';
 
 // Upstream adaptation: the reference built the `session_start` payload with the
 // runner's `sessionStartEventData` helper (`lib/server/agent-runtime/runner`),

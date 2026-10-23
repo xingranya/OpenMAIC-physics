@@ -19,8 +19,8 @@ import { buildAgent } from '@/lib/agent/runtime/build-agent';
 import { createCallLlmStreamFn } from '@/lib/agent/runtime/stream-fn';
 import { HOST_AGENT_LIFECYCLE as LIFECYCLE } from '@/lib/agent-runtime/lifecycle';
 import { createLogger } from '@/lib/logger';
-import { parseCourseRefs, type CourseRef } from '@/lib/workbench/course-refs';
-import { parseElementRefs, type ElementRef } from '@/lib/workbench/element-refs';
+import { parseCourseRefs, type CourseRef } from '@/lib/session/course-refs';
+import { parseElementRefs, type ElementRef } from '@/lib/session/element-refs';
 import type { Scene, SlideContent } from '@/lib/types/stage';
 
 import { resolveAgentDriverModel } from './agent-driver-model';

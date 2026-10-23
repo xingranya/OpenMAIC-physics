@@ -19,7 +19,7 @@ import {
 } from '@/lib/edit/scene-defaults';
 import { SCENE_CREATION_ENABLED } from '@/lib/edit/scene-creation-enabled';
 import { CHROME_DURATION_MS, CHROME_EASE, CHROME_EASE_CSS } from '@/lib/edit/transitions';
-import { useInWorkbenchPanel } from '@/lib/workbench/panel-context';
+import { useInWorkbenchPanel } from '@/lib/session/panel-context';
 import type { Scene } from '@/lib/types/stage';
 import { ThumbItem } from './ThumbItem';
 import { InsertionZone } from './InsertionZone';

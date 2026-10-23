@@ -1,7 +1,7 @@
 // ─── Format registry ─────────────────────────────────────────────────────────
 // Single source of truth for every format any upload path knows about — both
 // the classic document path and the workbench material policy
-// (lib/workbench/material-upload-policy.ts) derive their tables from here.
+// (lib/session/material-upload-policy.ts) derive their tables from here.
 // All lookup maps (MIME→ext, ext→MIME, label, accept string) derive from here
 // as well, so adding a format is a one-line change and per-format lists
 // cannot drift.

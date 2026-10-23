@@ -15,7 +15,7 @@ import {
   parseCourseRefs,
   removeCourseRef,
   type CourseRef,
-} from '@/lib/workbench/course-refs';
+} from '@/lib/session/course-refs';
 
 const ref = (stageId: string, title = `课堂 ${stageId}`): CourseRef => ({
   kind: 'course',

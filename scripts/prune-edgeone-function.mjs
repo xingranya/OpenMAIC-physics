@@ -134,15 +134,12 @@ const DROP_TOP_FILES = new Set([
   'components.json',
   'app.json',
   'vercel.json',
-  'docker-compose.yml',
-  'Dockerfile',
   'next.config.ts',
   'SECURITY.md',
   'CHANGELOG.md',
   'CONTRIBUTING.md',
   'README.md',
   'README-zh.md',
-  'comfyui-setup-instructions.md',
 ]);
 
 /**
@@ -1606,6 +1603,7 @@ function ensureRuntimePackages(fnDir, workspaceRoot) {
  */
 async function verifyFlattenedPackage(fnDir) {
   const depsDir = join(fnDir, 'deps');
+  const { listPackageDirs, resolvePackagesRuntime } = await import('./verify-edgeone-deps.mjs');
 
   // ---- 1) 残留符号链接 ----
   const examples = [];
@@ -1670,12 +1668,19 @@ async function verifyFlattenedPackage(fnDir) {
   //   2. 间接动态 import 形态：产物里既然有 `Function("specifier", …)`，
   //      就必须认出它加载的包，而且这些包必须进 ESM 探针集合；
   //   3. 命中的每个包都必须在 deps/ 里真实存在。
-  const MIN_CJS_SPECIFIERS = 20;
-  const MIN_ESM_SPECIFIERS = 5;
-  if (cjsSpecifiers.size < MIN_CJS_SPECIFIERS || esmSpecifiers.size < MIN_ESM_SPECIFIERS) {
+  //
+  // **下限是相对值**：与产物里实际存在的 Turbopack 外部别名（`<包名>-<哈希>`）
+  // 数量挂钩。写死一个绝对值会在「合法删掉某个 provider 路由」时误伤——
+  // 那时别名本来就少了，扫描器并没有退化。
+  const aliasDirCount = listPackageDirs(depsDir).filter((pkg) =>
+    /-[0-9a-f]{8,}$/.test(pkg.name),
+  ).length;
+  const minCjsSpecifiers = 10;
+  const minEsmSpecifiers = Math.max(1, Math.min(3, aliasDirCount));
+  if (cjsSpecifiers.size < minCjsSpecifiers || esmSpecifiers.size < minEsmSpecifiers) {
     throw new Error(
-      `裸标识符扫描结果异常偏少（CJS ${cjsSpecifiers.size} < ${MIN_CJS_SPECIFIERS} 或 ` +
-        `ESM ${esmSpecifiers.size} < ${MIN_ESM_SPECIFIERS}）。` +
+      `裸标识符扫描结果异常偏少（CJS ${cjsSpecifiers.size} < ${minCjsSpecifiers} 或 ` +
+        `ESM ${esmSpecifiers.size} < ${minEsmSpecifiers}；产物里的外部别名共 ${aliasDirCount} 个）。` +
         '这通常意味着 Turbopack 的产物压缩形态变了、扫描器的正则打不中真实调用点——' +
         '此时门禁会「扫不到就等于没问题」，是恒真断言，必须先修扫描器。',
     );
@@ -1772,7 +1777,6 @@ async function verifyFlattenedPackage(fnDir) {
     // 而后者才是线上 500 的真凶（@openmaic/storage 的 dist 是空的）。
     // 这里独立再验一遍：不信任修复，只信结果。
     const needed = collectNeededPackages(fnDir, ROOT, collectBareSpecifiers);
-    const { listPackageDirs, resolvePackagesRuntime } = await import('./verify-edgeone-deps.mjs');
     const neededInDeps = listPackageDirs(depsDir).filter((pkg) => needed.has(pkg.name));
     const statuses = await resolvePackagesRuntime(
       neededInDeps.map((p) => p.name),

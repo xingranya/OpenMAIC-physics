@@ -17,7 +17,7 @@ import {
   removeElementRef,
   toggleElementRef,
   type ElementRef,
-} from '@/lib/workbench/element-refs';
+} from '@/lib/session/element-refs';
 
 /** The label/snapshot helpers take a translator; echo the key so it is visible. */
 const t = (key: string) => key;

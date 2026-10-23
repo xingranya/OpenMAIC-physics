@@ -47,7 +47,7 @@ import {
   skillTitle,
   useAgentSkills,
   type AgentSkillInfo,
-} from '@/lib/workbench/agent-skills';
+} from '@/lib/session/agent-skills';
 import { cn } from '@/lib/utils';
 
 /**

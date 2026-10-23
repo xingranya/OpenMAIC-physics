@@ -4,7 +4,7 @@ import {
   isWorkbenchMaterialMime,
   resolveWorkbenchMaterialMime,
   WORKBENCH_MATERIAL_EXTENSIONS,
-} from '@/lib/workbench/material-upload-policy';
+} from '@/lib/session/material-upload-policy';
 
 const PPTX_MIME = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';

@@ -16,7 +16,7 @@ import {
   ELEMENT_REF_SELECTOR_MAX,
   ELEMENT_SNAPSHOT_MAX,
   INTERACTIVE_OUTERHTML_MAX,
-} from '@/lib/workbench/element-refs';
+} from '@/lib/session/element-refs';
 
 vi.mock('@/lib/hooks/use-i18n', () => ({
   useI18n: () => ({

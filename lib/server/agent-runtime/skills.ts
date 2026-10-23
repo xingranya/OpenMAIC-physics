@@ -39,8 +39,8 @@ import { load as loadYaml } from 'js-yaml';
 import { Type, type Static } from 'typebox';
 
 import { createLogger } from '@/lib/logger';
-import { skillHandleName } from '@/lib/workbench/composer-skills';
-import { composerTokens } from '@/lib/workbench/composer-tokens';
+import { skillHandleName } from '@/lib/session/composer-skills';
+import { composerTokens } from '@/lib/session/composer-tokens';
 import { agentRuntimeConfig } from './config';
 import { listUserSkills } from './user-skills';
 
@@ -331,7 +331,7 @@ export function leadingSkillHandle(prompt: string): string | null {
  * user may write several.
  *
  * Token boundaries come from the composer's own definition
- * (`lib/workbench/composer-tokens`), and a handle is what the composer paints a
+ * (`lib/session/composer-tokens`), and a handle is what the composer paints a
  * pill around (`skillHandleName`), so the server recognises exactly the runs of
  * text the user saw highlighted — no second, drifting definition of "a handle".
  *

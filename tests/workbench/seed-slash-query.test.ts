@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { seedSlashQuery, slashQuery } from '@/lib/workbench/composer-skills';
+import { seedSlashQuery, slashQuery } from '@/lib/session/composer-skills';
 
 describe('seedSlashQuery', () => {
   it('seeds a live query from an empty draft', () => {

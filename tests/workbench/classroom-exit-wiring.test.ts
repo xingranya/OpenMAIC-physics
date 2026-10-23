@@ -10,7 +10,7 @@ describe('classroom exit wiring', () => {
     (path) => {
       const text = source(path);
       expect(text).toContain('exitClassroom(router, searchParams)');
-      expect(text).toContain('classroomExitLabelKey(searchParams)');
+      expect(text).toContain('classroomExitLabelKey()');
       expect(text).toContain('aria-label={exitLabel}');
       expect(text).not.toContain("router.push('/')");
       expect(text).not.toContain("title={t('generation.backToHome')}");

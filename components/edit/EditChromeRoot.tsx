@@ -10,7 +10,7 @@ import { preloadEditor } from '@/lib/edit/preload-editor';
 import { sceneEditorRegistry } from '@/lib/edit/scene-editor-registry';
 import { getScenePagerState } from '@/lib/edit/scene-pager';
 import { useStageStore } from '@/lib/store/stage';
-import { useInWorkbenchPanel } from '@/lib/workbench/panel-context';
+import { useInWorkbenchPanel } from '@/lib/session/panel-context';
 import { supportsNarrationTimeline } from './scene-timeline';
 import type { Scene } from '@/lib/types/stage';
 

@@ -20,7 +20,7 @@ import {
   Table2,
   type LucideIcon,
 } from 'lucide-react';
-import { elementRefLabel } from '@/lib/workbench/element-refs';
+import { elementRefLabel } from '@/lib/session/element-refs';
 
 /** Translator fn (matches useI18n's `t`) — passed in so this module stays hook-free. */
 type TFn = (key: string, options?: Record<string, unknown>) => string;

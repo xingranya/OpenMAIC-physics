@@ -23,7 +23,7 @@ import {
   foldEvents,
   type WorkbenchEvent,
   type WorkbenchFold,
-} from '@/lib/workbench/session-store';
+} from '@/lib/session/session-store';
 
 const seed = (): WorkbenchFold => createInitialSessionState();
 

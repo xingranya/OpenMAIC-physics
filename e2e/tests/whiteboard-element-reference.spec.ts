@@ -28,7 +28,6 @@ test('selects a panned/zoomed whiteboard element, sends its identity, and retain
       return route.abort();
     if (path === '/api/server-providers')
       return route.fulfill({ json: { providers: {}, mediaProviders: {}, defaultModel: null } });
-    if (path === '/api/comfyui-workflows') return route.fulfill({ json: { workflows: [] } });
     await route.continue();
   });
   await seedDatabase(page, {

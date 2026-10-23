@@ -17,7 +17,7 @@ import {
   createInitialSessionState,
   foldEvents,
   type WorkbenchEvent,
-} from '@/lib/workbench/session-store';
+} from '@/lib/session/session-store';
 
 const SKILL_PATH = '/skills/agent-runtime/pro-editing/SKILL.md';
 

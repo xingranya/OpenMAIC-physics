@@ -1,7 +1,7 @@
 /**
  * /api/materials — the workbench's material list and upload face.
  *
- * The uploader (`uploadWorkbenchMaterial` in `lib/workbench/session-store.ts`)
+ * The uploader (`uploadWorkbenchMaterial` in `lib/session/session-store.ts`)
  * is OWNER-scoped: it posts a file with no session id and expects the flat
  * `{ materialId, originalName, bytes, mime, extraction }` 201 view. This route
  * implements the reference's upload contract on the owner-scoped material
@@ -67,7 +67,7 @@ import {
   isWorkbenchMaterialMime,
   MEDIA_MIME_TYPES,
   resolveWorkbenchMaterialMime,
-} from '@/lib/workbench/material-upload-policy';
+} from '@/lib/session/material-upload-policy';
 
 export const runtime = 'nodejs';
 

@@ -1,5 +1,5 @@
 /**
- * The workbench fold (`lib/workbench/session-store.ts` → `foldEvent`): the pure
+ * The workbench fold (`lib/session/session-store.ts` → `foldEvent`): the pure
  * events → view-model mapping that everything in the chat rail renders from.
  *
  * The two properties under test are the ones the SSE resume contract depends
@@ -17,7 +17,7 @@ import {
   foldEvents,
   type WorkbenchEvent,
   type WorkbenchFold,
-} from '@/lib/workbench/session-store';
+} from '@/lib/session/session-store';
 
 let seq = 0;
 // Ids are monotonic across the whole file, which is stronger than the fold
@@ -742,7 +742,7 @@ describe('the session-level freshness gates are gone (#1960 Part 2)', () => {
  * and its answer: `agent_start` … `agent_end`.
  *
  * What counts as an appearance (and why a reader tool does not) lives in
- * `lib/workbench/run-courses`; this file pins WHEN and WHERE the row lands, which
+ * `lib/session/run-courses`; this file pins WHEN and WHERE the row lands, which
  * is the half a replay can get wrong.
  */
 describe('an answer ends with the classrooms it touched', () => {

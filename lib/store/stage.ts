@@ -15,7 +15,7 @@ import type { SceneOutline } from '@/lib/types/generation';
 import { createLogger } from '@/lib/logger';
 import { useCanvasStore } from '@/lib/store/canvas';
 import { useSettingsStore } from '@/lib/store/settings';
-import type { StageManifest } from '@/lib/workbench/stage-freshness';
+import type { StageManifest } from '@/lib/session/stage-freshness';
 import { applyGeneratedAgentsToRegistry } from '@/lib/orchestration/registry/store';
 import { migrateScene } from '@/lib/edit/slide-schema';
 import { preparePBLScenesForDocumentPersistence } from '@/lib/pbl/v2/runtime/document-persistence';
@@ -336,7 +336,7 @@ interface StageState {
   // actually rendered (`serverManifestByStage`) and the store's save paths may
   // bump `stageSyncRequest` when a refused write must converge the baseline
   // before the next save is judged. Both are written by
-  // `lib/workbench/use-workbench-session.ts` / future ownership slices; the
+  // the session-store / future ownership slices; the
   // upstream host's own save paths do not consume them yet.
   serverManifestByStage: Record<string, StageManifest>;
   stageSyncRequest: number;

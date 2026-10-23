@@ -8,7 +8,7 @@ import { resolveAudioBlob } from '@/lib/media/resolve-audio-bytes';
 import { fetchMediaUrl } from '@/lib/media/fetch-media-url';
 import { mapWithConcurrency } from '@/lib/utils/concurrency';
 import { resolveStoredBytes } from '@/lib/media/resolve-stored-bytes';
-import { canonicalArchiveMedia } from '@/lib/video-export/archive-media';
+import { canonicalArchiveMedia } from './archive-media';
 
 // ─── Export: Collect Media ─────────────────────────────────────
 

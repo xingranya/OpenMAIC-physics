@@ -38,7 +38,7 @@ import { Check, ChevronDown, GripHorizontal, MousePointerClick } from 'lucide-re
 import { useCanvasStore } from '@/lib/store/canvas';
 import { useElementRefsForSession, useElementRefsStore } from '@/lib/store/element-refs';
 import { useStageStore } from '@/lib/store/stage';
-import { useWorkbenchStore } from '@/lib/workbench/session-store';
+import { useWorkbenchStore } from '@/lib/session/session-store';
 import { useI18n } from '@/lib/hooks/use-i18n';
 import { setElementIdById } from '@/components/edit/ActionsBar/actions-edit';
 import { cueLabel } from '@/components/edit/ActionsBar/cue-meta';
@@ -49,7 +49,7 @@ import {
   elementRefOrdinal,
   makeElementRef,
   type SlideElementLike,
-} from '@/lib/workbench/element-refs';
+} from '@/lib/session/element-refs';
 import { elementIdAtPoint, measureElementBox, type CanvasBox } from './element-hit-test';
 import {
   CANVAS_OVERLAY_FRAME_SELECTOR,

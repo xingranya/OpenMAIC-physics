@@ -79,7 +79,7 @@ vi.mock('@/components/edit/AgentsView/RosterDialog', async () => {
 import { EditDock } from '@/components/edit/EditDock/EditDock';
 import { useStageStore } from '@/lib/store/stage';
 import { useElementRefsStore } from '@/lib/store/element-refs';
-import { useWorkbenchStore } from '@/lib/workbench/session-store';
+import { useWorkbenchStore } from '@/lib/session/session-store';
 
 let root: Root | null = null;
 let container: HTMLDivElement | null = null;

@@ -9,8 +9,8 @@ import { MAX_SESSION_TEXT_LENGTH } from '@/lib/server/agent-runtime/limits';
 import { getAgentSessionStore } from '@/lib/server/agent-runtime/store';
 import { scheduleConversationTitle } from '@/lib/server/agent-runtime/conversation-title-task';
 import { withRequestOwnerId } from '@/lib/server/agent-runtime/with-owner';
-import { decodeElementRefs } from '@/lib/workbench/element-refs';
-import { decodeCourseRefs } from '@/lib/workbench/course-refs';
+import { decodeElementRefs } from '@/lib/session/element-refs';
+import { decodeCourseRefs } from '@/lib/session/course-refs';
 import {
   bindOwnerMaterialsToSession,
   SessionMaterialBindingError,

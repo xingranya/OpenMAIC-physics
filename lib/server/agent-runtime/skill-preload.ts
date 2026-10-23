@@ -3,7 +3,7 @@
  *
  * ## The gap this closes
  *
- * A skill is text in the composer (`lib/workbench/composer-skills`): the `/`
+ * A skill is text in the composer (`lib/session/composer-skills`): the `/`
  * menu writes `/pro-editing ` into the draft and that is all a skill is on the
  * wire. Nothing in the system prompt says "a handle you see must be loaded", so
  * whether the skill's instructions ever reached the model came down to whether

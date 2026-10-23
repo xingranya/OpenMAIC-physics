@@ -3,7 +3,7 @@
  *
  * This map is shared by i18next (see `live.ts`) and hook-free presentation
  * helpers, which is why it is TypeScript and not one more locale JSON: the
- * presentation table (`components/workbench/chat/tool-presentation.ts`), the
+ * presentation table (the removed workbench tool presentation table), the
  * progress captions and the session store are pure functions with no hook to
  * read a language from, so they take a translator and this module can build one
  * synchronously.

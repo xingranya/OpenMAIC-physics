@@ -5,7 +5,6 @@ import { Sun, Moon, Monitor } from 'lucide-react';
 import { useTheme } from '@/lib/hooks/use-theme';
 import { useI18n } from '@/lib/hooks/use-i18n';
 import { cn } from '@/lib/utils';
-import '@/components/workbench/workspace/pro-popover-scope.css';
 
 const OPTIONS = [
   { value: 'light', icon: Sun },

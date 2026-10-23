@@ -2,7 +2,7 @@ import { callLLM } from '@/lib/ai/llm';
 import { createLogger } from '@/lib/logger';
 import { getStageRoute } from '@/lib/server/model-routes';
 import { resolveModel } from '@/lib/server/resolve-model';
-import { sanitizeSessionTitleText } from '@/lib/workbench/session-title';
+import { sanitizeSessionTitleText } from '@/lib/session/session-title';
 import { resolveAgentDriverModel } from './agent-driver-model';
 
 const log = createLogger('conversation-title');

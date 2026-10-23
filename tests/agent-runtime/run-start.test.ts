@@ -12,8 +12,8 @@ import {
   resolveCourseRefsForContext,
   tagDurableUserMessage,
 } from '@/lib/server/agent-runtime/runner';
-import type { CourseRef } from '@/lib/workbench/course-refs';
-import type { ElementRef } from '@/lib/workbench/element-refs';
+import type { CourseRef } from '@/lib/session/course-refs';
+import type { ElementRef } from '@/lib/session/element-refs';
 
 const mocks = vi.hoisted(() => ({
   probeStageAccess: vi.fn(),

@@ -6,8 +6,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createCoalescedLatestLoader,
   useGeneratedCourseDiscoverySync,
-} from '@/lib/workbench/course-discovery-sync';
-import type { SessionStatus } from '@/lib/workbench/session-store';
+} from '@/lib/session/course-discovery-sync';
+import type { SessionStatus } from '@/lib/session/session-store';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;

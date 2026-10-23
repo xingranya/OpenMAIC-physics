@@ -13,7 +13,7 @@ import {
   sameElementRef,
   toggleElementRef,
   type ElementRef,
-} from '@/lib/workbench/element-refs';
+} from '@/lib/session/element-refs';
 
 /**
  * Element Refs Store — the elements staged for the NEXT message.

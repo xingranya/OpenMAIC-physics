@@ -18,8 +18,8 @@ OpenMAIC `main` 分支（v1.2.0+）是 **server-first** 架构：课程生成在
 | --- | --- | --- | --- |
 | 课程持久化 | PostgreSQL 必填 | 浏览器存储（默认） | ✅ 无需数据库 |
 | 课程生成 | 服务端常驻进程 | 服务端 API 路由（无状态） | ✅ 无状态函数 |
-| Agent Workbench | 需 PG 会话租约 | 关闭（`NEXT_PUBLIC_PRO_WORKBENCH_ENABLED` 不设） | ✅ 中间件直接 404 |
-| MP4 渲染 | 需 Docker + Chromium | 未启用 `RENDER_SERVICE_URL` 时自动降级为项目 ZIP | ✅ 降级路径内置 |
+| Agent Workbench | 需 PG 会话租约 | **已删除**（`/workbench`、`/workspace` 路由与 `components/workbench/` 整体移除） | ✅ 无此入口 |
+| MP4 渲染 | 需 Docker + Chromium | **已删除**（`app/api/export-video/` 与 `lib/video-export*`；导出走 PPTX / 课堂 ZIP / 剧本） | ✅ 无此入口 |
 
 ---
 
@@ -206,7 +206,8 @@ cd OpenMAIC
 
 > **为什么 `EDGEONE=1` 必须在构建时带上**
 > `output` 决定**构建产物形态**：EdgeOne / Vercel 由平台托管 Next.js 运行时，
-> 不需要 standalone 产物；其余场景（自托管 Docker）需要 `.next/standalone`。
+> 不需要 standalone 产物；其余场景（自托管）需要 `.next/standalone`。
+> 注：本作品**已删除** `Dockerfile` / `docker-compose.yml`（唯一部署目标是 EdgeOne），自托管不在交付范围内。
 > 控制台配置的环境变量在**构建与运行两侧都能读到**，所以平台上一致。
 >
 > ⚠️ **构建与运行必须看到同一份环境变量。** Next 在运行期按 `output` 决定静态资源
@@ -221,7 +222,7 @@ cd OpenMAIC
 >
 > 这两条**症状不同、成因也不同**，排查时不要混为一谈：我们做过对照实验
 > （同一份产物、只改运行期判定值，standalone 与非 standalone 两种形态下
-> 44 个客户端 chunk 全部 200），所以"形态不一致 → chunk 500"并不成立；
+> 42 个客户端 chunk 全部 200），所以"形态不一致 → chunk 500"并不成立；
 > 真正会打空按钮的是上面第二条。
 
 > **关于 `build:packages`**
@@ -269,7 +270,7 @@ ACCESS_CODE=<至少 16 位随机字符串>      # 站点级口令，保护部署
 ```
 
 > **为什么 `EDGEONE=1` 是必填的**：上游 `next.config.ts` 默认产出 `standalone`
-> 服务端包（供 Docker 自托管使用），只在 `VERCEL` 时关闭。EdgeOne Pages 与
+> 服务端包（供自托管使用），只在 `VERCEL` 时关闭。EdgeOne Pages 与
 > Vercel 一样由平台托管 Next.js 运行时，**不需要也不应该**拿到 standalone 产物——
 > 若沿用 standalone，平台会拿到一份无人启动的服务器产物，表现为路由 404 或
 > 静态资源缺失。本 fork 已加上 `EDGEONE` 开关，构建时设置该变量即可。
@@ -349,7 +350,7 @@ DEFAULT_MODEL=openai:@makers/deepseek-v4-flash
 | 构建报 `sharp` / `dlopen` 失败 | 未取到 linux-x64 原生二进制 | 确认 `pnpm-workspace.yaml` 的 `supportedArchitectures` 生效，删除 `node_modules` 后重装 |
 | 构建报 `packageManager` / corepack 错误 | corepack 试图下载 pnpm | EdgeOne 支持直接选 pnpm；或把 `packageManager` 字段改为控制台所选版本 |
 | 构建超时 | monorepo 体量大 | 拆分构建：先单独构建工作区包并缓存产物；或改用 Vercel（1.1.x 官方支持） |
-| 页面 500 且日志报 `[部署配置]` | 误配了 `DATABASE_URL` 或 Workbench 开关 | 见 §5 的互斥项清单 |
+| 页面 500 且日志报 `[部署配置]` | 误配了 `DATABASE_URL` | 见 §5 的互斥项清单 |
 | 生成课堂报 429 | 模型额度耗尽 | 改用预置课堂包；或换 provider；或降低 `DEFAULT_MODEL` 成本 |
 | 首页一直转圈 | 未配置模型 Key | 至少配置一个 `*_API_KEY`，或直接用预置课堂包 |
 | **页面文字正常但所有按钮点不动** | 客户端 chunk 500 → React 未水合。常见原因：①构建与运行只在一侧配了 `EDGEONE=1`；②服务运行期间重建了产物 | 两侧都带 `EDGEONE=1`；重建后重启服务；跑 §8 的 `check:physics-e2e.mjs` 确认 chunk 全 200 |
@@ -500,7 +501,7 @@ node scripts/check-physics-e2e.mjs --base-url http://127.0.0.1:3434
 | 检查项 | 通过条件 |
 | --- | --- |
 | 15 条关键路由 | HTTP 200，且首帧含校名与「正在加载工作台」水合安全标记 |
-| 客户端 chunk | 页面引用的**每一个** chunk 都是 200（本次 44 个客户端 chunk） |
+| 客户端 chunk | 页面引用的**每一个** chunk 都是 200（本次 42 个客户端 chunk） |
 | 口令门禁 | 未授权 401、错误口令 401、正确口令放行、带 Cookie 会话生效 |
 | 模型降级前提 | 未配置模型 Key 时 provider 为空，生成路径优雅降级 |
 
@@ -820,7 +821,7 @@ CNAME 已下发），API 侧 `DescribePagesProjects` 也能看到
 ### 8.1i 产物里的「桩包」与**仓库外**运行时门禁（线上空体 500 的真正根因）
 
 这一条是**本地永远复现不出来**的那类故障，代价是线上 15 条 API 路由返回**空体 500**
-（`/api/stages*`、`/api/folders*`、`/api/classroom`、`/api/agent/*`、
+（`/api/stages*`、`/api/classroom`、`/api/agent/*`、
 `/api/chat/pi`、`/api/extract-document`、`/api/parse-pdf`），其余路由正常。
 
 **根因**：EdgeOne 的构建产物里，有些包只是**一个桩目录**——版本号、`exports`

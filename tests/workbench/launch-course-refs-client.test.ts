@@ -13,8 +13,8 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createWorkbenchSession } from '@/lib/workbench/session-store';
-import type { CourseRef } from '@/lib/workbench/course-refs';
+import { createWorkbenchSession } from '@/lib/session/session-store';
+import type { CourseRef } from '@/lib/session/course-refs';
 
 const REF: CourseRef = { kind: 'course', stageId: 'stage-1', title: '光的折射' };
 

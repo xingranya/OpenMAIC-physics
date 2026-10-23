@@ -9,7 +9,7 @@ import {
   removeCourseRef,
   sameCourseRef,
   type CourseRef,
-} from '@/lib/workbench/course-refs';
+} from '@/lib/session/course-refs';
 
 /**
  * Course Refs Store — the classrooms named for the NEXT message.

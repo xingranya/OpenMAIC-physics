@@ -24,7 +24,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useStageStore } from '@/lib/store/stage';
 import { useCanvasStore } from '@/lib/store/canvas';
-import { useWorkbenchStore } from '@/lib/workbench/session-store';
+import { useWorkbenchStore } from '@/lib/session/session-store';
 import { ActionsBar } from '@/components/edit/ActionsBar/ActionsBar';
 import type { CanvasPagerProps } from '@/components/edit/EditShell/CanvasPager';
 import type { SceneType } from '@/lib/types/stage';

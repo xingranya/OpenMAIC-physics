@@ -5,8 +5,8 @@ import {
   postWorkbenchMessage,
   uploadWorkbenchMaterial,
   WorkbenchMaterialUploadError,
-} from '@/lib/workbench/session-store';
-import { WORKBENCH_MATERIAL_ACCEPT } from '@/lib/workbench/material-upload-policy';
+} from '@/lib/session/session-store';
+import { WORKBENCH_MATERIAL_ACCEPT } from '@/lib/session/material-upload-policy';
 import {
   createWorkbenchTranslator,
   workbenchResourceFor,

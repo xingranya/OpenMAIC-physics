@@ -27,7 +27,6 @@ test('actual classroom component reference samples declared area state on send w
       return route.abort();
     if (path === '/api/server-providers')
       return route.fulfill({ json: { providers: {}, mediaProviders: {}, defaultModel: null } });
-    if (path === '/api/comfyui-workflows') return route.fulfill({ json: { workflows: [] } });
     await route.continue();
   });
   await seedDatabase(page);
@@ -170,7 +169,6 @@ test('missing AbortSignal.any still sends the classroom question without state',
       return route.abort();
     if (path === '/api/server-providers')
       return route.fulfill({ json: { providers: {}, mediaProviders: {}, defaultModel: null } });
-    if (path === '/api/comfyui-workflows') return route.fulfill({ json: { workflows: [] } });
     await route.continue();
   });
   await seedDatabase(page);

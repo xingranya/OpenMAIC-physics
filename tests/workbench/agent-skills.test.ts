@@ -12,7 +12,7 @@ import {
   refreshAgentSkillsForOwnerChange,
   skillDisplayLabel,
   skillLabelForId,
-} from '@/lib/workbench/agent-skills';
+} from '@/lib/session/agent-skills';
 import { createWorkbenchTranslator } from '@/lib/i18n/workbench';
 
 const skill = (id: string, title?: string) => ({

@@ -8,7 +8,7 @@ import {
   useElementRefsOwnerLifecycle,
   useElementRefsStore,
 } from '@/lib/store/element-refs';
-import type { ElementRef } from '@/lib/workbench/element-refs';
+import type { ElementRef } from '@/lib/session/element-refs';
 
 const elementRef: ElementRef = {
   kind: 'slide-element',

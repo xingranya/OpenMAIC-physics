@@ -79,7 +79,7 @@ export const HOST_AGENT_LIFECYCLE = {
    * which requeues the session for a new run; a textless material attachment
    * stays queued behind the question. There is deliberately NO
    * answer-correlation id — the question is a UI affordance (a question card,
-   * `components/workbench/chat/question-card.tsx`, plus the pinned panel above
+   * the (now removed) workbench question card, plus the pinned panel above
    * the composer), and the answer is simply the next nonblank user message,
    * which is also what retires it. An old frontend that does not know this
    * type ignores it (the chat fold's default case) and loses nothing but the

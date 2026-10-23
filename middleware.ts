@@ -1,21 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { isAgentRuntimeConfigured, isProWorkbenchEnabled } from '@/lib/config/feature-flags';
 import { verifyAccessTokenEdge } from '@/lib/server/access-token-edge';
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Return an actual server-side 404 when either half of the workbench is off.
-  // Edge middleware cannot reliably inspect server-only deployment variables,
-  // so it enforces the public gate and leaves the complete runtime/database
-  // check to Node. A Node-hosted middleware uses the same gate as startup.
-  const canInspectServerRuntime = process.env.NEXT_RUNTIME !== 'edge';
-  const workbenchEnabled =
-    isProWorkbenchEnabled() && (!canInspectServerRuntime || isAgentRuntimeConfigured());
-  if (!workbenchEnabled && (pathname === '/workbench' || pathname.startsWith('/workbench/'))) {
-    return new NextResponse('Not found', { status: 404 });
-  }
+  // 上游的 Agent Workbench（`/workbench`、`/workspace`）已随 M9 删减移除，
+  // 这里不再有需要门禁的工作台路由。
 
   const accessCode = process.env.ACCESS_CODE;
   if (!accessCode) {

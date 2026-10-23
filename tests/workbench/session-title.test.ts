@@ -15,8 +15,8 @@ import {
   normalizeSessionTitleOverride,
   SESSION_TITLE_MAX_LENGTH,
   workbenchSessionTitle,
-} from '@/lib/workbench/session-title';
-import { foldEvents, type WorkbenchEvent, type WorkbenchFold } from '@/lib/workbench/session-store';
+} from '@/lib/session/session-title';
+import { foldEvents, type WorkbenchEvent, type WorkbenchFold } from '@/lib/session/session-store';
 
 describe('what a conversation is called', () => {
   it('prefers the name the user gave it', () => {

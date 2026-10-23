@@ -15,7 +15,7 @@ import {
   insertSkillHandle,
   segmentSkillHandles,
   slashQuery,
-} from '@/lib/workbench/composer-skills';
+} from '@/lib/session/composer-skills';
 
 describe('when the caret is in a slash query', () => {
   /** The caret where typing leaves it: at the end of what was just typed. */
@@ -200,7 +200,7 @@ describe('deleting a handle', () => {
 /**
  * Where the inline pill gets drawn.
  *
- * The mirror layer (`components/workbench/composer-input`) paints a ground behind
+ * The (now removed) workbench composer mirror layer paints a ground behind
  * the runs this returns. Two properties matter more than any single case: the
  * segments must reassemble into the draft byte for byte (the pill is decoration,
  * never a rewrite), and only INSTALLED names may become one — a pill behind

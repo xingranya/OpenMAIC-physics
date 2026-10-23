@@ -1,15 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'motion/react';
 import { useStageStore } from '@/lib/store';
-import {
-  isCurrentSceneEditable,
-  isHostedSceneEditable,
-  resolveStageChromeMode,
-} from '@/lib/edit/stage-mode';
-import { isMaicEditorEnabled, isProWorkbenchEnabled } from '@/lib/config/feature-flags';
+import { isCurrentSceneEditable, resolveStageChromeMode } from '@/lib/edit/stage-mode';
+import { isMaicEditorEnabled } from '@/lib/config/feature-flags';
 import { EditChromeRoot } from '@/components/edit/EditChromeRoot';
 import {
   PlaybackChromeRoot,
@@ -22,14 +17,7 @@ import {
 } from '@/components/scene-renderers/InteractiveIframeHost';
 import { CHROME_EASE } from '@/lib/edit/transitions';
 import { enterEditMode } from '@/lib/edit/enter-edit-mode';
-import { isEditorPreloaded, preloadEditor } from '@/lib/edit/preload-editor';
-import { WorkbenchReturnControl } from '@/components/workbench/WorkbenchReturnControl';
-import { resolveClassroomBackControl } from '@/lib/workbench/classroom-back-control';
-import { resolveClassroomHeaderControls } from '@/lib/workbench/classroom-header-controls';
-import { useWorkbenchStore } from '@/lib/workbench/session-store';
-import { useWorkbenchPanelState } from '@/lib/workbench/panel-context';
-import { workspaceHref } from '@/lib/workbench/workspace-panes';
-import { exitProPlaybackToStandalone } from '@/lib/workbench/pro-playback-exit';
+import { preloadEditor } from '@/lib/edit/preload-editor';
 
 /**
  * Stage — top-level classroom container. Standalone classrooms dispatch
@@ -38,26 +26,14 @@ import { exitProPlaybackToStandalone } from '@/lib/workbench/pro-playback-exit';
  *   mode === 'edit'                → EditChromeRoot
  *   mode === 'playback' / 'autonomous' → PlaybackChromeRoot
  *
- * When this classroom is HOSTED — mounted inside the Pro workspace's classroom
- * pane rather than filling a route — the dispatch below is not replaced, it is
- * merely stripped of the chrome that the host already provides: no header, no
- * global controls or Pro switch (the pane IS Pro-locked). Hosted chrome is
- * EDIT-LOCKED: the pane declares the lock once (`WorkbenchPanelState.editPinned`)
- * and this component reads it back, so no entry path — a course the agent just
- * created, a restored tab, a tab switch, a reload — gets to decide otherwise.
- * The learning chrome is reachable only through Start Learning, which clears
- * the lock at the pane. Everything else resolves synchronously between the
- * neutral loading shell and edit, so a hosted first paint can never be
- * playback. Deliberately not a third
- * `StageMode` — `StageMode` lives in the
- * published `@openmaic/dsl` and is persisted with the stage, whereas "this is
- * rendered inside the workspace right now" is view state that must not outlive
- * the tab.
+ * 上游的「Pro 工作台（/workspace）」外壳已随 M9 删减一并移除：课堂不再有
+ * 「被工作台面板托管」的第二种形态，因此本组件只服务独立课堂路由。
+ * `resolveStageChromeMode` 的 hosted 分支（工作台托管课堂）在没有工作台的
+ * 产品里恒不成立，这里显式传 `hosted: false`，而不是保留一条永远走不到的
+ * 托管路径——留着它就等于把 `/workspace` 这个已删除的入口留在课堂页里。
  *
- * The host itself owns the three-pane layout, the conversation, the session
- * stream and the course sync. Stage's only responsibilities are: mode
- * dispatch and Pro Switch toggle wiring (calls into
- * PlaybackChromeRoot.teardown via ref before flipping mode).
+ * Stage 的职责只有两件：模式分发，以及 Pro 开关的接线（翻转前先经 ref
+ * 调用 PlaybackChromeRoot.teardown）。
  */
 export function Stage({
   classroomId,
@@ -67,29 +43,7 @@ export function Stage({
   onRetryOutline?: (outlineId: string) => Promise<void>;
 }) {
   const { mode, setMode, scenes, currentSceneId, generatingOutlines, stage } = useStageStore();
-  const router = useRouter();
-  const enteringWorkbench = useRef(false);
-  const proWorkbenchFlag = isProWorkbenchEnabled();
   const editorEnabled = isMaicEditorEnabled();
-  const [proRuntime, setProRuntime] = useState<'pending' | 'on' | 'off'>(
-    proWorkbenchFlag ? 'pending' : 'off',
-  );
-  useEffect(() => {
-    if (!proWorkbenchFlag) return;
-    let cancelled = false;
-    fetch('/api/agent/runtime')
-      .then((res) => (res.ok ? res.json() : null))
-      .then((body) => {
-        if (!cancelled) setProRuntime(body?.enabled === true ? 'on' : 'off');
-      })
-      .catch(() => {
-        if (!cancelled) setProRuntime('off');
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [proWorkbenchFlag]);
-  const proWorkbenchEntry = proWorkbenchFlag && proRuntime === 'on';
   const currentScene = useStageStore((s) => s.getCurrentScene());
   // The reference implementation makes editing owner-only. `isOwner` is true for the stage creator and
   // defaults to true with browser storage (single-user IndexedDB), so this gate is
@@ -98,36 +52,6 @@ export function Stage({
   const isOwner = useStageStore((s) => s.isOwner);
   const readOnly = useStageStore((s) => s.readOnly);
   const canEditOwnedStage = isOwner && !readOnly;
-
-  // Hosted by the Pro workspace's classroom pane. Ambient rather than a prop
-  // because `Stage` is built by `ClassroomSurface`, which is mounted by both
-  // the route and the pane and has no business knowing which.
-  //
-  // The provider is the host boundary. Session state intentionally does not
-  // participate: it outlives route transitions and previously made an ordinary
-  // classroom inherit the workspace's edit chrome after SPA navigation.
-  const workbenchPanel = useWorkbenchPanelState();
-  const inWorkspacePane = workbenchPanel.hosted;
-  const hosted = proWorkbenchFlag && inWorkspacePane;
-  // Pane view state comes from the pane boundary, not from the attached-chat
-  // fold. `attach()` intentionally rebuilds that fold when Chat changes; using
-  // its panelOpen bit here made the keyed edit/playback roots swap for one
-  // frame and produced a full classroom flash.
-  const workbenchPlayback = workbenchPanel.playback;
-  // The classroom is showing exactly when it is hosted and the pane says it is
-  // edit-locked. The lock is computed once, at the provider the workspace
-  // mounts the classroom through (`WorkbenchPanelProvider`), so this is the
-  // pane's answer being read back rather than a second derivation that could
-  // disagree with it.
-  const workbenchShowingClassroom = hosted && workbenchPanel.editPinned;
-
-  // Single decision for the classroom chrome's top-left back affordance:
-  // plain classroom → home arrow; full-screen playback → "Back to workspace";
-  // every other hosted form (the workspace pane) → hidden (the conversation
-  // and the navigation tree are already beside the classroom, and a home
-  // arrow would exit the workspace). See lib/workbench/classroom-back-control.ts.
-  const classroomBackControl = resolveClassroomBackControl(hosted, workbenchPlayback);
-  const classroomHeaderControls = resolveClassroomHeaderControls(hosted, workbenchPlayback);
 
   // Predicate for "can the user enter Pro mode for the current scene?".
   // Single source of truth feeds the Header's Pro Switch state and the
@@ -146,64 +70,22 @@ export function Stage({
   // the human may edit it while the agent writes later scene IDs. Keep the
   // stricter whole-deck generation gate above for standalone Pro mode.
   const currentStageMatchesHost = !classroomId || stage?.id === classroomId;
-  const hostedSceneEditable = isHostedSceneEditable({
-    editorEnabled,
-    isOwner: canEditOwnedStage,
-    stageMatchesHost: currentStageMatchesHost,
-    currentSceneId,
-    sceneCount: scenes.length,
-    generatingOutlineCount: generatingOutlines.length,
-    hasCurrentScene: !!currentScene,
-  });
-  const chromeEditable = hosted ? hostedSceneEditable : isEditable;
-  // Seeded from the module-level registry rather than always starting at
-  // `idle`: once the editor chunk has been imported in this tab, a remount
-  // (course switch, reopened tab) must resolve to the edit chrome during the
-  // FIRST render. Starting at `idle` would spend a paint on the neutral
-  // loading shell waiting for an import that already finished.
-  const [editorPreloadState, setEditorPreloadState] = useState<
-    'idle' | 'loading' | 'ready' | 'failed'
-  >(() => (isEditorPreloaded() ? 'ready' : 'idle'));
+  const chromeEditable = isEditable;
 
-  useEffect(() => {
-    if (!hosted || !workbenchShowingClassroom || !hostedSceneEditable) return;
-    // Already registered — do not knock the state back to `loading`, which
-    // would blank an edit chrome that is on screen and correct.
-    if (isEditorPreloaded()) {
-      setEditorPreloadState('ready');
-      return;
-    }
-    let cancelled = false;
-    setEditorPreloadState('loading');
-    preloadEditor()
-      .then(() => {
-        if (!cancelled) setEditorPreloadState('ready');
-      })
-      .catch((error) => {
-        console.error('[Stage] hosted editor preload failed', error);
-        if (!cancelled) setEditorPreloadState('failed');
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [hosted, workbenchShowingClassroom, hostedSceneEditable]);
-
-  // The workspace owns the edit/playback intent: the pane's edit lock is the
-  // edit intent, while Start Learning (`workbenchPlayback`) is the one signal
-  // that releases it. Resolve that intent in render rather than mutating the
-  // transient stage-store mode in an effect — otherwise every hosted course
-  // paints PlaybackChromeRoot once before the effect can run, and a course
-  // switch can inherit stale mode.
+  // The workspace owns the edit/playback intent — but the workspace is gone,
+  // so an independent classroom keeps its own stored mode. `hosted: false`
+  // makes `resolveStageChromeMode` answer with that stored mode directly;
+  // the hosted branch it guards is the removed Pro workspace.
   const chromeMode = resolveStageChromeMode({
     storedMode: mode,
-    hosted,
-    workbenchShowingClassroom,
-    workbenchLearning: hosted && workbenchPlayback,
+    hosted: false,
+    workbenchShowingClassroom: false,
+    workbenchLearning: false,
     isEditable: chromeEditable,
     hasCurrentScene: !!currentScene,
     stageMatchesHost: currentStageMatchesHost,
-    editorReady: editorPreloadState === 'ready',
-    editorLoadFailed: editorPreloadState === 'failed',
+    editorReady: true,
+    editorLoadFailed: false,
   });
 
   const playbackRef = useRef<PlaybackChromeRootHandle>(null);
@@ -252,57 +134,11 @@ export function Stage({
   // handler the Header/CommandBar omit the whole switch. Editable owners keep
   // it while a scene is still generating (rendered disabled), matching upstream.
   const toggleHandler = editorEnabled && canEditOwnedStage ? handleToggleEditMode : undefined;
-  const setPanelOpen = useWorkbenchStore((s) => s.setPanelOpen);
 
-  /**
-   * In the reference implementation, Pro Mode on a regular classroom is the workspace, not the old
-   * right-rail editor. The conversation on the left is where further instructions
-   * go; the classroom stays on the right.
-   *
-   * It opens the course and NOTHING else. Minting a conversation here created one
-   * empty session per Pro-mode entry — leave and come back three times, three rows
-   * in the rail — and named each one after the classroom, which said the two were
-   * one object. The workspace decides what the middle column holds (the user's most
-   * recent conversation, or an empty composer whose first message creates one), so
-   * this is now a plain navigation with no request behind it.
-   */
-  const handleEnterWorkbench = useCallback(() => {
-    if (!stage?.id || enteringWorkbench.current) return;
-    enteringWorkbench.current = true;
-    try {
-      setPanelOpen(true, true);
-      router.replace(workspaceHref({ sessionId: null, courseId: stage.id }));
-    } finally {
-      enteringWorkbench.current = false;
-    }
-  }, [router, setPanelOpen, stage?.id]);
-
-  const handleExitWorkbench = useCallback(async () => {
-    if (!stage?.id) return;
-    await exitProPlaybackToStandalone({
-      stageId: stage.id,
-      teardown: () => playbackRef.current?.teardown(),
-      // Hosted playback is view state and may be masking a stale standalone
-      // `edit` mode. Commit playback before leaving the workspace so the
-      // ordinary classroom stays on the exact learning surface the user saw.
-      setMode,
-      replace: (href) => router.replace(href),
-      onTeardownError: (error) => console.error('[Stage] workbench exit teardown failed', error),
-    });
-  }, [router, setMode, stage?.id]);
-
-  // The embedded pane is already Pro-locked, so it has no switch. Full-screen
-  // learning exposes an active switch whose off transition exits the workspace
-  // and returns to the ordinary classroom route.
-  const chromeToggleHandler = hosted
-    ? workbenchPlayback
-      ? handleExitWorkbench
-      : undefined
-    : !isOwner || proRuntime === 'pending'
-      ? undefined
-      : proWorkbenchEntry
-        ? handleEnterWorkbench
-        : toggleHandler;
+  // The Pro switch of an independent classroom: it flips this classroom
+  // between edit and playback. The upstream "enter the Pro workspace" branch
+  // is gone together with `/workspace`.
+  const chromeToggleHandler = !isOwner ? undefined : toggleHandler;
 
   // Mode swap choreography — a clean opacity cross-fade. Both roots layer
   // via `absolute inset-0` so they coexist for the ~280ms window without
@@ -356,16 +192,14 @@ export function Stage({
             ref={playbackRef}
             onInteractivePickerChange={setPlaybackInteractivePicker}
             onRetryOutline={onRetryOutline}
-            canEnterProMode={workbenchPlayback || isEditable}
+            canEnterProMode={isEditable}
             onEnterProMode={chromeToggleHandler}
-            proModeActive={hosted && workbenchPlayback}
-            headerBackControl={
-              classroomBackControl === 'workbench-return' ? <WorkbenchReturnControl /> : undefined
-            }
-            hideHeaderBackControl={classroomBackControl === 'hidden'}
-            hideHeader={!classroomHeaderControls.showHeader}
-            hideHeaderGlobalControls={!classroomHeaderControls.showGlobalControls}
-            hideHeaderCourseActions={!classroomHeaderControls.showCourseActions}
+            proModeActive={false}
+            headerBackControl={undefined}
+            hideHeaderBackControl={false}
+            hideHeader={false}
+            hideHeaderGlobalControls={false}
+            hideHeaderCourseActions={false}
           />
         </motion.div>
       ) : (
@@ -387,11 +221,6 @@ export function Stage({
           and there is no longer an "agent modified this page" banner or a manual
           reload entry. */}
       {classroomChrome}
-      {/* Full-screen playback steps the workspace aside; the return to the
-          conversation lives in the classroom header's left slot (passed as
-          `headerBackControl` above), so it never floats over the courseware.
-          The fold and pane state live in the store, so the return restores
-          them exactly. */}
       {/* Keep-alive host for interactive scene iframes (#619). Lives here, above
           the mode-swap subtree, so its iframes survive Pro mode toggles and
           scene switches instead of reloading on every remount. */}

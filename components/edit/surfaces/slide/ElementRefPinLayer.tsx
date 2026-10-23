@@ -25,7 +25,7 @@ import {
   useElementRefsHoveredForSession,
 } from '@/lib/store/element-refs';
 import { useStageStore } from '@/lib/store/stage';
-import { useWorkbenchStore } from '@/lib/workbench/session-store';
+import { useWorkbenchStore } from '@/lib/session/session-store';
 import { elementPaintNode, measureElementBox, type CanvasBox } from './element-hit-test';
 
 export function ElementRefPinLayer() {

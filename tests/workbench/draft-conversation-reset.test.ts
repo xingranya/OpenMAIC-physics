@@ -33,9 +33,9 @@ import {
   type ChatNode,
   type SessionStatus,
   type WorkbenchEvent,
-} from '@/lib/workbench/session-store';
+} from '@/lib/session/session-store';
 // Upstream adaptation: the reference imported these chrome predicates from the
-// workbench UI slice (`components/workbench/chat/composer-send-state` and
+// the (now removed) workbench UI slice (composer-send-state and
 // `empty-state`), which ships in a later slice. They are inlined here verbatim
 // so the store-reset contract stays testable; the UI slice should swap these
 // back for the real modules when it lands.

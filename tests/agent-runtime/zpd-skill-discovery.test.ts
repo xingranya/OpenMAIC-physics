@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { listSkills } from '@/lib/server/agent-runtime/skills';
 import { supportedLocales } from '@/lib/i18n/locales';
 import { createWorkbenchTranslator, workbenchResourceFor } from '@/lib/i18n/workbench';
-import { skillTitle } from '@/lib/workbench/agent-skills';
+import { skillTitle } from '@/lib/session/agent-skills';
 
 describe('exercise lesson skill discovery', () => {
   it('keeps the stable invocation id and exposes the Chinese title and references', async () => {

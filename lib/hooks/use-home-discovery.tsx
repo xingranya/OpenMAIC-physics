@@ -40,7 +40,7 @@ import {
 import type { FolderRecord } from '@/lib/utils/database';
 import { NewFolderDialog } from '@/components/discovery/folder-dialogs';
 import { useImportClassroom } from '@/lib/import/use-import-classroom';
-import { createCoalescedLatestLoader } from '@/lib/workbench/course-discovery-sync';
+import { createCoalescedLatestLoader } from '@/lib/session/course-discovery-sync';
 
 const log = createLogger('HomeDiscovery');
 

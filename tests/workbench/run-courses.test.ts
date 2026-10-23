@@ -3,9 +3,9 @@ import {
   appendCourseSighting,
   courseSightingsOf,
   runCourseStageIds,
-} from '@/lib/workbench/run-courses';
+} from '@/lib/session/run-courses';
 // Upstream adaptation: the reference's last describe (`folding one exchange's
-// cards`) exercised `splitRunCourseCards` from `lib/workbench/course-link`,
+// cards`) exercised `splitRunCourseCards` from the (now removed) workbench course-link module,
 // which ships with the workbench UI slice — dropped here, not ported.
 
 /**

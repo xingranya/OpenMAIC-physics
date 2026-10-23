@@ -26,20 +26,25 @@ const PROJECT_NAME = 'physics-ai-classroom-global';
 
 type MockCall = { action: string; body: Record<string, unknown>; auth: string };
 
+/** mock API 的请求体与响应体形状（Pages API 的 Action/Response 约定）。 */
+type MockRequest = { body: string; headers: { Authorization?: string } };
+type MockHandler = (body: Record<string, unknown>) => unknown;
+
 /**
  * 造一个 mock 的 Pages API：按 Action 返回预设响应，并**记录每次调用**。
  *
  * 记录调用次数是这里最关键的断言手段：非法取值下**一次调用都不该有**。
  */
-function createMockApi(handlers: Record<string, (body: any) => any>) {
+function createMockApi(handlers: Record<string, MockHandler>) {
   const calls: MockCall[] = [];
-  const fetchImpl = async (_url: string, init: any) => {
-    const body = JSON.parse(init.body);
-    calls.push({ action: body.Action, body, auth: init.headers.Authorization });
-    const handler = handlers[body.Action];
+  const fetchImpl = async (_url: string, init: MockRequest) => {
+    const body = JSON.parse(init.body) as Record<string, unknown>;
+    const action = String(body.Action);
+    calls.push({ action, body, auth: init.headers.Authorization ?? '' });
+    const handler = handlers[action];
     const payload = handler
       ? handler(body)
-      : { Error: { Code: 'UnexpectedAction', Message: String(body.Action) } };
+      : { Error: { Code: 'UnexpectedAction', Message: action } };
     return { json: async () => ({ Data: { Response: payload } }) };
   };
   return { calls, fetchImpl };
@@ -47,7 +52,7 @@ function createMockApi(handlers: Record<string, (body: any) => any>) {
 
 type GuardOptions = {
   projectArea?: string;
-  handlers: Record<string, (body: any) => any>;
+  handlers: Record<string, MockHandler>;
   /** 显式给令牌；传 null 表示「没有令牌」。 */
   token?: string | null;
   /** edgeone CLI 本地凭据里能读到的令牌。 */

@@ -29,8 +29,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { useI18n } from '@/lib/hooks/use-i18n';
-import { SCHOOL } from '@/lib/school/identity';
-import { LanguageSwitcher } from '@/components/language-switcher';
+import { BRAND_FULL_NAME, SCHOOL } from '@/lib/school/identity';
 import { createLogger } from '@/lib/logger';
 import { Button } from '@/components/ui/button';
 import { InputGroup, InputGroupInput, InputGroupButton } from '@/components/ui/input-group';
@@ -85,19 +84,9 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useDraftCache } from '@/lib/hooks/use-draft-cache';
 import { SpeechButton } from '@/components/audio/speech-button';
 import { useImportClassroom } from '@/lib/import/use-import-classroom';
-import {
-  isProWorkbenchEnabled,
-  isPptxImportEnabled,
-  shouldShowVocationalTestUi,
-} from '@/lib/config/feature-flags';
+import { isPptxImportEnabled, shouldShowVocationalTestUi } from '@/lib/config/feature-flags';
 import { useImportPptx } from '@/lib/import/use-import-pptx';
 import { InteractiveModeButton } from '@/components/generation/interactive-mode-button';
-import { ProBadge } from '@/components/workbench/ProBadge';
-import { arrivedByProSwap, startProSwap } from '@/lib/workbench/pro-swap';
-import {
-  readLastWorkspaceSessionId,
-  workspaceResumeHref,
-} from '@/lib/workbench/workspace-session-memory';
 
 const log = createLogger('Home');
 
@@ -108,9 +97,6 @@ const INTERACTIVE_MODE_STORAGE_KEY = 'interactiveModeEnabled';
 // yet, so the flow only logs the parsed slides. Hide the entry point behind a
 // flag until it's wired end-to-end, so the UI doesn't expose a no-op button.
 const PPTX_IMPORT_ENABLED = isPptxImportEnabled();
-
-/** The configured runtime probe result, retained across client navigations. */
-let workbenchRuntimeCache: boolean | null = null;
 
 interface FormState {
   courseMaterials: SelectedCourseMaterial[];
@@ -130,39 +116,10 @@ function HomePage() {
   const { t } = useI18n();
   const { theme, setTheme } = useTheme();
   const router = useRouter();
-  // Do not replay the classic hero's entrance after the route handoff already
-  // carried the lockup and composer into place.
-  const [swapped] = useState(arrivedByProSwap);
-  const heroEnter = (from: Record<string, number>) => (swapped ? false : from);
+  // The upstream "enter the Pro workspace" badge is gone together with
+  // `/workspace`, so the hero always plays its own entrance.
+  const heroEnter = (from: Record<string, number>) => from;
   const showVocationalTestUi = shouldShowVocationalTestUi();
-  const workbenchBuildEnabled = isProWorkbenchEnabled();
-  const [workbenchRuntimeEnabled, setWorkbenchRuntimeEnabled] = useState(
-    workbenchRuntimeCache === true,
-  );
-  useEffect(() => {
-    if (!workbenchBuildEnabled || workbenchRuntimeCache !== null) return;
-    let cancelled = false;
-    fetch('/api/agent/runtime')
-      .then((response) => (response.ok ? response.json() : null))
-      .then((body) => {
-        workbenchRuntimeCache = body?.enabled === true;
-        if (!cancelled) setWorkbenchRuntimeEnabled(workbenchRuntimeCache);
-      })
-      .catch(() => {
-        // A failed probe keeps the entry hidden and allows a later visit to retry.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [workbenchBuildEnabled]);
-  const workbenchEntryEnabled = workbenchBuildEnabled && workbenchRuntimeEnabled;
-  const enterWorkbench = () => {
-    const href = workspaceResumeHref(readLastWorkspaceSessionId());
-    startProSwap(href, (next) => router.push(next));
-  };
-  useEffect(() => {
-    if (workbenchEntryEnabled) router.prefetch('/workspace');
-  }, [router, workbenchEntryEnabled]);
   const [form, setForm] = useState<FormState>(initialFormState);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<
@@ -723,11 +680,6 @@ function HomePage() {
         ref={toolbarRef}
         className="fixed top-4 right-4 z-50 flex items-center gap-1 bg-white/60 dark:bg-gray-800/60 backdrop-blur-md px-2 py-1.5 rounded-full border border-gray-100/50 dark:border-gray-700/50 shadow-sm"
       >
-        {/* Language Selector */}
-        <LanguageSwitcher onOpen={() => setThemeOpen(false)} />
-
-        <div className="w-[1px] h-4 bg-gray-200 dark:bg-gray-700" />
-
         {/* Theme Selector */}
         <div className="relative">
           <button
@@ -843,14 +795,6 @@ function HomePage() {
             }}
             className="h-12 md:h-16 mb-2 -ml-2 md:-ml-3"
           />
-          {workbenchEntryEnabled ? (
-            <div
-              className="absolute left-full top-0 ml-1.5 mt-[10px] md:ml-2 md:mt-[14px]"
-              data-pro-morph="badge"
-            >
-              <ProBadge active={false} onToggle={enterWorkbench} />
-            </div>
-          ) : null}
         </div>
 
         {/* ── Slogan ── */}
@@ -1350,7 +1294,7 @@ function HomePage() {
 
       {/* Footer — flows with content, at the very end */}
       <div className="mt-auto pt-12 pb-4 text-center text-xs text-muted-foreground/40">
-        OpenMAIC Open Source Project
+        {BRAND_FULL_NAME}
       </div>
     </div>
   );

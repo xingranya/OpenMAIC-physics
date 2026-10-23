@@ -87,7 +87,7 @@ import { ElementPickLayer } from '@/components/edit/surfaces/slide/ElementPickLa
 import { CANVAS_OVERLAY_Z } from '@/components/edit/surfaces/slide/CanvasOverlayPortal';
 import { useCanvasStore } from '@/lib/store/canvas';
 import { useStageStore } from '@/lib/store/stage';
-import { useWorkbenchStore } from '@/lib/workbench/session-store';
+import { useWorkbenchStore } from '@/lib/session/session-store';
 
 /** The studio frame — the OUTER container both canvas overlays are bounded to. */
 const FRAME_RECT = { left: 0, top: 0, width: 1000, height: 600 } as const;

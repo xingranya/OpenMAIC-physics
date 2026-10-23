@@ -194,20 +194,6 @@ describe('classroom surfaces feed the sidecar into the gate', () => {
     expect(source).toContain('variant="page"');
   });
 
-  it('the workspace mounts the same session-owning surface', () => {
-    const pane = readFileSync(
-      join(process.cwd(), 'components/workbench/workspace/WorkspaceClassroomPane.tsx'),
-      'utf8',
-    );
-    const surface = readFileSync(
-      join(process.cwd(), 'components/classroom/ClassroomSurface.tsx'),
-      'utf8',
-    );
-    expect(pane).toContain('<ClassroomSurface');
-    expect(pane).toContain('variant="pane"');
-    expect(surface).toContain('useClassroomSession({');
-  });
-
   it('does not ask the sidecar from the shared surface in browser-only mode', () => {
     const source = readFileSync(
       join(process.cwd(), 'lib/classroom/use-classroom-session.ts'),

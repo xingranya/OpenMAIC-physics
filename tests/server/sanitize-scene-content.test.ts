@@ -121,13 +121,13 @@ function fixtureHtmlStrings(...jsonPaths: string[]): string[] {
 }
 
 const evalSceneFixtures = [
-  '../../eval/whiteboard-layout/scenarios/econ-tech-innovation.json',
-  '../../eval/whiteboard-layout/scenarios/math-quadratic-inequality.json',
-  '../../eval/whiteboard-layout/scenarios/med-gcp-compliance.json',
-  '../../eval/whiteboard-layout/scenarios/finance-tax-architecture.json',
-  '../../eval/whiteboard-layout/scenarios/primary-math-rotation.json',
-  '../../eval/whiteboard-layout/scenarios/physics-force-decomposition.json',
-  '../../eval/orchestration/scenarios/answer-content.json',
+  '../fixtures/whiteboard-scenarios/econ-tech-innovation.json',
+  '../fixtures/whiteboard-scenarios/math-quadratic-inequality.json',
+  '../fixtures/whiteboard-scenarios/med-gcp-compliance.json',
+  '../fixtures/whiteboard-scenarios/finance-tax-architecture.json',
+  '../fixtures/whiteboard-scenarios/primary-math-rotation.json',
+  '../fixtures/whiteboard-scenarios/physics-force-decomposition.json',
+  '../fixtures/orchestration-scenarios/answer-content.json',
 ];
 
 // ---------------------------------------------------------------------------
@@ -312,7 +312,7 @@ describe('real stored scene fixtures — full payload walker fidelity', () => {
   });
 
   it('leaves real text-element content unchanged when sanitizing a whole scene', () => {
-    // Real scene structure: eval/orchestration/scenarios/answer-content.json,
+    // Real scene structure: tests/fixtures/orchestration-scenarios/answer-content.json,
     // scene 0 text element "content".
     const scene = {
       id: 'scene-0',

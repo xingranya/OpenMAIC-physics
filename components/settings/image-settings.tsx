@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -19,7 +19,6 @@ import {
   Plus,
   Settings2,
   Trash2,
-  RefreshCw,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { ImageProviderId } from '@/lib/media/types';
@@ -28,18 +27,11 @@ interface ImageSettingsProps {
   selectedProviderId: ImageProviderId;
 }
 
-interface WorkflowEntry {
-  id: string;
-  name: string;
-}
-
 export function ImageSettings({ selectedProviderId }: ImageSettingsProps) {
   const { t } = useI18n();
 
   const imageModelId = useSettingsStore((state) => state.imageModelId);
   const imageProvidersConfig = useSettingsStore((state) => state.imageProvidersConfig);
-  const _setImageModelId = useSettingsStore((state) => state.setImageModelId);
-  const setImageProvider = useSettingsStore((state) => state.setImageProvider);
   const setImageProviderConfig = useSettingsStore((state) => state.setImageProviderConfig);
 
   const [showApiKey, setShowApiKey] = useState(false);
@@ -52,13 +44,6 @@ export function ImageSettings({ selectedProviderId }: ImageSettingsProps) {
   const [editingModelIndex, setEditingModelIndex] = useState<number | null>(null);
   const [modelForm, setModelForm] = useState({ id: '', name: '' });
 
-  // ComfyUI workflow list state
-  const [workflows, setWorkflows] = useState<WorkflowEntry[]>([]);
-  const [workflowsLoading, setWorkflowsLoading] = useState(false);
-  const [workflowsError, setWorkflowsError] = useState<string | null>(null);
-
-  const isComfyUI = selectedProviderId === 'comfyui-image';
-
   // Reset test state when provider changes (derived state pattern)
   const [prevSelectedProviderId, setPrevSelectedProviderId] = useState(selectedProviderId);
   if (selectedProviderId !== prevSelectedProviderId) {
@@ -66,28 +51,6 @@ export function ImageSettings({ selectedProviderId }: ImageSettingsProps) {
     setTestStatus('idle');
     setTestMessage('');
   }
-
-  // Fetch ComfyUI workflows when the provider is selected
-  const fetchWorkflows = useCallback(async () => {
-    setWorkflowsLoading(true);
-    setWorkflowsError(null);
-    try {
-      const res = await fetch('/api/comfyui-workflows');
-      const data = await res.json();
-      setWorkflows(data.workflows || []);
-    } catch (err) {
-      setWorkflowsError(t('settings.comfyuiLoadError').replace('{error}', String(err)));
-      setWorkflows([]);
-    } finally {
-      setWorkflowsLoading(false);
-    }
-  }, [t]);
-
-  useEffect(() => {
-    if (isComfyUI) {
-      fetchWorkflows();
-    }
-  }, [isComfyUI, fetchWorkflows]);
 
   const currentConfig = imageProvidersConfig[selectedProviderId];
   const currentProvider = IMAGE_PROVIDERS[selectedProviderId];
@@ -299,87 +262,8 @@ export function ImageSettings({ selectedProviderId }: ImageSettingsProps) {
         </>
       )}
 
-      {/* ── ComfyUI: Workflow list ── */}
-      {isComfyUI ? (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <Label className="text-base">{t('settings.comfyuiWorkflows')}</Label>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={fetchWorkflows}
-              disabled={workflowsLoading}
-              className="gap-1.5"
-            >
-              {workflowsLoading ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <RefreshCw className="h-3.5 w-3.5" />
-              )}
-              {t('settings.comfyuiRefresh')}
-            </Button>
-          </div>
-
-          {workflowsError && (
-            <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/30 p-3 text-sm text-red-700 dark:text-red-300">
-              {workflowsError}
-            </div>
-          )}
-
-          {!workflowsLoading && !workflowsError && workflows.length === 0 && (
-            <div className="rounded-lg border border-border/50 bg-muted/30 p-4 text-sm text-muted-foreground text-center">
-              {t('settings.comfyuiNoWorkflowsFoundPrefix')}{' '}
-              <code className="font-mono text-xs">public/</code>.
-              <br />
-              {t('settings.comfyuiAddWorkflowPrefix')}{' '}
-              <code className="font-mono text-xs">comfyui-*.json</code>{' '}
-              {t('settings.comfyuiAddWorkflowSuffix')}
-            </div>
-          )}
-
-          <div className="space-y-1.5">
-            {workflows.map((workflow) => (
-              <div
-                key={workflow.id}
-                className={cn(
-                  'flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-colors',
-                  imageModelId === workflow.id
-                    ? 'border-primary bg-primary/5'
-                    : 'border-border/50 bg-card hover:border-border hover:bg-accent/30',
-                )}
-                onClick={() => {
-                  // Selecting a workflow here must also make ComfyUI the
-                  // active image provider — otherwise the workflow filename
-                  // gets written into imageModelId while a different
-                  // provider (e.g. Seedream) stays active, and that
-                  // provider's next generation call sends this filename as
-                  // its model id. Mirrors the atomic setImageProvider +
-                  // setImageModelId pairing used in media-popover.tsx.
-                  setImageProvider(selectedProviderId);
-                  _setImageModelId(workflow.id);
-                }}
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium">{workflow.name}</div>
-                  <div className="text-xs text-muted-foreground font-mono mt-0.5">
-                    {workflow.id}
-                  </div>
-                </div>
-                {imageModelId === workflow.id && (
-                  <CheckCircle2 className="h-4 w-4 text-primary shrink-0 ml-2" />
-                )}
-              </div>
-            ))}
-          </div>
-
-          <p className="text-xs text-muted-foreground">
-            {t('settings.comfyuiFolderHintPrefix')} <code className="font-mono">public/</code>{' '}
-            {t('settings.comfyuiFolderHintMiddle')}{' '}
-            <code className="font-mono">comfyui-anime-style.json</code> → &quot;Anime Style&quot;.
-          </p>
-        </div>
-      ) : (
-        /* ── All other providers: standard model list ── */
+      {/* ── Model list ── */}
+      {
         <div className="space-y-3">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <Label className="text-base">{t('settings.models')}</Label>
@@ -437,7 +321,7 @@ export function ImageSettings({ selectedProviderId }: ImageSettingsProps) {
             ))}
           </div>
         </div>
-      )}
+      }
 
       {/* Add/Edit Model Dialog — only used for non-ComfyUI providers */}
       <Dialog open={showModelDialog} onOpenChange={setShowModelDialog}>

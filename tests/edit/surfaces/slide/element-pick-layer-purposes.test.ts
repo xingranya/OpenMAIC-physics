@@ -12,7 +12,7 @@ import {
 import { useCanvasStore } from '@/lib/store/canvas';
 import { useElementRefsOwnerLifecycle, useElementRefsStore } from '@/lib/store/element-refs';
 import { useStageStore } from '@/lib/store/stage';
-import { useWorkbenchStore } from '@/lib/workbench/session-store';
+import { useWorkbenchStore } from '@/lib/session/session-store';
 import type { Scene } from '@/lib/types/stage';
 
 vi.mock('@/lib/hooks/use-i18n', () => ({

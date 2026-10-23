@@ -305,7 +305,7 @@ function Frame({
           // `data-maic-edit-chrome`: the workbench's hand-edit signal scope
           // (structure ops live here — undo/redo, insert — while the nav rail
           // is deliberately out of it: switching pages is navigation, not an
-          // edit). See lib/workbench/use-workbench-pro-edit.ts.
+          // edit). See the session store.
           <motion.div
             data-maic-edit-chrome="true"
             initial={cmdInitial}
@@ -349,7 +349,7 @@ function Frame({
         >
           {/* `data-maic-edit-canvas`: the workbench's hand-edit signal scope
               (typing / pointer gestures on the page itself). See
-              lib/workbench/use-workbench-pro-edit.ts. */}
+              the session store. */}
           {usesClassroomAspect(sceneType) ? (
             <ContainBox
               fit="contain"

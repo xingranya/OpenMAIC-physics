@@ -23,7 +23,7 @@ import { resolve } from 'node:path';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { AgentSkillInfo } from '@/lib/workbench/agent-skills';
+import type { AgentSkillInfo } from '@/lib/session/agent-skills';
 
 const mocks = vi.hoisted(() => ({
   t: vi.fn((key: string) => key),
@@ -39,7 +39,7 @@ vi.mock('@/lib/hooks/use-i18n', () => ({
   useI18n: () => ({ t: mocks.t, locale: 'en-US', setLocale: () => {} }),
 }));
 
-vi.mock('@/lib/workbench/agent-skills', () => ({
+vi.mock('@/lib/session/agent-skills', () => ({
   useAgentSkills: () => ({
     skills: mocks.registry.skills,
     loading: mocks.registry.loading,

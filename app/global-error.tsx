@@ -1,5 +1,13 @@
 'use client';
 
+/* eslint-disable @next/next/no-html-link-for-pages --
+ * 下面用原生 <a> 而非 next/link 是**故意**的：global-error 会替换整个文档根
+ * （自己渲染 <html>/<body>），此时 App Router 的上下文可能已经不可用，
+ * Link 会因此抛错——错误页再抛错就变成白屏。原生锚点在任何上下文下都可用。
+ * （写在 JSX 里的 eslint-disable-next-line 不生效：那是 JSX 表达式容器，
+ *  eslint 只认 AST 里的注释 token，所以必须放在模块顶层。）
+ */
+
 import { useEffect } from 'react';
 
 import { BRAND_FULL_NAME, CONTEXT_LABEL, SCHOOL } from '@/lib/school/identity';
@@ -64,6 +72,9 @@ export default function GlobalError({
           >
             重试
           </button>
+          {/* 这里**必须**用原生 <a> 而不是 next/link：global-error 会替换整个
+              文档根（自己渲染 <html>/<body>），此时 App Router 的上下文可能已经
+              不可用，Link 会因此抛错——错误页再抛错就是白屏。原生锚点最稳。 */}
           <a
             href="/"
             style={{

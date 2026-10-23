@@ -175,7 +175,18 @@ function cleanEnv(extra = {}) {
     }
   }
   env.PATH = [
-    ...new Set([...keepDirs, path.dirname(process.execPath), '/usr/local/bin', '/usr/bin', '/bin']),
+    ...new Set([
+      ...keepDirs,
+      // 可用的 pnpm 所在目录要**排在 /usr/local/bin 前面**：
+      // /usr/local/bin/pnpm 往往只是 corepack 的壳，它会尝试清理自己的缓存
+      // （~/.cache/node/corepack/…），在受限沙箱里这一步是 EPERM，
+      // 于是安装步骤直接失败。本机真正可用的 pnpm 常在 ~/.local/bin。
+      ...(usablePnpmDir() ? [usablePnpmDir()] : []),
+      path.dirname(process.execPath),
+      '/usr/local/bin',
+      '/usr/bin',
+      '/bin',
+    ]),
   ].join(':');
   env.SHELL = env.SHELL || '/bin/bash';
   env.LANG = env.LANG || 'en_US.UTF_8';
@@ -196,6 +207,46 @@ function run(command, args, options = {}) {
 }
 
 /**
+ * 找一个**真能用**的 pnpm，返回它所在的目录。
+ *
+ * 为什么要专门找：`/usr/local/bin/pnpm` 常常只是 corepack 的壳——
+ * 它在跑之前会去清理自己的缓存（~/.cache/node/corepack/…），
+ * 受限沙箱里这一步是 EPERM，安装步骤直接失败（实测 deploy 卡在这里）。
+ * 真正可用的 pnpm 通常在 `~/.local/bin`。
+ *
+ * 判定标准是「跑 `pnpm --version` 真的成功」，不是「文件存在」。
+ */
+let pnpmDirCache;
+function usablePnpmDir() {
+  if (pnpmDirCache !== undefined) return pnpmDirCache;
+  const candidates = [
+    join(homedir(), '.local', 'bin'),
+    join(homedir(), '.npm-global', 'bin'),
+    '/usr/local/bin',
+    '/opt/homebrew/bin',
+  ];
+  for (const dir of candidates) {
+    const bin = join(dir, 'pnpm');
+    if (!existsSync(bin)) continue;
+    try {
+      const result = spawnSync(bin, ['--version'], {
+        encoding: 'utf8',
+        timeout: 30000,
+        env: { ...process.env, CI: 'true' },
+      });
+      if (result.status === 0 && /\d+\.\d+/.test(result.stdout || '')) {
+        pnpmDirCache = dir;
+        return dir;
+      }
+    } catch {
+      /* 试下一个 */
+    }
+  }
+  pnpmDirCache = null;
+  return null;
+}
+
+/**
  * pnpm 能不能真的跑起来？
  *
  * 受限环境里 `pnpm` 往往只是一个 **corepack 壳**：corepack 缓存里没有
@@ -206,17 +257,7 @@ function run(command, args, options = {}) {
  * 后面什么都不用谈。所以先探一次，用不了就退到 npm（Node 自带，永远在）。
  */
 function probePnpm() {
-  try {
-    const result = spawnSync('pnpm', ['--version'], {
-      cwd: ROOT,
-      encoding: 'utf8',
-      timeout: 30000,
-      env: { ...process.env, CI: 'true' },
-    });
-    return result.status === 0 && /\d+\.\d+/.test(result.stdout || '');
-  } catch {
-    return false;
-  }
+  return usablePnpmDir() !== null;
 }
 
 /** 递归统计目录体积（字节，与平台口径一致：按文件字节求和）。 */
@@ -320,8 +361,21 @@ export function readEdgeoneCliToken(dir = join(homedir(), '.edgeone')) {
  *      读不到 Area 就不许打 ✔（本地常量不算证据）。
  *
  * @param {object} options 依赖注入（测试用 mock API 驱动，不打真实腾讯云）
- * @returns {Promise<object|null>} 项目信息；未核对时返回 null（并已中止或已告警）
+ * @returns {Promise<PagesProjectInfo|null>} 项目信息；未核对时返回 null（并已中止或已告警）
  */
+/**
+ * Pages 项目的关键字段（只声明门禁真正用到的）。
+ *
+ * 不用 `object`：那样调用方拿不到 `.Area` 的类型，测试里只能强转，
+ * 反而把「读回 Area」这条最关键的断言变成了不可检查的东西。
+ *
+ * @typedef {object} PagesProjectInfo
+ * @property {string} [ProjectId]
+ * @property {string} [Name]
+ * @property {string} [Area] 加速区域：`overseas` = 全球可用区（不含中国大陆），`global` = 含中国大陆
+ * @property {string} [PresetDomain]
+ */
+
 export async function ensureOverseasProject(options = {}) {
   const {
     token: envToken = process.env.EDGEONE_PAGES_API_TOKEN,
@@ -485,7 +539,7 @@ async function main() {
 
   // ---------------------------------------------------------------- 1. 构建
   if (!SKIP_BUILD) {
-    console.log('=== 1/4 构建 EdgeOne 产物 ===');
+    console.log('=== 1/5 构建 EdgeOne 产物 ===');
     // Next.js 在构建期会重写 tsconfig.json（补齐它自己的选项、压成一行 JSON，
     // 并追加 cloud-functions/node-functions 等排除项）。那不是我们想要的
     // 仓库状态，会让 prettier --check 与 git diff 变脏，所以构建后还原。
@@ -534,11 +588,14 @@ async function main() {
             process.env.InstallCommand ||
             (pnpmUsable
               ? [
-                  `pnpm install --frozen-lockfile --package-import-method=hardlink --store-dir=${join(ROOT, '.pnpm-store')}`,
+                  // 用**绝对路径**调 pnpm：子进程的 PATH 里 /usr/local/bin/pnpm
+                  // 是 corepack 的壳，会在跑之前尝试清理自己的缓存
+                  // （受限沙箱里是 EPERM），直接把安装步骤搞挂。
+                  `${join(usablePnpmDir(), 'pnpm')} install --frozen-lockfile --package-import-method=hardlink --store-dir=${join(ROOT, '.pnpm-store')}`,
                   `node scripts/fix-pnpm-store-gitmodules.mjs`,
-                  `pnpm install --frozen-lockfile --package-import-method=hardlink --store-dir=${join(ROOT, '.pnpm-store')}`,
+                  `${join(usablePnpmDir(), 'pnpm')} install --frozen-lockfile --package-import-method=hardlink --store-dir=${join(ROOT, '.pnpm-store')}`,
                 ].join(' ; ')
-              : // 没有 pnpm 就退到 npm：node_modules 已经就绪时，直接跳过安装即可。
+              : // 没有可用的 pnpm 就退到 npm：node_modules 已经就绪时，直接跳过安装即可。
                 'true'),
           CI: 'true',
         },
@@ -576,7 +633,7 @@ async function main() {
   );
 
   // ---------------------------------------------------------------- 2. 裁剪
-  console.log('\n=== 2/4 裁剪云函数包 ===');
+  console.log('\n=== 2/5 裁剪云函数包 ===');
   run('node', ['scripts/prune-edgeone-function.mjs', '--yes']);
 
   const fnDir = join(EDGEONE_DIR, 'cloud-functions', 'ssr-node');
@@ -589,14 +646,14 @@ async function main() {
   // 这里按**运行期反馈**来补：把函数包挪到仓库外跑一遍，看它到底缺哪个包，
   // 补完再跑，直到不再缺。静态闭包会把运行期根本不加载的传递依赖也拖进来，
   // 补一轮多塞好几 MiB，而函数包有 128 MiB 硬上限。
-  console.log('\n=== 3/4 按运行期反馈补齐依赖 ===');
+  console.log('\n=== 3/5 按运行期反馈补齐依赖 ===');
   run('node', ['scripts/repair-edgeone-runtime-deps.mjs']);
 
   // ---------------------------------------------------------------- 4. 门禁
   // 必须在**仓库之外**跑：函数包放在仓库里时，Node 沿父目录向上找 node_modules，
   // 会找到仓库根的那一份，把产物里缺失的文件全给补上——门禁就永远绿。
   // 线上正是这样被「本地全绿、线上 500」骗过去的。
-  console.log('\n=== 4/4 仓库外运行时门禁（全部路由） ===');
+  console.log('\n=== 4/5 仓库外运行时门禁（全部路由） ===');
   run('node', ['scripts/verify-edgeone-runtime.mjs']);
 
   const fnSize = dirSize(fnDir);

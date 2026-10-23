@@ -3,7 +3,7 @@ import {
   appendCompactedReplayEvent,
   compactReplayEvents,
   type WorkbenchEvent,
-} from '@/lib/workbench/session-store';
+} from '@/lib/session/session-store';
 
 function ev(id: number, type: string, data: Record<string, unknown> = {}): WorkbenchEvent {
   return { id, ts: id, attempt: 1, type, data };

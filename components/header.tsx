@@ -5,7 +5,7 @@ import { ArrowLeft } from 'lucide-react';
 import { useI18n } from '@/lib/hooks/use-i18n';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { StageMode } from '@/lib/types/stage';
-import { classroomExitLabelKey, exitClassroom } from '@/lib/workbench/classroom-exit';
+import { classroomExitLabelKey, exitClassroom } from '@/lib/classroom/classroom-exit';
 import { HeaderControls } from './stage/header-controls';
 
 interface HeaderProps {
@@ -45,7 +45,7 @@ export function Header({
   const { t } = useI18n();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const exitLabel = t(classroomExitLabelKey(searchParams));
+  const exitLabel = t(classroomExitLabelKey());
 
   return (
     <>

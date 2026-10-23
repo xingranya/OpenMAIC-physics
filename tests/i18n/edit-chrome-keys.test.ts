@@ -18,8 +18,8 @@ import zhTW from '@/lib/i18n/locales/zh-TW.json';
 /**
  * Guard for the editor-chrome locale contract.
  *
- * The ported editor chrome (`components/edit/**`, `components/workbench/**`,
- * `lib/workbench/**`) renders its copy through `t('...')`. When a key is
+ * The ported editor chrome (`components/edit/**`) and the shared session layer
+ * (`lib/session/**`) render their copy through `t('...')`. When a key is
  * missing from a locale, i18next falls back to the raw key string and the user
  * sees `edit.roster.shortTitle` instead of text. That regression shipped once;
  * this test makes it impossible to ship again.
@@ -36,7 +36,7 @@ import zhTW from '@/lib/i18n/locales/zh-TW.json';
  * truly data-driven (server-provided copy keys such as `node.copyKey` or
  * `snapshot.error`) is out of scope and resolves against server-side locales.
  */
-const SCAN_DIRS = ['components/edit', 'components/workbench', 'lib/workbench'] as const;
+const SCAN_DIRS = ['components/edit', 'lib/session'] as const;
 
 /**
  * `t('edit.sceneType.' + scene.type)` in

@@ -8,7 +8,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useI18n } from '@/lib/hooks/use-i18n';
 import { cn } from '@/lib/utils';
 import type { EditorCommand, SurfaceHistory } from '@/lib/edit/scene-editor-surface';
-import { classroomExitLabelKey, exitClassroom } from '@/lib/workbench/classroom-exit';
+import { classroomExitLabelKey, exitClassroom } from '@/lib/classroom/classroom-exit';
 
 interface CommandBarProps {
   readonly title: string;
@@ -37,7 +37,7 @@ export function CommandBar({ title, history, commands, trailing }: CommandBarPro
   const { t } = useI18n();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const exitLabel = t(classroomExitLabelKey(searchParams));
+  const exitLabel = t(classroomExitLabelKey());
 
   return (
     <header className="flex h-20 shrink-0 items-center gap-3 border-b border-zinc-200/60 px-8 dark:border-zinc-800/60">

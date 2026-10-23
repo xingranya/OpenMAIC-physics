@@ -23,7 +23,7 @@ import {
   ELEMENT_SNAPSHOT_MAX,
   INTERACTIVE_OUTERHTML_MAX,
   makeInteractiveElementRef,
-} from '@/lib/workbench/element-refs';
+} from '@/lib/session/element-refs';
 import { InteractiveRuntimeErrorBanner } from './InteractiveRuntimeErrorBanner';
 
 type InteractivePickerMessage = {

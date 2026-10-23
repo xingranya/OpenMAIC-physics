@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -32,10 +32,15 @@ describe('video media resolution boundary', () => {
       join(cwd, 'lib/media/collect-stage-asset-refs.ts'),
       join(cwd, 'lib/media/media-orchestrator.ts'),
       join(cwd, 'lib/media/media-task-resolution.ts'),
-      join(cwd, 'lib/video-export-app/collect.ts'),
       join(cwd, 'lib/utils/stage-storage.ts'),
     ];
-    const violations = paths.flatMap((path) =>
+    // 扫描清单里的文件必须都还在：清单里出现已删除的文件时，
+    // readFileSync 会直接抛 ENOENT，护栏会以一种与「断言失败」完全不同的
+    // 方式挂掉（看起来像环境问题，而不是「被守护的性质变了」）。
+    const existing = paths.filter((path) => existsSync(path));
+    expect(existing.length).toBe(paths.length);
+    expect(existing.length).toBeGreaterThan(0);
+    const violations = existing.flatMap((path) =>
       DIRECT_SLIDE_ELEMENT_WALK.test(readFileSync(path, 'utf8')) ? [relative(cwd, path)] : [],
     );
 
