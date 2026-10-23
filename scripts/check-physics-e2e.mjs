@@ -540,7 +540,22 @@ async function main() {
       }
     }
   } catch (error) {
-    process.stdout.write(`[FAIL] 目标站点不可达 — ${String(error)}\n`);
+    // 连接层失败要分开说：TLS 证书问题（自定义域名最常见——**域名绑定成功 +
+    // DNS 生效 ≠ 证书已签发**，边缘此时下发的是共享 CDN 证书）会被 fetch
+    // 报成 `fetch failed`，笼统说「目标站点不可达」会让人往站点本身查，
+    // 而真正要修的是证书。
+    const text = String(error);
+    const isTls = /certificate|TLS|SSL|CERT_/i.test(text) || /fetch failed/.test(text);
+    process.stdout.write(`[FAIL] 目标站点不可达 — ${text}\n`);
+    if (isTls) {
+      process.stdout.write(
+        '  提示：若是自定义域名，先查 TLS 证书是否已为该域名签发——' +
+          '「域名绑定成功 + DNS 生效」不等于「证书已签发」，' +
+          '证书没签发时边缘会下发共享的 CDN 证书，浏览器会报证书错误。\n' +
+          '  核验：echo | openssl s_client -connect <域名>:443 -servername <域名> 2>/dev/null ' +
+          '| openssl x509 -noout -subject   （CN/SAN 里必须有该域名）\n',
+      );
+    }
     process.exitCode = 1;
     return;
   }

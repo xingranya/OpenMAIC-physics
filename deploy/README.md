@@ -811,6 +811,33 @@ Cookie 形态：<毫秒时间戳>.<HMAC-SHA256(时间戳, ACCESS_CODE) 的小写
 CNAME 已下发），API 侧 `DescribePagesProjects` 也能看到
 `CustomDomains: [{"Domain": "dun.xran.uk"}]`。
 
+**DNS 记录已加、路由已通，但 HTTPS 证书还没签发**（2026-10-23 实测）：
+
+| 检查 | 结果 |
+| --- | --- |
+| `dig +short CNAME dun.xran.uk` | `dun.xran.uk.pages.dnsoe6.com.` ✔ |
+| `dig +short A dun.xran.uk` | `43.174.246.40` / `43.174.247.40`（EdgeOne 边缘）✔ |
+| `curl http://dun.xran.uk/` | **200** ✔ |
+| `curl http://dun.xran.uk/physics/overview` | **200** ✔ |
+| `curl -sk https://dun.xran.uk/` | **200**（路由通）✔ |
+| `openssl s_client` 的证书 CN | `*.cdn.myqcloud.com` ✘ **不是 `dun.xran.uk`** |
+| 预设域的证书 CN | `edgeone.dev` ✔（平台自有域另有证书） |
+
+**「域名绑定成功 + DNS 生效」不等于「证书已签发」**——证书是独立的一步。
+证书没签发时，边缘仍会下发**共享的 CDN 证书**（56 个 SAN 的通配证书），
+浏览器打开 `https://dun.xran.uk` 就是一个证书错误页，评委看到的是
+「网站打不开」。所以最后一步是在控制台
+「项目 → 域名管理 → 自定义域名 → 申请/上传证书」
+（DNS 验证通过后平台也会自动签发，分钟级到小时级）。
+
+核验命令（**不要用 `curl -k`**，那会掩盖问题）：
+
+```bash
+echo | openssl s_client -connect dun.xran.uk:443 -servername dun.xran.uk 2>/dev/null \
+  | openssl x509 -noout -subject          # CN/SAN 里必须有 dun.xran.uk
+curl -o /dev/null -w '%{http_code}\n' https://dun.xran.uk/   # 应为 200
+```
+
 **为什么命令行改不了**（实测两次）：`ModifyPagesProject` 带 `CustomDomains`
 会返回 `Code 0`，但再查项目 `CustomDomains` 仍是 `[]`——平台**静默丢弃**，
 自定义域名只能在控制台加。

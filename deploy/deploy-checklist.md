@@ -96,6 +96,22 @@
 - [ ] 作品说明书含 OpenMAIC 致谢与 JCST 论文引用
 - [ ] 作品说明书说明本项目与 OpenMAIC 的二开差异
 
+## I2. 自定义域名与 TLS 证书（评委若从 `dun.xran.uk` 进入，这一节不过就是致命）
+
+- [ ] DNS 记录已加且生效：CNAME `dun` → `dun.xran.uk.pages.dnsoe6.com`（**仅 DNS / 灰色云，不要代理**）
+      核验：`dig +short CNAME dun.xran.uk` 应回 `dun.xran.uk.pages.dnsoe6.com`
+- [ ] 路由已通：`curl -o /dev/null -w '%{http_code}' http://dun.xran.uk/` 应为 200
+- [ ] ⚠️ **HTTPS 证书已为该域名签发**——这一条最容易漏：
+      域名「绑定成功 + DNS 生效」**不等于**证书已签发。证书没签发时，
+      边缘仍会下发**共享的 CDN 证书**（`CN=*.cdn.myqcloud.com`），
+      浏览器打开就是证书错误，评委看到的是「网站打不开」。
+      核验：`echo | openssl s_client -connect dun.xran.uk:443 -servername dun.xran.uk 2>/dev/null | openssl x509 -noout -subject`
+      证书的 CN/SAN 里必须出现 `dun.xran.uk`；只有 `*.cdn.myqcloud.com` 就是**还没签发**，
+      需在控制台「项目 → 域名管理 → 自定义域名 → 申请/上传证书」后重测。
+      签发通常在 DNS 验证通过后自动进行，也需等待（分钟级到小时级）。
+- [ ] 签发后用**开启证书校验**的方式复验（不要用 `curl -k` 掩盖问题）：
+      `curl -o /dev/null -w '%{http_code}' https://dun.xran.uk/` 应为 200
+
 ## J. 性能与体验（量化，写入说明书）
 
 - [ ] 首屏可交互时间（境内 EdgeOne 节点）：____ ms
