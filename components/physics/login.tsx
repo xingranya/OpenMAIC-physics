@@ -219,7 +219,7 @@ export function PhysicsLogin() {
             直接进入 AI 智能课堂
           </Button>
           <p className="text-[11px] text-muted-foreground">
-            {BRAND_FULL_NAME} · 基于 OpenMAIC 二次开发
+            {BRAND_FULL_NAME} · {PLATFORM.tagline}
           </p>
           <p className="max-w-sm text-[11px] leading-relaxed text-muted-foreground">
             账号仅用于当前产品的登录校验，不连接真实教务系统、统一身份认证或大模型。

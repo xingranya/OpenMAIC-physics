@@ -13,7 +13,9 @@ describe('PBL v2 static assets', () => {
     expectPng('public/avatars/instructor.png');
   });
 
-  test('ships the OpenMAIC mark used in the workspace header', () => {
-    expectPng('public/openmaic-mark.png');
+  test('ships the school emblem used in the workspace header', () => {
+    // 工作区头图用的是**校本院徽**（lib/school/identity.ts 的 SCHOOL.emblemSrc
+    // 指向 public/brand/college-brand.png），不再是上游品牌标记。
+    expectPng('public/brand/college-brand.png');
   });
 });
