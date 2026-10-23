@@ -173,7 +173,20 @@ async function acquireSiteAccess() {
   if (!SITE_QUERY) return;
   // 平台把访问 Cookie 下在 **302 响应** 上，所以必须手动跟随一次跳转：
   // 用 redirect:'follow' 只能看到最后一跳的响应头，会漏掉 Set-Cookie。
-  const first = await fetch(`${BASE_URL}/?${SITE_QUERY}`, { redirect: 'manual' });
+  // 连接层失败要重试（见 fetchWithTimeout 的注释）：这一跳是整套自检的前提，
+  // 一次网络抖动不该让整个自检崩掉。
+  let first = null;
+  let lastError = null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      first = await fetch(`${BASE_URL}/?${SITE_QUERY}`, { redirect: 'manual' });
+      break;
+    } catch (error) {
+      lastError = error;
+      if (attempt < 3) await new Promise((r) => setTimeout(r, 1000 * attempt));
+    }
+  }
+  if (!first) throw lastError;
   const setCookies =
     typeof first.headers.getSetCookie === 'function' ? first.headers.getSetCookie() : [];
   const pairs = setCookies.map((cookie) => cookie.split(';')[0]).filter(Boolean);
@@ -185,28 +198,52 @@ async function acquireSiteAccess() {
   );
 }
 
+/**
+ * 带超时的请求，**并且对连接层失败做重试**。
+ *
+ * ## 为什么需要重试
+ *
+ * 自检会连打 24+ 个请求，而这台机器到 EdgeOne 海外边缘的连接**是间歇性失败的**：
+ * 实测同一时刻 curl 能连上（TCP 握手 1ms），Node 的 fetch 却有大约五分之一的
+ * 概率报 `UND_ERR_CONNECT_TIMEOUT`（10s 连接超时）。
+ * 那是**本机网络**的问题，不是站点的问题——但自检是门禁，门禁要测的是站点。
+ *
+ * 所以这里只对**连接层**失败（fetch 直接 reject）重试，带退避；
+ * HTTP 层的任何状态码（含 4xx/5xx）都**不重试**——那是站点自己的答案，
+ * 重试只会把真实故障糊过去。
+ */
 async function fetchWithTimeout(path, init = {}) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  try {
-    // 用 Headers 实例统一承载请求头：既能正确读取调用方传入的 Headers，
-    // 也避免 `{ ...init.headers }` 展开 Headers 实例得到空对象的问题。
-    const headers = new Headers(init.headers || {});
-    // 门禁（ACCESS_CODE）开启时，未授权请求会被 middleware 拦成 401。
-    // 取到会话 Cookie 之后的每一次请求都必须带上它，否则页面路由全 401，
-    // 自检会把「已登录可用」误判成「站点不可达」。
-    // **平台 Cookie 与应用 Cookie 必须合并**：调用方显式传了 Cookie 也不能把平台那层丢掉。
-    const combined = mergeCookies(headers.get('cookie'), cookieHeader());
-    if (combined) headers.set('cookie', combined);
-    return await fetch(`${BASE_URL}${path}`, {
-      ...init,
-      headers,
-      signal: controller.signal,
-      redirect: 'manual',
-    });
-  } finally {
-    clearTimeout(timer);
+  const attempts = 3;
+  let lastError = null;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    try {
+      // 用 Headers 实例统一承载请求头：既能正确读取调用方传入的 Headers，
+      // 也避免 `{ ...init.headers }` 展开 Headers 实例得到空对象的问题。
+      const headers = new Headers(init.headers || {});
+      // 门禁（ACCESS_CODE）开启时，未授权请求会被 middleware 拦成 401。
+      // 取到会话 Cookie 之后的每一次请求都必须带上它，否则页面路由全 401，
+      // 自检会把「已登录可用」误判成「站点不可达」。
+      // **平台 Cookie 与应用 Cookie 必须合并**：调用方显式传了 Cookie 也不能把平台那层丢掉。
+      const combined = mergeCookies(headers.get('cookie'), cookieHeader());
+      if (combined) headers.set('cookie', combined);
+      return await fetch(`${BASE_URL}${path}`, {
+        ...init,
+        headers,
+        signal: controller.signal,
+        redirect: 'manual',
+      });
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts) {
+        await new Promise((r) => setTimeout(r, 1000 * attempt));
+      }
+    } finally {
+      clearTimeout(timer);
+    }
   }
+  throw lastError;
 }
 
 function collectChunkPaths(html) {

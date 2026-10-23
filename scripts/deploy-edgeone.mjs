@@ -614,7 +614,7 @@ async function main() {
 
   // ---------------------------------------------------------------- 3. 部署
   console.log('\n=== 5/5 部署到生产环境 ===');
-  await ensureOverseasProject();
+  const project = await ensureOverseasProject();
   mkdirSync(STAGE_DIR, { recursive: true });
   // CLI 判定「目录里只有 .edgeone」时会跳过本地构建，直接上传既有产物。
   if (existsSync(join(STAGE_DIR, '.edgeone'))) {
@@ -646,6 +646,55 @@ async function main() {
       renameSync(join(STAGE_DIR, '.edgeone'), EDGEONE_DIR);
     }
   }
+
+  await warmUpFunction(project && project.PresetDomain);
+}
+
+/**
+ * 部署后**预热**云函数。
+ *
+ * ## 为什么需要
+ *
+ * EdgeOne 的云函数是**冷启动**的：第一次请求要先把 120+ MiB 的函数包解开、
+ * 拉起 Node、再初始化 Next.js。实测冷启动后的第一个请求耗时 **8–25 秒**，
+ * 平台侧的请求超时会把连接掐断（客户端看到 `fetch failed` / `AbortError`）。
+ * 之后的请求才是 0.3 秒。
+ *
+ * 对**现场演示**这是硬伤：评委第一次点开页面如果正好撞上冷启动，页面就转圈
+ * 直到超时。所以部署完主动打几次，把函数烤热。
+ *
+ * 预热失败**不中止部署**——线上站点本身是好的，冷启动只是慢；
+ * 但要明确打出来，不能让人误以为部署失败。
+ */
+async function warmUpFunction(presetDomain) {
+  // 预设域名从项目信息里读（不写死后缀——那是本项目当前的值，不是平台约定）。
+  const host = presetDomain || process.env.EDGEONE_PRESET_DOMAIN || null;
+  if (!host) {
+    console.log('\n=== 预热云函数：拿不到预设域名，跳过 ===');
+    return;
+  }
+  const url = `https://${host}/api/health`;
+  console.log(`\n=== 预热云函数（${url}） ===`);
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    const started = Date.now();
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 60000);
+      const res = await fetch(url, { signal: controller.signal, redirect: 'manual' });
+      clearTimeout(timer);
+      console.log(
+        `[deploy-edgeone] 预热第 ${attempt} 次：HTTP ${res.status}，耗时 ${((Date.now() - started) / 1000).toFixed(1)}s`,
+      );
+      // 401 也说明函数已经起来了（预设域名有访问保护层），不必继续烤。
+      return;
+    } catch (error) {
+      console.log(
+        `[deploy-edgeone] 预热第 ${attempt} 次失败（${error.message}），${attempt < 5 ? '重试…' : '放弃'}`,
+      );
+    }
+    await new Promise((r) => setTimeout(r, 3000));
+  }
+  console.log('[deploy-edgeone] ⚠ 预热未成功，线上首次访问可能较慢（不影响部署结果）');
 }
 
 /**
