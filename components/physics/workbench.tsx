@@ -398,9 +398,7 @@ export function WorkbenchShell({ children }: { children: React.ReactNode }) {
           <main className="flex-1 px-4 py-6 md:px-6 md:py-8">{children}</main>
 
           <footer className="border-t border-border/70 px-4 py-4 text-[11px] text-muted-foreground md:px-6">
-            <p>
-              {BRAND_FULL_NAME} · 基于 OpenMAIC 二次开发 · 班级与成绩为课程示例数据，非真实教务数据
-            </p>
+            <p>{BRAND_FULL_NAME} · 班级与成绩为课程示例数据，非真实教务数据</p>
           </footer>
         </div>
 

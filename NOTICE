@@ -67,7 +67,7 @@ This product is a derivative work of OpenMAIC, developed by THU-MAIC.
   scripts/check-physics-e2e.mjs
                           端到端自检：路由首帧水合安全性、客户端 chunk 全 200、
                           BUILD_ID 与目标产物一致、口令门禁、模型降级前提
-                          （21 项；启用 ACCESS_CODE 时 24 项）。
+                          （21 项；启用 ACCESS_CODE 时 25 项）。
   scripts/check-makers-models.mjs
                           查询 EdgeOne Makers Models 网关当前可用的模型，
                           并给出可直接配置的 DEFAULT_MODEL。

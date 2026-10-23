@@ -212,8 +212,7 @@ async function acquireSiteAccess() {
  * HTTP 层的任何状态码（含 4xx/5xx）都**不重试**——那是站点自己的答案，
  * 重试只会把真实故障糊过去。
  */
-async function fetchWithTimeout(path, init = {}) {
-  const attempts = 3;
+async function fetchWithTimeout(path, init = {}, attempts = 3) {
   let lastError = null;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     const controller = new AbortController();
@@ -298,7 +297,12 @@ async function checkChunks() {
   const broken = [];
   for (const path of chunkPaths) {
     try {
-      const response = await fetchWithTimeout(path);
+      // chunk 扫描是**几十个连续请求**，默认的 3 次重试扛不住：单次连接失败率
+      // 约五分之一，3 次全败的概率 0.2³ ≈ 0.8%，42 个 chunk 连打下来
+      // 「至少有一个全败」的概率接近三成——那会把网络抖动报成站点故障。
+      // 这里把连接层重试提到 5 次（0.2⁵ ≈ 0.03%），而 HTTP 层的任何状态码
+      // 仍然**不重试**：那是站点自己的答案，重试只会把真实故障糊过去。
+      const response = await fetchWithTimeout(path, {}, 5);
       if (response.status !== 200) broken.push(`${path} → ${response.status}`);
     } catch (error) {
       broken.push(`${path} → ${String(error)}`);
@@ -330,6 +334,9 @@ async function checkChunks() {
 const CHUNK_COUNT_DOCS = [
   { label: '说明书', path: join(ROOT, 'docs', '参赛', '作品说明书.md') },
   { label: '部署手册', path: join(ROOT, 'deploy', 'README.md') },
+  // 答辩预案也要查：第十三轮独立复审发现它写的是 49，而说明书与部署手册
+  // 都是 42、实测也是 42——而答辩预案恰恰是评委**最可能当场追问**的一处。
+  { label: '答辩预案', path: join(ROOT, 'docs', '参赛', '答辩预案.md') },
 ];
 
 function checkDocChunkCount(actual) {
@@ -344,8 +351,12 @@ function checkDocChunkCount(actual) {
     // 取第一个出现的数字；同一份文档里若出现多个不同数字，下面会一并报出。
     // 两种措辞都要认：「N 个客户端 chunk 全部 200」与「本次 N 个」——
     // 第六轮复审发现部署手册里后者仍写着 51，前一种正则看不见它。
+    //
+    // **加粗形态也必须认**：说明书里有一处写的是「42 个客户端 chunk **全部 200**」，
+    // 原正则只匹配不加粗的写法，于是那一处是**盲区**——真把它改成别的数字，
+    // 门禁照样全绿。`\**` 同时匹配「无标记」与「**…**」两种形态。
     const matches = [
-      ...source.matchAll(/(\d+)\s*个客户端 chunk 全部 200/g),
+      ...source.matchAll(/(\d+)\s*个客户端 chunk\s*\**\s*全部 200/g),
       // 「本次 N 个」必须带 chunk 上下文，否则「本次 3 个步骤」这类句子会被误判。
       ...source.matchAll(/本次\s*(\d+)\s*个(?:客户端)?\s*chunk/g),
     ];

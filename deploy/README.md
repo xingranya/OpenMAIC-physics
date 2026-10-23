@@ -113,9 +113,9 @@ edgeone makers deploy .tmp/edgeone-stage -n <项目名> -e production --area glo
 | `edgeone whoami` | 账号 100043806721 / APPID 1374239834（登录态可用） |
 | `edgeone makers deploy -n physics-ai-classroom -e preview` | 报错：需先创建 production 部署 |
 | `edgeone makers deploy -n physics-ai-classroom -e production` | 报错：`pnpm install` 失败——corepack 缓存里没有 `pnpm@10.28.0`（`ENOENT: stat ~/.cache/node/corepack/v1/pnpm/10.28.0`） |
-| `node scripts/deploy-edgeone.mjs` | **部署成功**：项目 `physics-ai-classroom-global`（ID `makers-kru2xpkwfs7q`，加速区域 `Area: "overseas"`＝全球可用区**不含**中国大陆），预设域 `https://physics-ai-classroom-global-rvroompq.edgeone.dev`，部署 ID `dpzc0puxeiwq`，函数包 116.5 MiB（上限 128 MiB）；自定义域名 `dun.xran.uk` 已绑定 |
+| `node scripts/deploy-edgeone.mjs` | **部署成功**：项目 `physics-ai-classroom-global`（ID `makers-kru2xpkwfs7q`，加速区域 `Area: "overseas"`＝全球可用区**不含**中国大陆），预设域 `https://physics-ai-classroom-global-rvroompq.edgeone.dev`，部署 ID `dpauqoul77aj`，函数包 119.3 MiB（上限 128 MiB）；自定义域名 `dun.xran.uk` 已绑定 |
 | 线上静态页（`/physics/overview` 等 SSG 路由） | HTTP 200，首屏标题「大学物理 AI 智慧课堂 · 长江大学文理学院」 |
-| 线上动态路由（`/api/health`、`/physics/overview`、`/teacher/dashboard` 等 SSR 路由） | **HTTP 200**（修复前是 502 / 500），根因与修法见 §8.1e；线上自检 `node scripts/check-physics-e2e.mjs --base-url <地址> --access-code <码>` **24 / 24 通过** |
+| 线上动态路由（`/api/health`、`/physics/overview`、`/teacher/dashboard` 等 SSR 路由） | **HTTP 200**（修复前是 502 / 500），根因与修法见 §8.1e；线上自检 `node scripts/check-physics-e2e.mjs --base-url <地址> --access-code <码>` **25 / 25 通过** |
 | 函数落点 | `actualRegions = {"overseas": "ap-singapore"}` —— **无大陆节点**；旧项目（含大陆）已按「删除重建」要求删除 |
 
 **坑：corepack 缓存缺失导致 `pnpm install` 跑不起来**
@@ -491,7 +491,7 @@ pnpm build:packages && pnpm build      # 产物中不应出现 .next/standalone
 # 2) 启动（构建与运行都带 EDGEONE=1）；**必须重启，不能复用旧进程**
 EDGEONE=1 pnpm start -- -p 3434        # 或 ./node_modules/.bin/next start -p 3434
 
-# 3) 跑自检脚本（未启用口令 21 项 / 启用口令 24 项）
+# 3) 跑自检脚本（未启用口令 21 项 / 启用口令 25 项）
 node scripts/check-physics-e2e.mjs --base-url http://127.0.0.1:3434
 # 配置了口令时再加上 --access-code，并让服务带 ALLOW_INSECURE_ACCESS_COOKIE=1
 ```
@@ -561,7 +561,7 @@ curl -s -X POST https://pages-api.cloud.tencent.com/v1 \
 # 返回里的 LogUrl 就是上面那份日志
 ```
 
-本项目（上游 OpenMAIC 全量 + 物理工作台）打包后 **295.1 MiB**，超限一倍多。
+本项目（上游 OpenMAIC 全量 + 物理工作台）打包后 **285.7 MiB**，超限一倍多。
 三个大头与实测数值：
 
 | 大头 | 体积 | 为什么可以砍 |
@@ -577,12 +577,15 @@ node scripts/prune-edgeone-function.mjs            # dry-run，只报告
 node scripts/prune-edgeone-function.mjs --yes      # 真执行
 ```
 
-实测：**295.1 MiB → 116.5 MiB**（裁剪 + 拍平 + 别名/工作区包实体化之后；
-只裁剪、不拍平时是 151.6 MiB，仍超限）。
+实测：**285.7 MiB → 118.0 MiB**（裁剪 + 拍平 + 别名/工作区包实体化之后；
+只裁剪、不拍平时是 151.6 MiB，仍超限）。再按运行期反馈补包（4 个包 / 1.4 MiB），
+**最终上传 119.3 MiB**。
 
-> **体积口径**：`116.5 MiB` 是**按文件字节求和**（脚本里的 `dirSize`），
-> 与平台「解包后体积」的判定口径不完全等同——同一目录用 `du -sk` 量是 **140 MiB**
-> （块对齐会更大）。本项目按 116.5 MiB 部署**被平台接受**（部署 ID `dpj9dfq4v6mv`），
+**当前产物实测（门禁口径）**：函数包最终体积 **119.3 MiB**，运行期门禁覆盖 **67 条路由**。
+
+> **体积口径**：`119.3 MiB` 是**最终上传体积**（按文件字节求和，脚本里的 `dirSize`），
+> 与平台「解包后体积」的判定口径不完全等同——同一目录用 `du -sk` 量是更大的
+> （块对齐会更大）。本项目按 119.3 MiB 部署**被平台接受**（部署 ID `dpauqoul77aj`），
 > 说明平台的判定口径与文件字节求和一致或更宽松。
 
 ### 8.1e 云函数依赖为什么必须改名成 `deps`（**线上 5xx 的真正根因**）
@@ -729,7 +732,7 @@ Cookie 形态：<毫秒时间戳>.<HMAC-SHA256(时间戳, ACCESS_CODE) 的小写
 | 项 | 平台实况 | 本地/仓库里的对应值 | 影响 |
 | --- | --- | --- | --- |
 | **函数运行时版本** | **Nodejs20.19**，由平台固定，改不动 | 控制台「项目设置 → Node.js 版本」与 `edgeone.json` 的 `nodeVersion` 都设成 `24.5.0`，构建日志也确实是 `v24.5.0`，但函数运行时仍显示 `Nodejs20.19` | 产物里的 `engines.node` 应当**匹配平台实际提供的运行时**。仓库 `package.json` 写的是上游要求的 `>=22.19.0`，平台上没有满足它的运行时，平台可能在拉起阶段直接拒收。本项目把**产物副本**放宽到 `>=20.19.0`（仓库里的不动）。⚠️ 注意：仓库里 `@earendil-works/pi-ai` / `pi-agent-core` 自报 `>=22.19.0`、`svg-pathdata` 自报 `>=22.16.0`，在 Node 20.19 上属**未声明支持**，涉及 AI 助教与导出路径时需留意 |
-| **云函数包体积** | 解包后 ≤ **128 MiB** | 直接 deploy 是 295.1 MiB，裁剪+拍平+依赖实体化后 116.5 MiB | 超限平台拒收（错误码 30），见 §8.1d / §8.1e |
+| **云函数包体积** | 解包后 ≤ **128 MiB** | 直接 deploy 是 285.7 MiB，裁剪+拍平+依赖实体化后 118.0 MiB，补包后**最终上传 119.3 MiB** | 超限平台拒收（错误码 30），见 §8.1d / §8.1e |
 | **函数地域** | **跟随加速区域**：本项目 `Area: "overseas"` → 部署 MetaData 的 `actualRegions` = `{"overseas": "ap-singapore"}`，**无大陆节点**；旧的「含大陆」项目（`Area: "global"`）才是 `{mainland: ap-guangzhou, overseas: ap-singapore}` | `edgeone.json` 的 `cloudFunctions.regions.overseas` 只会**新增**海外节点；`mainland: []` 不会凭空长出大陆节点 | 部署 MetaData 的 `actualRegions` **实测**为 `{"overseas": "ap-singapore"}`（**无 mainland 节点**）—— 大陆节点来自**加速区域**，不是平台强改（详见 §8.1f-1） |
 | **预设域名访问保护** | `*.edgeone.cool` 需带 `eo_token` | 仓库里没有这个概念 | 不带令牌的请求会拿到**平台自己的 401 页面**（不是应用的 401）；CLI 部署成功时打印的地址带 `?eo_token=…&eo_time=…`，绑定自定义域名后不再需要 |
 
@@ -836,16 +839,26 @@ CNAME 已下发），API 侧 `DescribePagesProjects` 也能看到
 Node 沿父目录向上两步就找到仓库根的 `node_modules`，把产物里缺失的文件全给补上了。
 这不是偶发，是**长期**的假绿。
 
-**修法（两件事，缺一不可）**：
+**修法（三件事，缺一不可）**：
 
-1. **探针目录显式保证在仓库之外**：`scripts/edgeone-temp.mjs` 的 `outsideRepoTemp()`
-   会逐个候选目录校验「不在仓库内」，仓库内的直接跳过（`TMPDIR` 指到仓库内也照绕）。
-2. **按运行期反馈补包**：把函数包挪到仓库外**真的跑起来**，看它到底缺哪个包，
+1. **探针落位有两道互相独立的不变量**（`scripts/edgeone-temp.mjs`）：
+   - *相对判据*：不在仓库根之内。仓库根由 `detectRepoRoot()` 从脚本自身位置
+     **向上找 `.git`** 得出，**不依赖调用时的 cwd**——跑在错误的目录下也不会判错；
+   - *绝对判据*：从探针目录**向上到根每一层都没有 `node_modules`**。这条与
+     「仓库根在哪」无关，只要命中就一定是在拿仓库的依赖冒充产物
+     （本机 `~/node_modules` **是存在的**，所以「在仓库外但在 home 底下」同样会骗人）。
+   `outsideRepoTemp()` 按这两条筛候选目录，`TMPDIR` 指到仓库内也照绕。
+2. **调用点显式断言**：光靠 `outsideRepoTemp()` **不够**——真正的失守在调用点，
+   有人把它换成 `join(process.cwd(), '.tmp', …)` 时工具函数根本不会执行，
+   门禁会从红翻绿还照样打印「通过」。所以 `runRuntimeProbe()` 里独立调用
+   `assertProbeOutsideRepo()` 再查一遍，不通过直接抛错拒绝放行
+   （`repair-edgeone-runtime-deps.mjs` 复用同一探针，所以补包循环同样会 fail-closed）。
+3. **按运行期反馈补包**：把函数包挪到仓库外**真的跑起来**，看它到底缺哪个包，
    补完再跑，直到不再缺——而不是靠静态闭包猜。
 
 ```bash
 node scripts/repair-edgeone-runtime-deps.mjs   # 运行期反馈补包（多轮直到不缺）
-node scripts/verify-edgeone-runtime.mjs        # 仓库外运行时门禁：打全部 79 条路由
+node scripts/verify-edgeone-runtime.mjs        # 仓库外运行时门禁：打全部 67 条路由
 ```
 
 **为什么不用静态闭包**：静态闭包（产物引用的包 + 它们的**全部**传递依赖）是
@@ -855,6 +868,7 @@ node scripts/verify-edgeone-runtime.mjs        # 仓库外运行时门禁：打�
 
 **门的判定口径**（`verify-edgeone-runtime.mjs`）：
 
+- **先断言探针落位**（不在仓库内 + 向上无 node_modules），不通过直接中止；
 - 全部路由探一遍，**任何 5xx（除 501）都算失败**；
 - 子进程 stderr 里的 `Failed to load external module` 逐类归因：
   - `Cannot find package 'x'` / `Cannot find module '…/deps/x/…'` → 缺包，要补；
@@ -863,11 +877,18 @@ node scripts/verify-edgeone-runtime.mjs        # 仓库外运行时门禁：打�
     这类差异**逐请求归因**（只看该请求自己产生的 stderr），
     否则会把别的路由的报错算到当前路由头上。
 
-**实测**：修完之后，仓库外跑 79 条路由 → `200×16 307×1 400×1 404×21 405×36 500×2 501×2`，
+**实测**：修完之后，仓库外跑 **67 条路由** → `200×13 400×1 404×19 405×32 500×2`，
 其中 2 条 500 已归因为 sharp 的 macOS 差异（平台上 linux-x64 正常）。
 
 > **体积口径补充**：丢掉 source map（496 个文件 / 5.8 MiB，运行期不用）后，
-> 裁剪结果是 **295.2 MiB → 123.0 MiB**，补包后 **124.4 MiB**（上限 128 MiB）。
+> 裁剪结果是 **285.7 MiB → 118.0 MiB**，补包后 **最终上传 119.3 MiB**（上限 128 MiB）。
+
+> **这道护栏自己也得有牙齿**：`tests/deploy/edgeone-probe-isolation.test.ts`
+> 对**每一层**都做了变异验证——删掉调用点的断言、把两道判据分别短路、
+> 把候选筛选的判据短路，五种改法都会让门禁变红（实测 5/5 变红）。
+> 两道判据必须能**分别**证伪：仓库根本来就装着 `node_modules`，
+> 若错误消息只笼统说「不在仓库外」，改坏其中一道时另一道会替它挡刀，
+> 测试照样全绿——护栏就成了摆设。
 
 ## 9. EdgeOne Makers 平台能力速查（2026-06 官方文档）
 
