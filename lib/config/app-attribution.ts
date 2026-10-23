@@ -6,8 +6,17 @@
  * API key, but the per-request header takes precedence. The value only needs
  * to be URL-form and unique + stable for the app; it does not need to be
  * reachable. Sending it lets TokenDance recognize that a request originates
- * from an OpenMAIC deployment, which is what their partner program and
- * support flow key off (see the matching `aff=openmaic` signup links).
+ * from this deployment, which is what their partner program and support flow
+ * key off.
+ *
+ * ## 为什么指向本项目自己的站点
+ *
+ * 这个头的语义是「**本应用是谁**」，填上游项目的站点属于**错误归因**——
+ * 会把本项目的流量算到上游头上（上游是 MIT 协议的开源项目，没有参与
+ * 我们的推广结算）。所以它指向本项目自己的公开站点。
+ *
+ * 注意：上游原实现此处填的是 `https://open.maic.chat`。二开时改成自己的
+ * 域名是一项**显式决策**，理由记录在仓库根的 `NOTICE` 里。
  *
  * Attribution is app-level and aggregate; no user-identifying data is added.
  * The header is attached only when the outbound request targets the
@@ -19,7 +28,7 @@
  * unique to this app, and self-describing for anyone reading TokenDance's
  * attribution dashboard.
  */
-export const APP_ATTRIBUTION_URL = 'https://open.maic.chat';
+export const APP_ATTRIBUTION_URL = 'https://dun.xran.uk';
 
 /** Header name exactly as documented by TokenDance. */
 export const APP_URL_HEADER = 'X-App-URL';

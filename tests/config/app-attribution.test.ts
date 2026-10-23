@@ -81,3 +81,24 @@ describe('withAppAttributionInit', () => {
     expect(withAppAttributionInit('https://api.openai.com/v1/chat/completions', init)).toBe(init);
   });
 });
+
+/**
+ * 归因值本身必须被钉住。
+ *
+ * 上面的用例全都拿 `APP_ATTRIBUTION_URL` **常量自己**做断言——
+ * 那是自证：把常量改成上游的站点，所有断言照样全绿。
+ *
+ * 而这个头的语义是「**本应用是谁**」：填上游站点等于把本项目的流量
+ * 算到上游头上（上游是 MIT 开源项目，并未参与本项目的推广结算）。
+ * 所以这里显式钉住：必须是本项目自己的站点，且不得是上游站点。
+ */
+describe('应用归因值', () => {
+  it('指向本项目自己的公开站点', () => {
+    expect(APP_ATTRIBUTION_URL).toBe('https://dun.xran.uk');
+  });
+
+  it('不得指向上游项目的站点', () => {
+    expect(APP_ATTRIBUTION_URL).not.toContain('open.maic.chat');
+    expect(APP_ATTRIBUTION_URL).not.toContain('openmaic');
+  });
+});

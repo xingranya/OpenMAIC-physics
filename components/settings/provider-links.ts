@@ -12,8 +12,10 @@ export interface RegionalLinks {
 
 export const PROVIDER_SIGNUP_LINKS: Partial<Record<string, RegionalLinks>> = {
   kimi: {
-    domestic: 'https://platform.kimi.com?aff=openmaic',
-    international: 'https://platform.kimi.ai?aff=openmaic',
+    // 不带 `aff=` 联盟参数：那是上游项目的推广结算位，本项目不是上游的
+    // 推广渠道，保留会把用户导向错误的结算（显式决策，理由见 NOTICE）。
+    domestic: 'https://platform.kimi.com',
+    international: 'https://platform.kimi.ai',
   },
 };
 

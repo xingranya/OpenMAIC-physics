@@ -22,6 +22,7 @@
     "check:physics-e2e": "node scripts/check-physics-e2e.mjs",
     "check:doc-metrics": "node scripts/check-doc-metrics.mjs",
     "check:school-identity": "node scripts/check-school-identity-literals.mjs",
+    "check:upstream-brand": "node scripts/check-upstream-brand-literals.mjs",
     "check:mock-factory-exports": "node scripts/check-mock-factory-exports.mjs",
     "check:test-baseline": "node scripts/check-test-baseline.mjs",
     "cleanup:local-dev": "node scripts/cleanup-local-dev.mjs",

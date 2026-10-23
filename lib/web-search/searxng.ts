@@ -14,7 +14,9 @@ const log = createLogger('SearXNG');
 
 const SEARXNG_HEADERS: Record<string, string> = {
   Accept: 'application/json',
-  'User-Agent': 'Mozilla/5.0 (compatible; OpenMAIC/1.0; +https://github.com/THU-MAIC/OpenMAIC)',
+  // 出站 UA 标识的是**本应用**，不是上游项目（显式决策，理由见 NOTICE）。
+  'User-Agent':
+    'Mozilla/5.0 (compatible; ChangjiangUniv-WenliCollege-PhysicsAI/1.0; +https://dun.xran.uk)',
 };
 
 export function buildSearxngSearchUrl(baseUrl: string, query: string): string {

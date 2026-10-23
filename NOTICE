@@ -21,11 +21,16 @@ This product is a derivative work of OpenMAIC, developed by THU-MAIC.
                    doi:10.1007/s11390-025-6000-0
 
   致谢 / Acknowledgement:
-  感谢 OpenMAIC 团队与全体贡献者。本产品在界面、文档与演示中均保留对该项目的
-  明确署名，未对上游来源作任何掩盖。
-  We thank the OpenMAIC team and all its contributors. This derivative work
-  credits the upstream project explicitly in the UI, the documentation and the
-  demo materials.
+  感谢 OpenMAIC 团队与全体贡献者。本产品在上游来源上的明确署名集中保留在
+  LICENSE、NOTICE、README 与全部参赛材料中，未对上游来源作任何掩盖。
+  界面上的产品标识按本产品品牌呈现（校名、校徽、课程名）——界面呈现的是
+  「长江大学文理学院 · 大学物理 AI 智慧课堂」，而**软件来源**在随代码分发的
+  许可与致谢文件中完整披露。
+  We thank the OpenMAIC team and all its contributors. The upstream origin of
+  this derivative work is stated explicitly in LICENSE, NOTICE, README and all
+  competition materials. The product's own branding (college name, emblem,
+  course) is what the UI presents; the software lineage is disclosed in the
+  license and acknowledgement files shipped with the code.
 
 
 本项目二开内容 / Derivative work
@@ -66,6 +71,15 @@ This product is a derivative work of OpenMAIC, developed by THU-MAIC.
   scripts/check-makers-models.mjs
                           查询 EdgeOne Makers Models 网关当前可用的模型，
                           并给出可直接配置的 DEFAULT_MODEL。
+  scripts/check-upstream-brand-literals.mjs
+                          界面与出站层的上游品牌字面量门禁（TS AST 扫字符串 /
+                          模板 / JSX 文本）。
+  scripts/verify-edgeone-runtime.mjs
+                          仓库外运行期门禁。**访问码不写在本仓库里**：
+                          .env 被 .gitignore 明确排除，脚本也只从「参数 →
+                          环境变量 → 仓库根 .env」三级查找，拿不到就 fail-closed。
+                          （此前脚本里硬编码过访问码，等于把课堂门禁的钥匙
+                          随公开仓库一起发布——已移除。）
   next.config.ts          `output` 依 EDGEONE / VERCEL 环境变量判定：边缘平台
                           不产出 standalone 产物，自托管场景保留。构建与运行
                           必须看到同一份环境变量。
@@ -93,6 +107,20 @@ This product is a derivative work of OpenMAIC, developed by THU-MAIC.
     app/api/comfyui-workflows、app/api/azure-voices、components/language-switcher.tsx、
       app/eval/whiteboard、eval/**、lib/rag、lib/live、comfyui-setup-instructions.md、
       Dockerfile、docker-compose.yml：与本产品无关的上游外壳。
+
+  出站请求标识 / Outbound request identity:
+    凡是在**出站请求**里标识「本应用是谁」的字段，一律指向本产品自己：
+      X-App-URL（TokenDance 应用归因头）→ https://dun.xran.uk
+      User-Agent（SearXNG 网页搜索）    → ChangjiangUniv-WenliCollege-PhysicsAI/1.0
+      MM-API-Source（MiniMax 网页搜索） → PhysicsAI-Classroom
+    上游原实现分别填的是 https://open.maic.chat、OpenMAIC/1.0 与 OpenMAIC。
+    改成自己的理由是**归因正确性**：这些字段的语义就是「调用方是哪个应用」，
+    填上游项目等于把本产品的流量与用量记到上游账上——而上游是 MIT 开源项目，
+    并未参与本产品的任何推广结算。这是一项**显式决策**，不是遗漏。
+    同理，provider 推广位链接上的 ?aff=openmaic 联盟参数已移除。
+    仍保留上游标识的只有**内部协议常量**（工作区包名 @openmaic/*、会话 Cookie 名
+    openmaic_access、内部响应头 X-OpenMAIC-Element-Reference-Accepted）：它们
+    不对外呈现、也不表达「本应用是谁」，改掉只会破坏自身一致性。
 
 
 第三方组件 / Third-party components

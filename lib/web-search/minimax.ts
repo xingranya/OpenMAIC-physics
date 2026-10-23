@@ -73,7 +73,8 @@ export async function searchWithMiniMax(params: {
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
-      'MM-API-Source': 'OpenMAIC',
+      // 来源标识指向本应用（显式决策，理由见 NOTICE）。
+      'MM-API-Source': 'PhysicsAI-Classroom',
     },
     body: JSON.stringify({ q: query }),
     ...(signal ? { signal } : {}),
