@@ -11,7 +11,6 @@ import { Toaster } from '@/components/ui/sonner';
 import { ServerProvidersInit } from '@/components/server-providers-init';
 import { StorageHealthNotice } from '@/components/storage-health-notice';
 import { AccessCodeGuard } from '@/components/access-code-guard';
-import { ProSwapWatcher } from '@/components/workbench/ProSwapWatcher';
 
 // The UI font is loaded from @fontsource's stylesheet rather than next/font,
 // because only the stylesheet carries the per-subset `unicode-range`
@@ -28,11 +27,30 @@ import { ProSwapWatcher } from '@/components/workbench/ProSwapWatcher';
 // next/font's generated class.
 import '@fontsource-variable/inter';
 
-import { COURSE, PLATFORM, SCHOOL } from '@/lib/school/identity';
+import { BRAND_FULL_NAME, COURSE, PLATFORM, SCHOOL } from '@/lib/school/identity';
 
 export const metadata: Metadata = {
   title: `${PLATFORM.systemName} · ${SCHOOL.college}`,
-  description: `${SCHOOL.college}${COURSE.name}课程智慧教学工作台。基于 OpenMAIC 二次开发，融合多智能体 AI 课堂与"诊断→匹配→闯关→实验→报告"教学闭环。`,
+  // 描述里**不出现上游产品名**：本产品是「长江大学文理学院 · 大学物理 AI 智慧课堂」，
+  // 面向学生与教师；开源归属声明放在 NOTICE 与《许可与致谢》里（许可合规的要求
+  // 落在分发材料上，不需要出现在每一页的 meta 里）。
+  description: `${SCHOOL.college}${COURSE.name}课程智慧教学工作台。融合多智能体 AI 课堂与"诊断→匹配→闯关→实验→报告"教学闭环，面向${COURSE.className}。`,
+  // 分享卡片：统一校徽 + 校名 + 班级的静态 OG 图（public/brand/og-card.png）。
+  // 不用运行期动态生成（next/og 依赖 satori + resvg，会明显增大函数包体积，
+  // 而函数包只剩 3.6 MiB 余量），静态图足够且稳定。
+  openGraph: {
+    title: `${PLATFORM.systemName} · ${SCHOOL.college}`,
+    description: `${COURSE.className} · 诊断 → 匹配 → 闯关 → 实验 → 报告`,
+    images: [{ url: '/brand/og-card.png', width: 1200, height: 630, alt: BRAND_FULL_NAME }],
+    locale: 'zh_CN',
+    type: 'website',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: `${PLATFORM.systemName} · ${SCHOOL.college}`,
+    description: `${COURSE.className} · 诊断 → 匹配 → 闯关 → 实验 → 报告`,
+    images: ['/brand/og-card.png'],
+  },
 };
 
 export default function RootLayout({
@@ -41,7 +59,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    // 本产品是**中文单语**（上游的多语言外壳在 M9-C 已删），
+    // lang 必须是 zh-CN——写成 en 会让读屏软件用英文语音朗读中文页面。
+    <html lang="zh-CN" suppressHydrationWarning>
       <body
         className={`${GeistSans.variable} ${GeistMono.variable} antialiased`}
         suppressHydrationWarning
@@ -49,7 +69,6 @@ export default function RootLayout({
         <ThemeProvider>
           <I18nProvider>
             <ServerProvidersInit />
-            <ProSwapWatcher />
             <AccessCodeGuard>{children}</AccessCodeGuard>
             <Toaster position="top-center" />
             {/* After the Toaster: this one raises a toast on mount when
