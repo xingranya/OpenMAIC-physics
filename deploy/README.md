@@ -830,6 +830,20 @@ CNAME 已下发），API 侧 `DescribePagesProjects` 也能看到
 「项目 → 域名管理 → 自定义域名 → 申请/上传证书」
 （DNS 验证通过后平台也会自动签发，分钟级到小时级）。
 
+**控制台上的确切位置**（实测）：项目 `physics-ai-classroom-global` → 左侧
+「**域名管理**」→ `dun.xran.uk` 那一行的「**HTTPS 配置**」列显示「**未配置**」
+→ 点该列的「**配置**」→ 弹出「**边缘 HTTPS 证书**」面板 → 在那里申请证书。
+同一面板里还有「强制 HTTPS」「HSTS」「OCSP 装订」——**证书就绪后再开强制
+HTTPS**，否则会把 HTTP 访问重定向到不可用的 HTTPS，反而更糟。
+
+**命令行没有这条路**（实测）：`edgeone makers` 只有 init / dev / generate-routes /
+env / link / deploy / claim / create，没有域名或证书子命令；Pages API
+（`pages-api.cloud.tencent.com/v1`）也只有 `DescribePagesProjects` /
+`ModifyPagesProject` / `DescribePagesDeployments` / `DescribePagesEncipherToken`
+这一族，**域名与证书相关 Action 全部返回 `Code 107 Action has not found`**
+（试过 18 个候选名）。控制台走的是内部 `console.cloud.tencent.com/cgi/capi` 网关，
+需要控制台会话 Cookie，外部调不了。
+
 核验命令（**不要用 `curl -k`**，那会掩盖问题）：
 
 ```bash

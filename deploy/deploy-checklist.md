@@ -106,9 +106,14 @@
       边缘仍会下发**共享的 CDN 证书**（`CN=*.cdn.myqcloud.com`），
       浏览器打开就是证书错误，评委看到的是「网站打不开」。
       核验：`echo | openssl s_client -connect dun.xran.uk:443 -servername dun.xran.uk 2>/dev/null | openssl x509 -noout -subject`
-      证书的 CN/SAN 里必须出现 `dun.xran.uk`；只有 `*.cdn.myqcloud.com` 就是**还没签发**，
-      需在控制台「项目 → 域名管理 → 自定义域名 → 申请/上传证书」后重测。
-      签发通常在 DNS 验证通过后自动进行，也需等待（分钟级到小时级）。
+      证书的 CN/SAN 里必须出现 `dun.xran.uk`；只有 `*.cdn.myqcloud.com` 就是**还没签发**。
+- [ ] 证书签发路径（**控制台**操作，命令行/CLI 都没有对应命令）：
+      `控制台 → EdgeOne → Makers → 项目 physics-ai-classroom-global → 域名管理`
+      → 找到 `dun.xran.uk` 这一行 → **「HTTPS 配置」列**（当前显示「未配置」）
+      → 点该列的「**配置**」→ 弹出「边缘 HTTPS 证书」面板 → 选免费证书并申请
+      → 等待签发（DNS 验证通过后平台也会自动签发，分钟级到小时级）
+- [ ] 证书就绪后**再**考虑打开同一面板里的「强制 HTTPS」与「HSTS」——
+      证书没好之前开强制 HTTPS，会把 HTTP 访问重定向到不可用的 HTTPS，反而更糟
 - [ ] 签发后用**开启证书校验**的方式复验（不要用 `curl -k` 掩盖问题）：
       `curl -o /dev/null -w '%{http_code}' https://dun.xran.uk/` 应为 200
 
