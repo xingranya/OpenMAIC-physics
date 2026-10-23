@@ -20,6 +20,8 @@ import { PURE_TIER } from './check-physics-domain-purity.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const DOC = join(ROOT, 'docs', '参赛', '作品说明书.md');
+/** 答辩预案也会自引同一批规模数字，它同样会被改到漂移。 */
+const QA = join(ROOT, 'docs', '参赛', '答辩预案.md');
 
 /** 统计一组文件的总行数（只算普通文件，目录跳过）。 */
 function countLines(paths) {
@@ -207,6 +209,60 @@ const METRICS = [
       };
     },
   },
+  // ---------------------------------------------------------------------
+  // 答辩预案《Q15 你说规模是多少？》里也自引同一批数字。
+  // 它此前完全没人管：说明书的表改对了，答辩预案里的数字照样漂着——
+  // 而这恰恰是评委**最可能当场追问**的一处。
+  // ---------------------------------------------------------------------
+  {
+    label: '答辩预案 · 物理域规模',
+    file: QA,
+    pattern: /物理域\s*([\d\s]+)\s*行/,
+    measure: () => countLines(collect(join(ROOT, 'lib', 'physics'), '.ts')),
+  },
+  {
+    label: '答辩预案 · 校本层规模',
+    file: QA,
+    pattern: /校本层\s*([\d\s]+)\s*行/,
+    measure: () =>
+      countLines(
+        readdirSync(join(ROOT, 'lib', 'school'))
+          .filter((name) => name.endsWith('.ts'))
+          .map((name) => join(ROOT, 'lib', 'school', name)),
+      ),
+  },
+  {
+    label: '答辩预案 · 工作台 UI 规模',
+    file: QA,
+    pattern: /工作台 UI\s*([\d\s]+)\s*行/,
+    measure: () =>
+      countLines([
+        ...collect(join(ROOT, 'components', 'physics'), '.tsx'),
+        ...collect(join(ROOT, 'components', 'portal'), '.tsx'),
+      ]),
+  },
+  {
+    label: '答辩预案 · 参赛材料规模',
+    file: QA,
+    pattern: /参赛材料\s*([\d\s]+)\s*行/,
+    measure: () =>
+      countLines(
+        readdirSync(join(ROOT, 'docs', '参赛'))
+          .filter((name) => name.endsWith('.md'))
+          .map((name) => join(ROOT, 'docs', '参赛', name)),
+      ),
+  },
+  {
+    label: '答辩预案 · 部署文档规模',
+    file: QA,
+    pattern: /部署文档\s*([\d\s]+)\s*行/,
+    measure: () =>
+      countLines(
+        readdirSync(join(ROOT, 'deploy'))
+          .map((name) => join(ROOT, 'deploy', name))
+          .filter((path) => statSync(path).isFile()),
+      ),
+  },
 ];
 
 if (!existsSync(DOC)) {
@@ -236,19 +292,29 @@ function measureSafely(metric) {
 }
 
 for (const metric of METRICS) {
-  const match = metric.pattern.exec(source);
+  // 指标默认落在说明书；个别指标可以指定别的文件（答辩预案也自引这批数字）。
+  const metricFile = metric.file || DOC;
+  const metricSource = metric.file ? readFileSync(metric.file, 'utf8') : source;
+  const metricLabel = metric.file ? relative(ROOT, metric.file) : '说明书';
+  const match = metric.pattern.exec(metricSource);
   if (!match) {
-    problems.push(`${metric.label}：说明书里找不到对应行`);
+    problems.push(`${metric.label}：${metricLabel}里找不到对应行`);
     continue;
   }
   // 表格里的数字用窄空格（U+202F）或普通空格分隔，这里统一去掉所有空白。
   const group = metric.declaredGroup ?? 1;
   const declared = Number(match[group].replace(/[\s\u202f\u00a0]/g, ''));
   const actual = measureSafely(metric);
-  rows.push({ label: metric.label, declared, actual, unit: metric.unit ?? '行' });
+  rows.push({
+    label: metric.label,
+    declared,
+    actual,
+    unit: metric.unit ?? '行',
+    fileLabel: metric.file ? relative(ROOT, metric.file) : '说明书',
+  });
   if (declared !== actual) {
     problems.push(
-      `${metric.label}：说明书写 ${declared} ${metric.unit ?? '行'}，实测 ${actual} ${
+      `${metric.label}：${metricLabel}写 ${declared} ${metric.unit ?? '行'}，实测 ${actual} ${
         metric.unit ?? '行'
       }（请同步后重跑）`,
     );
@@ -266,7 +332,7 @@ for (const metric of METRICS) {
         .join(' · ');
       if (!ok) {
         problems.push(
-          `${metric.label}（${group.label}）：说明书写 ${group.declared}，实测 ${group.actual}（请同步后重跑）`,
+          `${metric.label}（${group.label}）：${metricLabel}写 ${group.declared}，实测 ${group.actual}（请同步后重跑）`,
         );
       }
     }
@@ -277,14 +343,16 @@ for (const row of rows) {
   const ok = row.declared === row.actual;
   const detail = row.detail ? ` — ${row.detail} / 实测 ${row.actualDetail}` : '';
   console.log(
-    `[${ok ? 'PASS' : 'FAIL'}] ${row.label} — 说明书 ${row.declared} ${row.unit} / 实测 ${row.actual} ${row.unit}${detail}`,
+    `[${ok ? 'PASS' : 'FAIL'}] ${row.label} — ${row.fileLabel} ${row.declared} ${row.unit} / 实测 ${row.actual} ${row.unit}${detail}`,
   );
 }
 
 if (problems.length > 0) {
   console.error('\n参赛材料自引数字与实现不一致：');
   for (const problem of problems) console.error(`  - ${problem}`);
-  console.error('\n修复：更新 docs/参赛/作品说明书.md §8.1 对应行，然后重跑本脚本。');
+  console.error(
+    '\n修复：更新 docs/参赛/作品说明书.md §8.1 与 docs/参赛/答辩预案.md 对应行，然后重跑本脚本。',
+  );
   process.exit(1);
 }
 
