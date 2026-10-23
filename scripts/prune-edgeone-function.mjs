@@ -55,6 +55,8 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { delimiter, dirname, join, relative, resolve } from 'node:path';
+import { collectNeededPackages, repairIncompletePackages } from './edgeone-deps-lib.mjs';
+import { outsideRepoTemp } from './edgeone-temp.mjs';
 
 const ROOT = process.cwd();
 const FN_DIR = join(ROOT, '.edgeone', 'cloud-functions', 'ssr-node');
@@ -308,10 +310,54 @@ materializeExternalAliases(FN_DIR, ROOT);
 ensureRuntimePackages(FN_DIR, ROOT);
 
 // 4.8) 写入 ESM 解析钩子：裸标识符 → deps/。
+//      必须排在「修复残缺包」之前：修复要靠钩子做 ESM 侧的解析判定。
 writeEsmResolveHooks(FN_DIR);
 
+// 4.87) 丢弃 source map（*.map）：**运行期一律不用**，纯粹是调试辅助。
+//       实测 496 个文件共 7.2 MiB——函数包有 128 MiB 硬上限，这块是白扔的体积。
+//       删掉不影响任何 require/import：Node 找不到 map 时只是不提供源码映射。
+//       必须排在**所有拷贝步骤之后**——别名实体化与依赖修复都会把 .map 拷回来。
+let droppedMaps = 0;
+let droppedMapBytes = 0;
+for (const root of [join(FN_DIR, '.next'), join(FN_DIR, 'deps')]) {
+  if (!existsSync(root)) continue;
+  const stack = [root];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    let entries = [];
+    try {
+      entries = readdirSync(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const full = join(current, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(full);
+        continue;
+      }
+      if (!entry.isFile() || !entry.name.endsWith('.map')) continue;
+      try {
+        droppedMapBytes += statSync(full).size;
+        rmSync(full, { force: true });
+        droppedMaps += 1;
+      } catch {
+        /* 删不掉就算了，不影响运行 */
+      }
+    }
+  }
+}
+if (droppedMaps > 0) {
+  console.log(
+    `[prune-edgeone-function] 已丢弃 source map ${droppedMaps} 个（${mib(droppedMapBytes)} MiB，运行期不用）`,
+  );
+}
+
 // 4.9) 拍平后的强制校验（任何不满足都中止部署）。
-verifyFlattenedPackage(FN_DIR);
+//      **必须 await**：这个函数是异步的，不 await 的话它的失败会变成
+//      unhandled rejection（退出码非零但输出看不懂），而且校验会在
+//      「裁剪完成」之后才跑——门禁与产物状态对不上号。
+await verifyFlattenedPackage(FN_DIR);
 
 const after = dirSize(FN_DIR);
 console.log(`[prune-edgeone-function] 裁剪完成：${mib(before)} MiB → ${mib(after)} MiB`);
@@ -1173,8 +1219,22 @@ function materializeExternalAliases(fnDir, workspaceRoot) {
 /**
  * 复制一个包目录里**运行期需要**的部分：package.json + dist + 许可/说明文件。
  * 源码（src）、测试、配置等一律不要——工作区包加起来有十几 MiB 源码，运行期用不到。
+ *
+ * ## 为什么 dist 必须整棵拷贝
+ *
+ * 这里的过滤条件**只作用于包根**：根目录下只放行 `dist` 与许可/说明。
+ * 一旦进入 `dist/`，里面的 `index.js`、`runtime/http.js`、`pg-json.js`……
+ * 都必须**整棵**拷贝下来。
+ *
+ * 早期版本在每一层都套同一个过滤条件，于是进入 dist 后，
+ * 里面的文件既不叫 `dist` 也不在许可/说明清单里 → 全被跳过，
+ * 结果是 `deps/@openmaic/storage/dist/` 是个**空目录**：
+ * package.json 声明的入口 `./dist/index.js` 根本不存在。
+ *
+ * 后果在本地被仓库的 node_modules 掩盖（向上能找到完整副本），
+ * 到线上就是：凡是加载 @openmaic/storage 的路由全部返回**空体 500**。
  */
-function copyRuntimeTree(src, dest) {
+function copyRuntimeTree(src, dest, depth = 0) {
   let source = src;
   try {
     if (lstatSync(src).isSymbolicLink()) source = realpathSync(src);
@@ -1193,8 +1253,9 @@ function copyRuntimeTree(src, dest) {
     mkdirSync(dest, { recursive: true });
     for (const entry of readdirSync(source)) {
       if (entry === 'node_modules') continue;
-      if (entry !== 'dist' && !RUNTIME_FILES.has(entry)) continue;
-      copyRuntimeTree(join(source, entry), join(dest, entry));
+      // 只有**包根**才过滤；dist/ 内部整棵拷贝。
+      if (depth === 0 && entry !== 'dist' && !RUNTIME_FILES.has(entry)) continue;
+      copyRuntimeTree(join(source, entry), join(dest, entry), depth + 1);
     }
     return;
   }
@@ -1494,6 +1555,28 @@ function ensureRuntimePackages(fnDir, workspaceRoot) {
 }
 
 /**
+ * 把一个包按「运行期真正会加载的文件」最小化拷贝到产物里。
+ *
+ * ## 为什么不能整包拷贝
+ *
+ * 函数包有 128 MiB 的硬上限。整包拷贝光 openai（9.5 MiB / 1296 个文件，一半是
+ * .d.ts 类型声明）就装不下——而产物里真正需要的往往只是它的一条 require 闭包。
+ *
+ * ## 为什么不能只拷 package.json
+ *
+ * 产物里 opennext 留下的 `node_modules/<pkg>/` 有时就是**一个桩目录**：
+ * 版本、exports 都对，但里面除 package.json 什么都没有。平台剥离 node_modules
+ * 之后，这些桩在运行期就是 `Cannot find package`。
+ *
+ * ## 这里做什么
+ *
+ * 以「入口 + 其相对 require 闭包」为准：
+ *   1. package.json 原样拷贝（exports 映射是运行时契约）；
+ *   2. 入口 = exports 里声明的所有目标 + main/module（运行时可能 import 任意子路径）；
+ *   3. 对每个入口文件，扫出**相对**说明符（./ 与 ../），递归跟随；
+ *   4. 裸标识符（其它包）不在这里处理——它们是别的包，由各自的拷贝负责。
+ */
+/**
  * 拍平后的**强制校验**。
  *
  * 三件事必须同时成立，任何一条不满足都直接中止部署（fail-closed）：
@@ -1501,6 +1584,9 @@ function ensureRuntimePackages(fnDir, workspaceRoot) {
  *   2. 产物里真实引用到的**裸标识符**，其根包必须存在于 `deps/`；
  *   3. 这些裸标识符必须**真的能被解析**：
  *      CJS 走 NODE_PATH，ESM 走 esm-hooks.mjs 的 resolve 钩子。
+ *   4. **`deps/` 里每个包的运行时入口必须真的存在**——
+ *      产物里可能残留「只有 package.json 的桩目录」，它们在仓库内会被
+ *      仓库自己的 node_modules 掩盖，到线上就是空体 500。
  *
  * ## 为什么校验必须发生在「工作区之外」
  *
@@ -1549,11 +1635,6 @@ async function verifyFlattenedPackage(fnDir) {
     );
   }
 
-  // ---- 2) 产物里真实用到的裸标识符 ----
-  const { esm: esmSpecifiers, cjs: cjsSpecifiers } = collectBareSpecifiers(
-    join(fnDir, '.next', 'server'),
-  );
-  const allSpecifiers = new Set([...esmSpecifiers, ...cjsSpecifiers]);
   // 判定「这个裸标识符到底是不是一个依赖」：
   //   - 工作区里装了 → 是依赖，deps/ 里必须有；
   //   - 名字是 Turbopack 外部别名形状（pkg-<哈希>）→ 是依赖，必须有；
@@ -1564,6 +1645,60 @@ async function verifyFlattenedPackage(fnDir) {
     const segments = spec.split('/');
     return spec.startsWith('@') ? segments.slice(0, 2).join('/') : segments[0];
   };
+
+  // ---- 2) 产物里真实用到的裸标识符 ----
+  const {
+    esm: esmSpecifiers,
+    cjs: cjsSpecifiers,
+    indirect,
+  } = collectBareSpecifiers(
+    join(fnDir, '.next', 'server'),
+    // 只有「工作区里确实装了同名包」的名字才算包名——
+    // 否则 `"set-cookie"` 这种 HTTP 头名会被误当成包。
+    (name) => workspaceIndex.has(rootOf(name)),
+  );
+
+  // ---- 2.5) **扫描器自检** ----
+  //
+  // 没有自检的扫描器是会「静默退化」的：第十二轮复审把 `.y(` 换成
+  // `externalImport("...")`（一个产物里根本不存在的形态）之后，
+  // ESM 集合从 9 个塌成 1 个，而门禁**照样全绿**——因为它只报告
+  // 「实测失败 N 个」，而 N 仍然是 0。
+  //
+  // 所以这里给扫描器自己加三道兜底：
+  //   1. 规模下限：裸标识符扫不出足够多的条目 → 扫描器一定退化了；
+  //   2. 间接动态 import 形态：产物里既然有 `Function("specifier", …)`，
+  //      就必须认出它加载的包，而且这些包必须进 ESM 探针集合；
+  //   3. 命中的每个包都必须在 deps/ 里真实存在。
+  const MIN_CJS_SPECIFIERS = 20;
+  const MIN_ESM_SPECIFIERS = 5;
+  if (cjsSpecifiers.size < MIN_CJS_SPECIFIERS || esmSpecifiers.size < MIN_ESM_SPECIFIERS) {
+    throw new Error(
+      `裸标识符扫描结果异常偏少（CJS ${cjsSpecifiers.size} < ${MIN_CJS_SPECIFIERS} 或 ` +
+        `ESM ${esmSpecifiers.size} < ${MIN_ESM_SPECIFIERS}）。` +
+        '这通常意味着 Turbopack 的产物压缩形态变了、扫描器的正则打不中真实调用点——' +
+        '此时门禁会「扫不到就等于没问题」，是恒真断言，必须先修扫描器。',
+    );
+  }
+  if (indirect.chunkCount > 0 && indirect.specifiers.size === 0) {
+    throw new Error(
+      `产物里有 ${indirect.chunkCount} 个 chunk 用了 ` +
+        '`Function("specifier","return import(specifier)")` 这种间接动态 import，' +
+        '但扫描器一个包都没认出来。间接形态的包名是变量调用的实参，' +
+        '正则匹配不到——扫描器在这里退化了，pg 这类关键包会逃过探针。',
+    );
+  }
+  const missingIndirect = [...indirect.specifiers].filter((spec) => {
+    const root = spec.startsWith('@') ? spec.split('/').slice(0, 2).join('/') : spec.split('/')[0];
+    return !existsSync(join(depsDir, root));
+  });
+  if (missingIndirect.length > 0) {
+    throw new Error(
+      `间接动态 import 形态引用了这些包，但它们不在 deps/ 里：${missingIndirect.join('、')}。` +
+        '它们在平台运行期会变成 Cannot find package。',
+    );
+  }
+  const allSpecifiers = new Set([...esmSpecifiers, ...cjsSpecifiers]);
   const isEnforceable = (spec) => {
     if (builtinModules.includes(spec)) return false;
     if (spec.startsWith('next/')) return false;
@@ -1579,7 +1714,7 @@ async function verifyFlattenedPackage(fnDir) {
 
   // ---- 3) 在工作区之外建探针目录：node_modules -> deps ----
   // 这条软链模拟「平台剥离 node_modules 后，我们把解析入口接到 deps/」的结果。
-  const probeDir = join(tmpdir(), `edgeone-fn-probe-${process.pid}`);
+  const probeDir = outsideRepoTemp('edgeone-fn-probe', ROOT);
   mkdirSync(probeDir, { recursive: true });
   writeFileSync(
     join(probeDir, 'package.json'),
@@ -1630,10 +1765,32 @@ async function verifyFlattenedPackage(fnDir) {
       [...esmSpecifiers].filter(isEnforceable),
     );
 
+    // ---- 6) 运行期要用的包，入口必须真的存在 ----
+    // 产物里可能残留 opennext 留下的「只有 package.json 的桩目录」：
+    // 版本与 exports 都对，文件却一个没有。上面两把探针查的是
+    // 「产物里有没有引用到这个裸标识符」，查不到「这个包自己装不装得上」——
+    // 而后者才是线上 500 的真凶（@openmaic/storage 的 dist 是空的）。
+    // 这里独立再验一遍：不信任修复，只信结果。
+    const needed = collectNeededPackages(fnDir, ROOT, collectBareSpecifiers);
+    const { listPackageDirs, resolvePackagesRuntime } = await import('./verify-edgeone-deps.mjs');
+    const neededInDeps = listPackageDirs(depsDir).filter((pkg) => needed.has(pkg.name));
+    const statuses = await resolvePackagesRuntime(
+      neededInDeps.map((p) => p.name),
+      depsDir,
+      fnDir,
+    );
+    const brokenPackages =
+      statuses && statuses.error
+        ? []
+        : neededInDeps
+            .map((pkg) => ({ name: pkg.name, status: statuses[pkg.name] }))
+            .filter((item) => item.status && !item.status.ok);
+
     console.log(
       `[prune-edgeone-function] 拍平校验：残留符号链接 0 个，关键模块 ${probe.length - unresolved.length}/${probe.length} 可解析，` +
         `裸标识符 ${allSpecifiers.size} 个（CJS ${cjsSpecifiers.size} / ESM ${esmSpecifiers.size}），` +
-        `ESM 实测失败 ${esmFailures.length} 个`,
+        `ESM 实测失败 ${esmFailures.length} 个，` +
+        `运行期依赖 ${neededInDeps.length} 个、装不上 ${brokenPackages.length} 个`,
     );
 
     if (unresolved.length > 0) {
@@ -1647,6 +1804,23 @@ async function verifyFlattenedPackage(fnDir) {
           'Turbopack 的 externalImport 走的是原生 import(id)，缺了就报 Cannot find package。',
       );
     }
+    if (brokenPackages.length > 0) {
+      // **这里只报告，不中止。**
+      //
+      // 静态闭包是**过近似**：它会把「产物引用到的包」连同它们的**全部**传递依赖
+      // 都算进来，于是 typebox / @smithy/core / @aws-sdk/* 这些**运行期根本不会
+      // 加载**的包也进了集合。把它们逐个实体化要多塞好几 MiB——而函数包有
+      // 128 MiB 硬上限，为了「静态全绿」把包撑爆是本末倒置。
+      //
+      // 真正的判据是**运行期**：仓库外把函数包跑起来，看它到底缺哪个包。
+      // scripts/repair-edgeone-runtime-deps.mjs 用这个反馈驱动来补包，
+      // scripts/verify-edgeone-runtime.mjs 用同一把尺子做门禁。
+      console.log(
+        `[prune-edgeone-function] ⚠ 静态闭包里有 ${brokenPackages.length} 个包入口缺失` +
+          `（${brokenPackages.map((item) => item.name).join('、')}）。` +
+          '它们多数是运行期不会加载的传递依赖；是否需要补，由运行期门禁判定。',
+      );
+    }
   } finally {
     if (previousNodePath === undefined) {
       delete process.env.NODE_PATH;
@@ -1654,7 +1828,11 @@ async function verifyFlattenedPackage(fnDir) {
       process.env.NODE_PATH = previousNodePath;
     }
     Module._initPaths();
-    rmSync(probeDir, { recursive: true, force: true });
+    try {
+      rmSync(probeDir, { recursive: true, force: true });
+    } catch {
+      /* 沙箱可能不允许删仓库外的目录 */
+    }
   }
 }
 
@@ -1709,6 +1887,80 @@ async function verifyEsmImports(fnDir, probeDir, esmSpecifiers) {
 }
 
 /**
+ * 找出用 `Function("specifier","return import(specifier)")` 这种**间接**动态
+ * import 形态加载的包。
+ *
+ * ## 为什么单靠正则不够
+ *
+ * 产物里的真实写法是：
+ *   let r = Function("specifier", "return import(specifier)"), { Pool: s } = await r("pg")
+ * 也就是说**包名是变量调用的实参**（`r("pg")`），不是 `Function(...)(...)` 的
+ * 紧邻字面量。正则 `Function\([^)]*\)\(\s*["']([^"']+)` 打不中它——
+ * 而 `pg` 恰恰是 serverExternalPackages 里最关键的包（Postgres 驱动）。
+ *
+ * ## 两道必要的收敛（否则会误报）
+ *
+ * 1. **就近**：调用必须出现在赋值的**同一语句附近**（Turbopack 的形态就是
+ *    逗号表达式里紧跟着）。否则文件里任何一个叫 `r` 的变量调用都会被算上——
+ *    实测就误报过 `"set-cookie"`（那是 HTTP 头名，不是包）。
+ * 2. **是真实的包**：调用方再按「工作区里确实装了同名包」过滤一次。
+ *
+ * @param {(name: string) => boolean} isKnownPackage 判断某个名字是不是工作区里装着的包
+ */
+function collectFunctionImportSpecifiers(dir, isKnownPackage = () => true) {
+  const candidates = new Set();
+  const chunkCount = new Set();
+  const isPackageName = (value) =>
+    typeof value === 'string' &&
+    value.length > 0 &&
+    !value.includes('${') &&
+    !value.includes('\\') &&
+    !value.startsWith('node:') &&
+    !value.startsWith('.') &&
+    !value.startsWith('/');
+
+  const walk = (current) => {
+    let entries = [];
+    try {
+      entries = readdirSync(current, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const full = join(current, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+        continue;
+      }
+      if (!entry.name.endsWith('.js')) continue;
+      let text = '';
+      try {
+        text = readFileSync(full, 'utf8');
+      } catch {
+        continue;
+      }
+      if (!text.includes('return import(specifier)')) continue;
+      chunkCount.add(full);
+      for (const assign of text.matchAll(
+        /([A-Za-z_$][\w$]*)\s*=\s*Function\(\s*["']specifier["']/g,
+      )) {
+        const varName = assign[1];
+        // 只看赋值之后**就近**的一小段：Turbopack 的形态就在同一语句里。
+        const window = text.slice(assign.index, assign.index + 400);
+        const callPattern = new RegExp(`\\b${varName}\\(\\s*["']([^"']+)["']\\s*\\)`, 'g');
+        for (const call of window.matchAll(callPattern)) {
+          if (isPackageName(call[1]) && isKnownPackage(call[1])) {
+            candidates.add(call[1]);
+          }
+        }
+      }
+    }
+  };
+  walk(dir);
+  return { specifiers: candidates, chunkCount: chunkCount.size };
+}
+
+/**
  * 扫描产物里**真实调用点**上的裸标识符。
  *
  * 匹配源必须打在真正的调用点上：
@@ -1717,12 +1969,14 @@ async function verifyEsmImports(fnDir, probeDir, esmSpecifiers) {
  *   - `.y("x")` —— Turbopack 的 externalImport 调用点
  *     （`.next/server/chunks/[turbopack]_runtime.js` 里
  *      `contextPrototype.y = externalImport`，externalImport 内部执行 `await import(id)`）。
+ *   - `r("x")` —— `Function("specifier","return import(specifier)")` 赋出来的
+ *     那个函数变量上的调用（见 collectFunctionImportSpecifiers）。
  *
  * 早期版本用的是 `externalImport\("..."` 这个正则，它**打不中任何调用点**
  * （产物里根本没有 `externalImport("x")` 这种写法），于是「别名全部可解析」
  * 恒真——门禁形同虚设，缺包照样上线。
  */
-function collectBareSpecifiers(dir) {
+function collectBareSpecifiers(dir, isKnownPackage = () => true) {
   const esm = new Set();
   const cjs = new Set();
   const walk = (current) => {
@@ -1767,7 +2021,11 @@ function collectBareSpecifiers(dir) {
     }
   };
   walk(dir);
-  return { esm, cjs };
+  // 间接动态 import 形态（Turbopack 的 Function("specifier", …) 变量调用）
+  // 同样是 ESM 动态导入，必须进 ESM 集合——否则 pg 这类包根本不会被探针验证。
+  const indirect = collectFunctionImportSpecifiers(dir, isKnownPackage);
+  for (const spec of indirect.specifiers) esm.add(spec);
+  return { esm, cjs, indirect };
 }
 
 /**
