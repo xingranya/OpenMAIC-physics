@@ -22,9 +22,10 @@
  * 一次性检查**，不是 CI 门禁。CI 里的等价防线是 `check-mock-factory-exports`。
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { classifyFixed, failedFiles, fileExistsIn } from './test-baseline-lib.mjs';
 
 const ROOT = process.cwd();
 const args = process.argv.slice(2);
@@ -37,29 +38,7 @@ const argValue = (name, fallback) => {
 const BASELINE = argValue('--baseline', '39d04dd46');
 const SKIP_BASELINE_RUN = args.includes('--skip-baseline-run');
 
-/** 从 vitest 的 JSON 报告里读出失败的测试文件集合。 */
-function failedFiles(reportPath) {
-  if (!existsSync(reportPath)) return null;
-  const report = JSON.parse(readFileSync(reportPath, 'utf8'));
-  const failed = new Set();
-  for (const file of report.testResults ?? []) {
-    // 注意：`??` 与 `?:` 混用会踩优先级坑（`a ?? b ? c : d` 实际是
-    // `(a ?? b) ? c : d`），一旦 status 是非空字符串就会一律判成 'passed'，
-    // 于是失败文件被当成通过。这里显式分支，不依赖运算符优先级。
-    let status = file.status;
-    if (!status) {
-      const results = file.assertionResults ?? [];
-      status =
-        results.length > 0 && results.every((assertion) => assertion.status === 'passed')
-          ? 'passed'
-          : 'failed';
-    }
-    if (status === 'failed') failed.add(file.name.replace(/\\/g, '/'));
-  }
-  return failed;
-}
-
-/** 在某个工作目录里跑一次全量 vitest，返回失败文件集合（相对路径）。 */
+/** 在某个工作目录里跑一次全量 vitest，返回失败文件集合（相对该目录的路径）。 */
 function runVitest(cwd, reportPath) {
   console.log(`  · 跑全量 vitest（${cwd}）……`);
   const result = spawnSync(
@@ -72,13 +51,57 @@ function runVitest(cwd, reportPath) {
     ],
     { cwd, encoding: 'utf8', env: { ...process.env, TMPDIR: process.env.TMPDIR ?? cwd } },
   );
-  const failed = failedFiles(reportPath);
+  const failed = failedFiles(reportPath, cwd);
   if (!failed) {
     console.error('  · vitest 未产出 JSON 报告：');
     console.error((result.stderr || result.stdout || '').slice(0, 800));
     process.exit(1);
   }
   return failed;
+}
+
+/**
+ * 把候选文件**单独再跑一遍**，只留下仍然失败的。
+ *
+ * ## 为什么必须单独再跑
+ *
+ * 全量并发下失败的用例里有一部分是**并发敏感**的（时序断言互相踩）。
+ * 把候选文件单独跑一遍，那些并发放大的失败会通过，剩下的才是
+ * 真正确定性的回归——只有后者才算「本分支引入」。
+ *
+ * ## 这段以前是坏的
+ *
+ * 脚本里这一行原本调用了一个**从未定义**的 `rerunIsolated`，于是每次跑到
+ * 差集那一步就抛 `ReferenceError` 退出——脚本自称是「可复现的逐条对照」，
+ * 实际上从来没有跑出过结论。现在补上实现。
+ */
+function rerunIsolated(cwd, files) {
+  if (files.length === 0) return files;
+  console.log(`  · 差集单独再跑（${files.length} 个文件）……`);
+  const reportPath = join(workDir, 'isolated.json');
+  const result = spawnSync(
+    process.execPath,
+    [
+      join(cwd, 'node_modules', 'vitest', 'vitest.mjs'),
+      'run',
+      ...files,
+      '--reporter=json',
+      `--outputFile=${reportPath}`,
+    ],
+    { cwd, encoding: 'utf8', env: { ...process.env, TMPDIR: process.env.TMPDIR ?? cwd } },
+  );
+  const stillFailing = failedFiles(reportPath, cwd);
+  if (!stillFailing) {
+    console.error('  · 差集重跑未产出 JSON 报告：');
+    console.error((result.stderr || result.stdout || '').slice(0, 800));
+    process.exit(1);
+  }
+  const deterministic = files.filter((file) => stillFailing.has(file));
+  console.log(
+    `  · 差集单独再跑：${deterministic.length} 个仍失败` +
+      `（其余 ${files.length - deterministic.length} 个单独跑通过，属并发敏感）`,
+  );
+  return deterministic;
 }
 
 const workDir = mkdtempSync(join(tmpdir(), 'test-baseline-'));
@@ -129,7 +152,11 @@ try {
   // 并发敏感的文件单独跑会通过，只剩真正确定性的回归。
   const candidates = [...currentFailed].filter((file) => !baseFailed.has(file));
   const introduced = candidates.length > 0 ? rerunIsolated(ROOT, candidates) : candidates;
-  const fixed = [...baseFailed].filter((file) => !currentFailed.has(file));
+  // 「相比基线不再失败」要分两类：**文件已被本分支删掉**（特性整个移除）
+  // 与**文件还在但现在通过了**（真的修好了）。混为一谈会把前者说成「修好的」。
+  const { removed, actuallyFixed } = classifyFixed(baseFailed, currentFailed, (file) =>
+    fileExistsIn(ROOT, file),
+  );
 
   console.log('\n── 结果 ──');
   if (SKIP_BASELINE_RUN) {
@@ -141,7 +168,7 @@ try {
   }
   if (introduced.length > 0) {
     console.log(`❌ 本分支引入的失败文件（${introduced.length} 个）：`);
-    for (const file of introduced) console.log(`  · ${file.replace(`${ROOT}/`, '')}`);
+    for (const file of introduced) console.log(`  · ${file}`);
     console.log(
       '\n  常见成因：给被 mock 的模块**新增了导出**，而上游测试用固定形状的 ' +
         '`vi.mock` 工厂 mock 它 → vitest 抛 `No "X" export is defined on the mock`。\n' +
@@ -152,9 +179,16 @@ try {
   } else {
     console.log('✅ 没有本分支引入的失败文件（与基线一致）。');
   }
-  if (fixed.length > 0) {
-    console.log(`\nℹ️ 相比基线不再失败的文件（${fixed.length} 个，本分支顺手修好的）：`);
-    for (const file of fixed) console.log(`  · ${file.replace(`${baseDir}/`, '')}`);
+  if (actuallyFixed.length > 0) {
+    console.log(`\nℹ️ 相比基线不再失败的文件（${actuallyFixed.length} 个，本分支顺手修好的）：`);
+    for (const file of actuallyFixed) console.log(`  · ${file}`);
+  }
+  if (removed.length > 0) {
+    console.log(
+      `\nℹ️ 基线里失败、本分支**不再有该测试文件**的（${removed.length} 个）：` +
+        '对应特性已整体移除（测试随之删除），不是「修好了」。',
+    );
+    for (const file of removed) console.log(`  · ${file}`);
   }
 
   process.exit(introduced.length > 0 ? 1 : 0);
