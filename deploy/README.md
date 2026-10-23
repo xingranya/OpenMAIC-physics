@@ -127,21 +127,55 @@ corepack 自己的下载也没成功，于是构建第一步就挂。
 解法（任选其一）：
 
 ```bash
-# 方案 1：让 corepack 补齐缓存（需要能访问 npm registry）
-corepack prepare pnpm@10.28.0 --activate
-
-# 方案 2：直取发行包做一个 shim 放到 PATH 最前面（本次实测用的办法）
+# 方案 1：手动把发行包放进 corepack 缓存（需要能访问 npm registry）
+#   注意：corepack 0.34.6 自己的下载在受限环境里走不通——
+#   缓存目录不存在时 installVersion 直接抛 ENOENT（不去下载），
+#   而能下载时又会在清理下载临时文件上撞 EPERM unlink。
+#   所以绕过 corepack，手动解包到它期望的目录即可：
+DEST=~/.cache/node/corepack/v1/pnpm/10.28.0
 curl -sSL -o /tmp/pnpm.tgz https://registry.npmjs.org/pnpm/-/pnpm-10.28.0.tgz
-mkdir -p /tmp/pnpm-pkg && tar -xzf /tmp/pnpm.tgz -C /tmp/pnpm-pkg --exclude='*.idea*' --exclude='.git*'
-mkdir -p /tmp/pnpm-bin
-printf '#!/bin/sh\nexec node /tmp/pnpm-pkg/package/bin/pnpm.cjs "$@"\n' > /tmp/pnpm-bin/pnpm
-chmod +x /tmp/pnpm-bin/pnpm
-export PATH="/tmp/pnpm-bin:$PATH"
+mkdir -p "$DEST"
+tar -xzf /tmp/pnpm.tgz -C "$DEST" --strip-components=1 --exclude='*/.idea/*' --exclude='*/.git*'
+node "$DEST/bin/pnpm.cjs" --version   # 应输出 10.28.0
+```
+
+```bash
+# 方案 2：装成持久可用的全局 pnpm（本次实测最终采用的办法）
+#   落点是 ~/.local/share/pnpm/，**不放 /tmp**：受限文件系统里 /tmp 下的
+#   文件删不掉、下一轮会话就失效；~/.local/bin 本来就在 PATH 里且排在
+#   /usr/local/bin（corepack 壳）前面，垫片放这里可以直接盖掉 corepack。
+PNPM_DIR="$HOME/.local/share/pnpm/10.28.0"
+mkdir -p "$PNPM_DIR"
+curl -sSL -o /tmp/pnpm.tgz https://registry.npmjs.org/pnpm/-/pnpm-10.28.0.tgz
+tar -xzf /tmp/pnpm.tgz -C "$PNPM_DIR" --strip-components=1 --exclude='*/.idea/*' --exclude='*/.git*'
+cat > "$HOME/.local/bin/pnpm" <<'SH'
+#!/bin/sh
+# 绕过 corepack：corepack 0.34.6 在受限环境里下载 pnpm 会卡在
+# "Corepack is about to download ..." 然后抛 EPERM unlink。
+set -e
+CACHE="$HOME/.cache/node/corepack/v1/pnpm"
+DEFAULT="$HOME/.local/share/pnpm/10.28.0"
+want=""
+if [ -f package.json ]; then
+  want=$(node -p "try{require('./package.json').packageManager||''}catch(e){''}" 2>/dev/null \
+         | sed -n 's/^pnpm@\([0-9][^:+]*\).*/\1/p')
+fi
+if [ -n "$want" ] && [ -f "$CACHE/$want/bin/pnpm.cjs" ]; then
+  exec node "$CACHE/$want/bin/pnpm.cjs" "$@"
+fi
+exec node "$DEFAULT/bin/pnpm.cjs" "$@"
+SH
+chmod +x "$HOME/.local/bin/pnpm"
+hash -r 2>/dev/null || true
 pnpm --version   # 应输出 10.28.0
 ```
 
-> 注意方案 2 里 `--exclude='*.idea*'`：pnpm 发行包里带 `.idea` 目录，
+> 注意 `--exclude='*/.idea/*'`：pnpm 发行包里带 `.idea` 目录，
 > 某些受限文件系统不允许创建其中的文件，不排除会让 `tar` 中途报错。
+>
+> 验证方式要覆盖真实用法，不能只看 `--version`：
+> `pnpm exec tsc --version`（能跑本地二进制）与 `pnpm -r list --depth -1`
+> （能识别 workspace）都要正常——corepack 壳在下载失败时正是这两类命令先挂。
 
 #### 路径 B：Git 导入（控制台）
 
@@ -695,7 +729,7 @@ Cookie 形态：<毫秒时间戳>.<HMAC-SHA256(时间戳, ACCESS_CODE) 的小写
 | --- | --- | --- | --- |
 | **函数运行时版本** | **Nodejs20.19**，由平台固定，改不动 | 控制台「项目设置 → Node.js 版本」与 `edgeone.json` 的 `nodeVersion` 都设成 `24.5.0`，构建日志也确实是 `v24.5.0`，但函数运行时仍显示 `Nodejs20.19` | 产物里的 `engines.node` 应当**匹配平台实际提供的运行时**。仓库 `package.json` 写的是上游要求的 `>=22.19.0`，平台上没有满足它的运行时，平台可能在拉起阶段直接拒收。本项目把**产物副本**放宽到 `>=20.19.0`（仓库里的不动）。⚠️ 注意：仓库里 `@earendil-works/pi-ai` / `pi-agent-core` 自报 `>=22.19.0`、`svg-pathdata` 自报 `>=22.16.0`，在 Node 20.19 上属**未声明支持**，涉及 AI 助教与导出路径时需留意 |
 | **云函数包体积** | 解包后 ≤ **128 MiB** | 直接 deploy 是 295.1 MiB，裁剪+拍平+依赖实体化后 116.5 MiB | 超限平台拒收（错误码 30），见 §8.1d / §8.1e |
-| **函数地域** | 中国站账号下**必须保留 1 个大陆地域** | `edgeone.json` 的 `cloudFunctions.regions.overseas` 只会**新增**海外节点；`mainland: []` 会被平台改写 | 部署 MetaData 的 `actualRegions` 恒为 `{mainland: ap-guangzhou, overseas: ap-singapore}`，而 `conf.cloudFunctions.regions` 里确实是 `{"mainland": []}` —— **配置到了，平台改写**（详见 §8.1f-1） |
+| **函数地域** | **跟随加速区域**：本项目 `Area: "overseas"` → 部署 MetaData 的 `actualRegions` = `{"overseas": "ap-singapore"}`，**无大陆节点**；旧的「含大陆」项目（`Area: "global"`）才是 `{mainland: ap-guangzhou, overseas: ap-singapore}` | `edgeone.json` 的 `cloudFunctions.regions.overseas` 只会**新增**海外节点；`mainland: []` 不会凭空长出大陆节点 | 部署 MetaData 的 `actualRegions` **实测**为 `{"overseas": "ap-singapore"}`（**无 mainland 节点**）—— 大陆节点来自**加速区域**，不是平台强改（详见 §8.1f-1） |
 | **预设域名访问保护** | `*.edgeone.cool` 需带 `eo_token` | 仓库里没有这个概念 | 不带令牌的请求会拿到**平台自己的 401 页面**（不是应用的 401）；CLI 部署成功时打印的地址带 `?eo_token=…&eo_time=…`，绑定自定义域名后不再需要 |
 
 **⇒ 产物 `engines.node` 为什么必须改**：仓库 `package.json` 写的是上游 OpenMAIC 的
@@ -782,6 +816,57 @@ CNAME 已下发），API 侧 `DescribePagesProjects` 也能看到
   `feature/physics-ai-classroom`），便于分发与协作；
 - **部署**走本地 CLI：先在本地裁剪出合规的函数包，再上传
   （`node scripts/deploy-edgeone.mjs`，脚本会先核对项目的加速区域）。
+
+### 8.1i 产物里的「桩包」与**仓库外**运行时门禁（线上空体 500 的真正根因）
+
+这一条是**本地永远复现不出来**的那类故障，代价是线上 15 条 API 路由返回**空体 500**
+（`/api/stages*`、`/api/folders*`、`/api/classroom`、`/api/agent/*`、
+`/api/chat/pi`、`/api/extract-document`、`/api/parse-pdf`），其余路由正常。
+
+**根因**：EdgeOne 的构建产物里，有些包只是**一个桩目录**——版本号、`exports`
+都对，但里面除 `package.json` 什么都没有（`@openmaic/storage` 的 `dist/` 是**空目录**，
+`nanoid` / `openai` / `yaml` 等只剩 manifest）。平台部署时会剥离 `node_modules`，
+运行时全靠我们把 `deps/` 挂进 `NODE_PATH` 与 ESM 解析钩子——桩目录到了平台上
+就是 `Cannot find package`，表现为**空体 500**。
+
+**为什么本地一直全绿**（这一条最关键）：探针目录用 `os.tmpdir()`，
+而受限环境里 `TMPDIR` 常常被指到**仓库内**的临时目录（本项目就曾把
+`TMPDIR` 设成 `<repo>/.tmp`）。于是「仓库外的探针」其实**一直在仓库内**，
+Node 沿父目录向上两步就找到仓库根的 `node_modules`，把产物里缺失的文件全给补上了。
+这不是偶发，是**长期**的假绿。
+
+**修法（两件事，缺一不可）**：
+
+1. **探针目录显式保证在仓库之外**：`scripts/edgeone-temp.mjs` 的 `outsideRepoTemp()`
+   会逐个候选目录校验「不在仓库内」，仓库内的直接跳过（`TMPDIR` 指到仓库内也照绕）。
+2. **按运行期反馈补包**：把函数包挪到仓库外**真的跑起来**，看它到底缺哪个包，
+   补完再跑，直到不再缺——而不是靠静态闭包猜。
+
+```bash
+node scripts/repair-edgeone-runtime-deps.mjs   # 运行期反馈补包（多轮直到不缺）
+node scripts/verify-edgeone-runtime.mjs        # 仓库外运行时门禁：打全部 79 条路由
+```
+
+**为什么不用静态闭包**：静态闭包（产物引用的包 + 它们的**全部**传递依赖）是
+**过近似**——它会把 `typebox` / `@smithy/core` / `@aws-sdk/*` 这些
+**运行期根本不加载**的包也算进来。实测把它们逐个实体化要多塞好几 MiB，
+而函数包有 128 MiB 硬上限；按运行期反馈补，只需要 4 个包 / 1.4 MiB。
+
+**门的判定口径**（`verify-edgeone-runtime.mjs`）：
+
+- 全部路由探一遍，**任何 5xx（除 501）都算失败**；
+- 子进程 stderr 里的 `Failed to load external module` 逐类归因：
+  - `Cannot find package 'x'` / `Cannot find module '…/deps/x/…'` → 缺包，要补；
+  - `Could not load the "sharp" module using the darwin-arm64 runtime` →
+    **平台原生差异**（产物带 linux-x64 原生库，本机是 macOS），不算失败。
+    这类差异**逐请求归因**（只看该请求自己产生的 stderr），
+    否则会把别的路由的报错算到当前路由头上。
+
+**实测**：修完之后，仓库外跑 79 条路由 → `200×16 307×1 400×1 404×21 405×36 500×2 501×2`，
+其中 2 条 500 已归因为 sharp 的 macOS 差异（平台上 linux-x64 正常）。
+
+> **体积口径补充**：丢掉 source map（496 个文件 / 5.8 MiB，运行期不用）后，
+> 裁剪结果是 **295.2 MiB → 123.0 MiB**，补包后 **124.4 MiB**（上限 128 MiB）。
 
 ## 9. EdgeOne Makers 平台能力速查（2026-06 官方文档）
 
