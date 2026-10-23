@@ -50,7 +50,6 @@ const GUARDED_PATHS = [
   'packages/@openmaic/storage/src/probe',
   'packages/@openmaic/generation/src/probe',
   'lib/choreography/probe',
-  'lib/video-export/probe',
   'scripts/probe',
 ] as const;
 

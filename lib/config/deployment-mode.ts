@@ -68,6 +68,13 @@ export function checkDeploymentConfig(mode?: DeploymentMode): DeploymentCheck {
         '边缘部署不应开启 OPENMAIC_AGENT_RUNTIME_ENABLED：后台 Agent runner 需要常驻进程。',
       );
     }
+    if (process.env.NEXT_PUBLIC_PERSISTENCE === '1') {
+      problems.push(
+        '边缘部署不应开启 NEXT_PUBLIC_PERSISTENCE：该开关让浏览器端把课程与学生记录' +
+          '指向 /api/persistence，而本项目是「无数据库」形态、该路由已删除——' +
+          '设了它客户端会静默 404，现场表现为「导入后什么都没有」。',
+      );
+    }
   }
 
   if (problems.length === 0) return { ok: true };

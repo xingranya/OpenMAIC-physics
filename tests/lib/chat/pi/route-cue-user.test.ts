@@ -47,10 +47,6 @@ vi.mock('@/lib/ai/providers', async (importOriginal) => {
   };
 });
 
-vi.mock('@/lib/live-mode', () => ({
-  isLiveMode: false,
-}));
-
 vi.mock('@/lib/agent/runtime/stream-fn', () => ({
   createCallLlmStreamFn: mocks.createCallLlmStreamFn,
 }));

@@ -14,13 +14,6 @@ vi.mock('@/lib/media/fetch-media-url', () => ({
 vi.mock('@/lib/utils/database', () => ({
   db: { audioFiles: { get: vi.fn() } },
 }));
-vi.mock('@/lib/media/convert-legacy-asset-refs', () => ({
-  mapWithConcurrency: async (
-    items: unknown[],
-    _limit: number,
-    fn: (item: unknown, index: number) => Promise<unknown>,
-  ) => Promise.all(items.map((item, index) => fn(item, index))),
-}));
 vi.mock('@/lib/media/resolve-audio-bytes', () => ({ resolveAudioBlob: resolveAudioBlobMock }));
 vi.mock('@/lib/media/use-asset-url', () => ({ withAssetUrl: vi.fn() }));
 vi.mock('@/lib/media/resolve-media-ref', () => ({ isConcreteMediaAddress: vi.fn() }));
