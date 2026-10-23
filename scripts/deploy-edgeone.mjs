@@ -41,7 +41,21 @@ import path, { join } from 'node:path';
 const ROOT = process.cwd();
 const EDGEONE_DIR = join(ROOT, '.edgeone');
 const STAGE_DIR = join(ROOT, '.tmp', 'edgeone-stage');
-const PROJECT_NAME = process.env.EDGEONE_PROJECT_NAME || 'physics-ai-classroom';
+const PROJECT_NAME = process.env.EDGEONE_PROJECT_NAME || 'physics-ai-classroom-global';
+/**
+ * **加速区域**（项目级，决定静态资源与函数落在哪套可用区）。
+ *
+ * 实测（2026-10-23，控制台项目列表 + DescribePagesProjects 逐字段对比）：
+ *   - `Area: "global"`   → 控制台显示「全球可用区（**含**中国大陆）」→ 函数默认落 ap-guangzhou
+ *   - `Area: "overseas"` → 控制台显示「全球可用区（**不含**中国大陆）」→ 函数落 ap-singapore，**无大陆节点**
+ *
+ * 而 EdgeOne CLI 建项目时**写死** `CreatePagesProject {Area: "global"}`，
+ * 也就是「含中国大陆」的那一档——所以 CLI 单独建出来的项目永远带大陆节点。
+ * 本项目要「零大陆节点 + 自定义域名免 ICP 备案」，必须用 API 显式建
+ * `Area: "overseas"` 的项目（见 ensureOverseasProject）。
+ */
+const PROJECT_AREA = process.env.EDGEONE_PROJECT_AREA || 'overseas';
+/** CLI 的 API 区域参数（决定打哪个 API 端点，与上面的加速区域是两回事）。 */
 const AREA = process.env.EDGEONE_AREA || 'global';
 const DRY_RUN = process.argv.includes('--dry-run');
 const SKIP_BUILD = process.argv.includes('--skip-build');
@@ -275,8 +289,68 @@ if (DRY_RUN) {
   process.exit(0);
 }
 
+/**
+ * 确保目标项目存在，且**加速区域**是「全球可用区（不含中国大陆）」。
+ *
+ * 为什么必须自己做这件事：
+ *   - EdgeOne CLI 建项目时写死 `CreatePagesProject {Area: "global"}`，
+ *     那一档在控制台显示为「全球可用区（**含**中国大陆）」，
+ *     函数会默认落 ap-guangzhou（实测 actualRegions），自定义域名也被 ICP 备案拦住；
+ *   - 加速区域**项目创建后不能更改**，只能删了重建；
+ *   - 所以这里显式用 API 建 `Area: "overseas"` 的项目，并在部署前核对，
+ *     防止「项目被误建/被改成含大陆」后我们毫无察觉地继续部署。
+ */
+async function ensureOverseasProject() {
+  const token = process.env.EDGEONE_PAGES_API_TOKEN;
+  if (!token) {
+    console.log(
+      '[deploy-edgeone] 未提供 EDGEONE_PAGES_API_TOKEN，跳过项目加速区域核对（沿用已有项目）',
+    );
+    return null;
+  }
+  const api = process.env.EDGEONE_PAGES_API || 'https://pages-api.cloud.tencent.com/v1';
+  const call = async (action, data) => {
+    const response = await fetch(api, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ Action: action, ...data }),
+    });
+    const json = await response.json();
+    const error = json?.Data?.Response?.Error;
+    if (error) throw new Error(`${action} 失败：${error.Code} ${error.Message}`);
+    return json?.Data?.Response ?? json?.Response ?? json;
+  };
+
+  const listed = await call('DescribePagesProjects', { PageNumber: 1, PageSize: 50 });
+  let project = (listed?.Projects || []).find((item) => item.Name === PROJECT_NAME);
+  if (!project) {
+    const created = await call('CreatePagesProject', {
+      Name: PROJECT_NAME,
+      Provider: 'Upload',
+      Channel: 'Custom',
+      Area: PROJECT_AREA,
+      Source: 'cli',
+    });
+    project = { Name: PROJECT_NAME, ProjectId: created.ProjectId, Area: PROJECT_AREA };
+    console.log(
+      `[deploy-edgeone] 已创建项目 ${PROJECT_NAME}（加速区域 ${PROJECT_AREA}，ID ${created.ProjectId}）`,
+    );
+  }
+  if (project.Area !== PROJECT_AREA) {
+    throw new Error(
+      `项目 ${PROJECT_NAME} 的加速区域是 ${project.Area}` +
+        `（${project.Area === 'global' ? '全球可用区（含中国大陆）' : '未知'}），` +
+        `而本项目要求 ${PROJECT_AREA}（全球可用区（不含中国大陆））。` +
+        '加速区域在项目创建后不能更改，请删除该项目重建，或用 EDGEONE_PROJECT_NAME 换一个项目。',
+    );
+  }
+  console.log(`[deploy-edgeone] 项目 ${PROJECT_NAME} 加速区域 = ${project.Area}（无大陆节点）✔`);
+  return project;
+}
+
 // ---------------------------------------------------------------- 3. 部署
 console.log('\n=== 3/3 部署到生产环境 ===');
+await ensureOverseasProject();
 mkdirSync(STAGE_DIR, { recursive: true });
 // CLI 判定「目录里只有 .edgeone」时会跳过本地构建，直接上传既有产物。
 if (existsSync(join(STAGE_DIR, '.edgeone'))) {

@@ -113,9 +113,10 @@ edgeone makers deploy .tmp/edgeone-stage -n <项目名> -e production --area glo
 | `edgeone whoami` | 账号 100043806721 / APPID 1374239834（登录态可用） |
 | `edgeone makers deploy -n physics-ai-classroom -e preview` | 报错：需先创建 production 部署 |
 | `edgeone makers deploy -n physics-ai-classroom -e production` | 报错：`pnpm install` 失败——corepack 缓存里没有 `pnpm@10.28.0`（`ENOENT: stat ~/.cache/node/corepack/v1/pnpm/10.28.0`） |
-| `node scripts/deploy-edgeone.mjs` | **部署成功**：`https://physics-ai-classroom-kchmficm.edgeone.cool`，部署 ID `dpj9dfq4v6mv`，函数包 116.5 MiB（上限 128 MiB） |
+| `node scripts/deploy-edgeone.mjs` | **部署成功**：项目 `physics-ai-classroom-global`（ID `makers-kru2xpkwfs7q`，加速区域 `Area: "overseas"`＝全球可用区**不含**中国大陆），预设域 `https://physics-ai-classroom-global-rvroompq.edgeone.dev`，部署 ID `dpzc0puxeiwq`，函数包 116.5 MiB（上限 128 MiB）；自定义域名 `dun.xran.uk` 已绑定 |
 | 线上静态页（`/physics/overview` 等 SSG 路由） | HTTP 200，首屏标题「大学物理 AI 智慧课堂 · 长江大学文理学院」 |
 | 线上动态路由（`/api/health`、`/physics/overview`、`/teacher/dashboard` 等 SSR 路由） | **HTTP 200**（修复前是 502 / 500），根因与修法见 §8.1e；线上自检 `node scripts/check-physics-e2e.mjs --base-url <地址> --access-code <码>` **24 / 24 通过** |
+| 函数落点 | `actualRegions = {"overseas": "ap-singapore"}` —— **无大陆节点**；旧项目（含大陆）已按「删除重建」要求删除 |
 
 **坑：corepack 缓存缺失导致 `pnpm install` 跑不起来**
 
@@ -712,210 +713,75 @@ Cookie 形态：<毫秒时间戳>.<HMAC-SHA256(时间戳, ACCESS_CODE) 的小写
 
 这是本项目在「不要中国大陆节点」这件事上绕得最久的一处认知偏差，结论如下：
 
-| 概念 | 平台字段 | 本项目现状 | 说明 |
+| 概念 | 平台字段 | 取值与含义 | 本项目现状 |
 | --- | --- | --- | --- |
-| **加速区域**（静态资源/产品域） | 项目 `Area` | **`"global"`** ✔ | 「全球可用区（不含中国大陆）」——**已经满足**。CLI 建项目时固定发 `CreatePagesProject {Area:"global"}`，仓库里改不了 |
-| **函数地域**（SCF 部署节点） | 部署 MetaData 的 `actualRegions` | `{mainland: ap-guangzhou, overseas: ap-singapore}` | `ap-guangzhou` 是**中国站账号**下的 SCF 默认落点，与 `Area` 无关 |
+| **加速区域**（项目级，决定静态资源与函数落在哪套可用区） | 项目 `Area` | `"global"` = 全球可用区（**含**中国大陆）；`"overseas"` = 全球可用区（**不含**中国大陆） | **`"overseas"`** ✔（零大陆节点） |
+| **函数地域**（SCF 部署节点） | 部署 MetaData 的 `actualRegions` | 跟随加速区域 | `{"overseas": "ap-singapore"}` ✔ |
 
 **实测证据链**：
 
-1. `DescribePagesProjects` 返回 `Area: "global"`、`Regions: {}` —— 加速区域本来就是全球；
-2. 部署 MetaData 里 `conf.cloudFunctions.regions = {"mainland": [], "overseas": ["ap-singapore"]}`
-   —— **我们的配置确实到了平台**，但 `actualRegions` 仍被加上 `ap-guangzhou`（平台改写）；
-3. 控制台「项目设置 → 函数管理 → 函数地域」实测：点「上海」能选中、点「广州」能取消
-   （说明点击生效），但**大陆组始终保留恰好 1 个地域**，无法清空 —— 与第 2 点互相印证；
-4. CLI 内部把区域映射写死为
-   `global → https://pages-api.edgeone.ai/v1`（国际站）、`china → https://pages-api.cloud.tencent.com/v1`（中国站），
-   默认函数地域 `global → ap-singapore`、`china → ap-guangzhou`；
-5. 中国站令牌打国际站 API 会直接被拒：
-   `{"Code":109,"Message":"The Token usage region is incorrect."}`。
+1. `DescribePagesProjects` 逐字段对比两个项目：旧的 `physics-ai-classroom`
+   是 `Area: "global"`，控制台列表标注「全球可用区（**含**中国大陆）」；
+   新建的 `physics-ai-classroom-global` 是 `Area: "overseas"`，
+   标注「全球可用区（**不含**中国大陆）」；
+2. 部署 MetaData：旧项目 `actualRegions = {mainland: ap-guangzhou, overseas: ap-singapore}`，
+   新项目 `actualRegions = {overseas: ap-singapore}` —— **大陆节点消失**；
+3. 控制台「项目设置 → 函数管理 → 函数地域」里**大陆组必须保留至少一个地域**
+   （实测点「上海」能选中、点「广州」能取消，但大陆组清不掉）——
+   这与中国站账号的默认落点有关，与加速区域是两码事；
+4. **EdgeOne CLI 建项目时写死 `CreatePagesProject {Area: "global"}`**（CLI 内部常量
+   `Wy = {global: pages-api.edgeone.ai, china: pages-api.cloud.tencent.com}`
+   里的 "global" 指的是 **API 端点**，和项目的 `Area` 字段**不是同一个概念**，
+   极易搞混）——所以**只用 CLI 建项目，永远落在「含中国大陆」那一档**；
+5. 控制台的「创建项目 → 直接上传 / 导入 Git 仓库」向导里都有**加速区域**下拉，
+   选「全球可用区（不含中国大陆）」时，平台写的就是 `Area: "overseas"`；
+6. `CreatePagesProject` 也可以直接用 API 建 `Area: "overseas"` 的项目
+   （本项目现在就是这么建的，见 `scripts/deploy-edgeone.mjs` 的 `ensureOverseasProject`）。
 
-**⇒ 结论**：在**中国站账号**下，无论怎么配 `edgeone.json`、怎么在控制台点，
-大陆组都会被强制留下至少一个节点，**唯一能拿到「零大陆节点」的办法是把项目建在国际站**
-（国际站默认函数地域 `ap-singapore`，且自定义域名不要求 ICP 备案）。
-操作见 §8.1h。
+**⇒ 结论**：「零大陆节点 + 自定义域名免 ICP 备案」**不需要国际站**，
+只需要**在腾讯云中国站新建一个 `Area: "overseas"` 的项目**。
+自定义域名的 ICP 拦截随之消失（实测：`dun.xran.uk` 在不含大陆的项目上
+可以正常走完「添加自定义域名 → 下一步」，中国区项目则被
+「检测到当前域名未在工信部备案」直接拦下）。
 
-### 8.1g 自定义域名绑定（控制台操作）
+> ⚠️ 旧的 `physics-ai-classroom`（`Area: "global"`）已按「删除重建」的要求删除，
+> 现存项目只有 `physics-ai-classroom-global`（`Area: "overseas"`）。
 
-```bash
-# 1) 绑定：控制台 → 项目 → 域名管理 → 添加自定义域名 → 填 dun.xran.uk
-# 2) 按控制台提示，在 dun.xran.uk 的 DNS 上加：
-#      CNAME  dun  →  physics-ai-classroom-kchmficm.edgeone.cool
-#      （以及控制台给出的 TXT 归属校验记录）
-# 3) 等控制台把该域名状态从「待配置」变成「已生效」，再开 HTTPS 证书
-```
+### 8.1h 自定义域名绑定（`dun.xran.uk`）
 
-命令行只能改项目级设置，**自定义域名必须在控制台加**：Pages 的公开 API 没有暴露
-新增自定义域名的 action（`ModifyPagesProject` 带 `CustomDomains` 会被接受但不写入）。
-
-⚠️ **中国区产品要求域名已完成 ICP 备案**。控制台在填写 `dun.xran.uk` 时会直接提示
-「检测到当前域名未在工信部备案，将无法被顺利添加」，「下一步」不会推进到 DNS 配置步骤。
-这与「函数地域必须保留广州节点」是同一套约束：**中国区 Pages 产品默认带大陆节点，
-大陆节点与自定义域名都受备案约束**。
-
-**要让 `dun.xran.uk` 可用，只能走国际站产品**（见 §8.1h）：国际站没有大陆节点，
-自定义域名也不要求备案。
-
-### 8.2 静态质量门槛
+**前提**：项目必须建在**加速区域 = 全球可用区（不含中国大陆）**（`Area: "overseas"`），
+否则中国区产品会按 ICP 备案拦截（见 §8.1f-1）。
 
 ```bash
-node scripts/typecheck.mjs              # 退出码 0（且会原样还原 next-env.d.ts）
-./node_modules/.bin/eslint --quiet      # 退出码 0
-./node_modules/.bin/vitest run tests/physics/   # 全绿
-node scripts/check-physics-domain-purity.mjs   # 分层门禁
-node scripts/check-doc-metrics.mjs            # 参赛材料自引数字与实现一致
+# 1) 控制台 → 项目 → 域名管理 → 添加自定义域名 → 填 dun.xran.uk
+#    → 关联环境选「生产」→ 下一步
+#    （在 Area=overseas 的项目上，这一步**不再**弹「未在工信部备案」）
+# 2) 按控制台给出的记录，在 dun.xran.uk 的 DNS 上加：
+#      CNAME  dun  →  dun.xran.uk.pages.dnsoe6.com
+#    本项目的域名托管在 Cloudflare（NS: benedict/donna.ns.cloudflare.com），
+#    记录请加在 Cloudflare 的 DNS 里，且选「仅 DNS（灰色云）」（不要代理）
+# 3) 等控制台把该域名状态从「部署中」变成「已生效」，再开 HTTPS 证书
 ```
 
-模型供给自检（**在 EdgeOne 控制台拿到 Makers Key 之后跑**）：
+**实测**：域名在 `Area: "overseas"` 的项目上绑定成功（控制台状态「部署中」，
+CNAME 已下发），API 侧 `DescribePagesProjects` 也能看到
+`CustomDomains: [{"Domain": "dun.xran.uk"}]`。
 
-```bash
-MAKERS_MODELS_KEY=<your-key> node scripts/check-makers-models.mjs
-# 输出当前账号可用的模型 id，以及可直接粘进控制台的 DEFAULT_MODEL
-```
+**为什么命令行改不了**（实测两次）：`ModifyPagesProject` 带 `CustomDomains`
+会返回 `Code 0`，但再查项目 `CustomDomains` 仍是 `[]`——平台**静默丢弃**，
+自定义域名只能在控制台加。
 
-这条命令直接解决"配了 Key 却说没有可用模型"：它会告诉你网关到底返回了哪些模型，
-以及 `DEFAULT_MODEL` 应该写成什么形式（必须带 `openai:` 前缀）。
+**Git 导入路径为什么不能用来部署**（实测）：控制台的「导入 Git 仓库」也会走
+平台自己的构建流水线，而**本项目的函数包后处理必须在适配器打包之后**做
+（`deps` 改名、ESM 解析钩子、访问码门禁都改在**函数包入口**上，
+平台构建时那个入口还不存在）。实测用 Git 导入新建的项目，
+平台构建出的云函数包**超过 128 MiB 上限**（未裁剪约 295 MiB），
+部署直接失败。因此：
 
-### 8.3 口令门禁的本地形态
-
-本地 `next start` 也是 `NODE_ENV=production`，口令 Cookie 会带 `Secure`，
-http 下浏览器不回传 → 一直卡在口令弹窗。本地演示请显式开：
-
-```bash
-ALLOW_INSECURE_ACCESS_COOKIE=1 EDGEONE=1 ./node_modules/.bin/next start -p 3434
-```
-
-**生产环境绝对不要设置这个变量**——设了它，口令票据就能在明文 http 上传输。
-
-### 8.4 两条容易踩的坑（症状不同，别混为一谈）
-
-1. **重建后要重启服务**。运行中的 `next start` 持有旧的 build-manifest，
-   `.next` 被就地重建后，它返回的 HTML 会引用磁盘上已不存在的 chunk →
-   chunk 拉不到 → React 不水合 → **页面文字正常但所有按钮静默失效**。
-   识别办法：比对 BUILD_ID（§8.0），自检脚本已内建这一项。
-2. **构建与运行要看到同一份环境变量**。只在一侧配 `EDGEONE=1` 时，
-   运行期会按 standalone 处理非 standalone 产物，静态资源路由异常，
-   表现为**路由 404 或静态资源缺失**——不是 chunk 500。
-   （我们用对照实验确认过：同一份产物只改运行期判定值时，两种形态的
-   44 个客户端 chunk 全部 200。）
-
-### 8.5 清理残留的本地服务进程（现场演示前必做）
-
-反复调试会在本机留下一堆 `next start` 进程。它们不只是占端口，还会让验证
-**测到错误的实例**：
-
-| 残留类型 | 危害 |
-| --- | --- |
-| 指向**旧构建**的 `next start` | 返回的 HTML 引用已被新构建删除的 chunk → React 不水合 → **页面文字正常但按钮全哑**（§8.4 第 1 条） |
-| 改了 `BUILD_ID` 响应头的代理 | 自检脚本的「BUILD_ID 与目标产物一致」会**误判通过**，掩盖真实的版本不一致 |
-| 启用了 `ACCESS_CODE` 的实例 | 口令已知且会留在 shell 历史里；也容易让人误以为线上就是这个口令 |
-| 占用同一端口的旧实例 | 新实例起不来，验证其实跑在老代码上 |
-
-仓库自带清理脚本（**默认 dry-run**，只列不动手；要真结束必须显式 `--yes`）：
-
-```bash
-# 1) 看看有哪些属于本仓库的残留进程
-node scripts/cleanup-local-dev.mjs
-
-# 2) 确认无误后结束（只处理 cwd 在本仓库内的 node 进程，不碰别的项目）
-node scripts/cleanup-local-dev.mjs --yes
-
-# 只处理某个端口
-node scripts/cleanup-local-dev.mjs --port 3540 --yes
-```
-
-手工清理的话：
-
-```bash
-# 1) 看看有哪些 node 进程在监听端口
-lsof -nP -iTCP -sTCP:LISTEN | grep node
-
-# 2) 逐个结束（先确认 PID 对应的是本项目的 next start 再动手）
-kill <PID>
-
-# 3) 确认已清干净
-lsof -nP -iTCP -sTCP:LISTEN | grep node || echo "已清空"
-```
-
-> 演示前请只保留**一个**实例，并确认它是用**当次构建产物**启动的：
-> `node scripts/check-physics-e2e.mjs --base-url http://127.0.0.1:<端口>` 里的
-> 「BUILD_ID 与目标产物一致」必须通过。
-
----
-
-### 8.1h 中国区 vs 国际站：为什么「不含中国大陆」必须换产品（不是改配置）
-
-EdgeOne Pages 是**两个独立产品**，由**不同的 API 域名**区分，账号体系相同但
-**令牌按区域隔离**：
-
-| | 中国区 | 国际站 |
-| --- | --- | --- |
-| Pages API | `https://pages-api.cloud.tencent.com/v1` | `https://pages-api.edgeone.ai/v1` |
-| 控制台 | `console.cloud.tencent.com/edgeone/makers` | `console.tencentcloud.com/edgeone/makers` |
-| **令牌区域**（`~/.edgeone` 的 `login_region`） | `china` | `global` |
-| 默认函数地域 | **ap-guangzhou（广州，大陆）** | **ap-singapore（新加坡，无大陆）** |
-| 自定义域名 | 要求 **ICP 备案** | 不要求备案 |
-
-**关键：区域由「令牌」决定，不是由 `--area` 参数决定**（这一点很容易搞反，
-CLI 内部常量实测如下）：
-
-```
-API 基址：  global → https://pages-api.edgeone.ai/v1      china → https://pages-api.cloud.tencent.com/v1
-默认地域：  global → ap-singapore                          china  → ap-guangzhou
-控制台：    global → console.tencentcloud.com              china  → console.cloud.tencent.com
-```
-
-CLI 的 `--area` 只影响**候选基址与控制台跳转**；**令牌区域不匹配时 API 会直接拒绝**：
-
-```bash
-# 中国区令牌打国际站 API：
-$ curl -s -X POST https://pages-api.edgeone.ai/v1 -H "Authorization: Bearer <china-token>" \
-    -H 'Content-Type: application/json' -d '{"Action":"DescribePagesProjects"}'
-{"Code":109,"Message":"The Token usage region is incorrect.","RequestId":"4fe46de1-…"}
-```
-
-⇒ **想走国际站，必须用国际站账号登录拿令牌**：
-
-```bash
-edgeone switch --site global
-# 浏览器会打开 https://edgeone.ai/login?s_url=…（国际站是**独立账号体系**，
-# 中国区的腾讯云登录态**不通用**；登录成功后 ~/.edgeone 的 login_region 会变成 global）
-```
-
-**为什么「函数地域不含大陆」在配置层面做不到**（实测，详见 §8.1f-1）：
-
-- 部署 MetaData 的 `conf.cloudFunctions.regions` 里确实是 `{"mainland": []}`，
-  但平台**强制回写一个大陆节点**：
-  `actualRegions = { "mainland": "ap-guangzhou", "overseas": "ap-singapore" }`；
-- 控制台「项目设置 → 函数管理 → 函数地域」里能改大陆节点的**具体城市**
-  （广州/上海/南京/北京/成都，实测点击生效），但**大陆组始终保留恰好 1 个**，
-  **无法清空**。
-
-**自定义域名同理**（实测）：
-
-- 控制台「域名管理 → 添加自定义域名 → 填 `dun.xran.uk`」→ 环境选「生产」→
-  点「下一步」，弹出「**检测到当前域名未在工信部备案，将无法被顺利添加。备案指引**」，
-  流程**不推进**到 DNS 配置步骤；
-- 绕过后端也不通：`ModifyPagesProject` 带 `CustomDomains:["dun.xran.uk"]`
-  返回 `Code 0`，但再查项目，**`CustomDomains` 仍然是 `[]`**——平台静默丢弃。
-
-**⇒ 结论**：要同时满足「零大陆节点」+「自定义域名免备案」，只能把项目建在
-**国际站产品**上。拿到国际站令牌后的完整步骤：
-
-```bash
-# 1) 国际站登录（令牌区域变 global）
-edgeone switch --site global
-
-# 2) 删掉中国区的旧项目（可选：新旧两个项目并存即可，旧项目确认无用后再删）
-#    控制台 → 项目概览 → 删除项目
-
-# 3) 用国际站令牌新建项目并部署（CLI 建项目时固定发 CreatePagesProject {Area:"global"}，
-#    新项目的默认函数地域就是 ap-singapore，无大陆节点）
-edgeone makers deploy . -n physics-ai-classroom -e production
-
-# 4) 控制台（国际站）→ 域名管理 → 添加自定义域名 → dun.xran.uk
-#    → 按提示在 DNS 加 CNAME dun → <新项目>.edgeone.cool 与 TXT 归属校验记录
-```
+- **代码**已发布到 GitHub（`xingranya/OpenMAIC-physics`，分支
+  `feature/physics-ai-classroom`），便于分发与协作；
+- **部署**走本地 CLI：先在本地裁剪出合规的函数包，再上传
+  （`node scripts/deploy-edgeone.mjs`，脚本会先核对项目的加速区域）。
 
 ## 9. EdgeOne Makers 平台能力速查（2026-06 官方文档）
 
