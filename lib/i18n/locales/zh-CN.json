@@ -2119,7 +2119,9 @@
   "accessCode": {
     "title": "请输入访问码",
     "placeholder": "访问码",
-    "error": "访问码错误，请重试。"
+    "error": "访问码错误，请重试。",
+    "notReached": "请求未到达服务端（网络异常，或被平台访问保护拦截）。请检查网络或访问地址后重试。",
+    "rateLimited": "访问码尝试次数过多，请稍后再试。"
   },
   "proMode": {
     "attach": "添加材料",

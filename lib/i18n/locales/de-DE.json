@@ -2119,7 +2119,9 @@
   "accessCode": {
     "title": "Zugangscode eingeben",
     "placeholder": "Zugangscode",
-    "error": "Ungültiger Zugangscode. Bitte versuche es erneut."
+    "error": "Ungültiger Zugangscode. Bitte versuche es erneut.",
+    "notReached": "Die Anfrage hat den Server nicht erreicht (Netzwerkfehler oder durch den Zugriffsschutz der Hosting-Plattform blockiert). Bitte Netzwerk oder Zugriffsadresse prüfen und erneut versuchen.",
+    "rateLimited": "Zu viele Versuche mit dem Zugangscode. Bitte kurz warten und erneut versuchen."
   },
   "proMode": {
     "attach": "Attach material",

@@ -2119,7 +2119,9 @@
   "accessCode": {
     "title": "Ingresa el código de acceso",
     "placeholder": "Código de acceso",
-    "error": "Código de acceso no válido. Inténtalo de nuevo."
+    "error": "Código de acceso no válido. Inténtalo de nuevo.",
+    "notReached": "La solicitud no llegó al servidor (error de red o fue bloqueada por la protección de acceso de la plataforma). Revisa la red o la dirección de acceso e inténtalo de nuevo.",
+    "rateLimited": "Demasiados intentos con el código de acceso. Espera un momento e inténtalo de nuevo."
   },
   "proMode": {
     "attach": "Adjuntar material",

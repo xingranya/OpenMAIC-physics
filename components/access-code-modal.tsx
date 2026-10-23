@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useI18n } from '@/lib/hooks/use-i18n';
 import { ArrowRight, ShieldCheck, LoaderCircle } from 'lucide-react';
 import { BRAND_FULL_NAME } from '@/lib/school/identity';
+import { accessCodeVerifyRequestInit, classifyAccessCodeVerify } from '@/lib/access-code-gate';
 
 interface AccessCodeModalProps {
   open: boolean;
@@ -32,22 +33,32 @@ export function AccessCodeModal({ open, onSuccess }: AccessCodeModalProps) {
     setLoading(true);
 
     try {
-      const res = await fetch('/api/access-code/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code }),
+      const res = await fetch('/api/access-code/verify', accessCodeVerifyRequestInit(code));
+
+      const body = await res.json().catch(() => undefined);
+      const outcome = classifyAccessCodeVerify({
+        kind: 'response',
+        status: res.status,
+        body,
       });
 
-      if (res.ok) {
+      if (outcome.kind === 'ok') {
         setSuccess(true);
         setTimeout(onSuccess, 600);
-      } else {
-        setError(t('accessCode.error'));
-        setCode('');
-        inputRef.current?.focus();
+        return;
       }
+      setError(
+        outcome.kind === 'invalid-code'
+          ? t('accessCode.error')
+          : outcome.kind === 'rate-limited'
+            ? t('accessCode.rateLimited')
+            : t('accessCode.notReached'),
+      );
+      setCode('');
+      inputRef.current?.focus();
     } catch {
-      setError(t('accessCode.error'));
+      // fetch 本身失败（网络层）——与访问码无关，别让人反复重输。
+      setError(t('accessCode.notReached'));
     } finally {
       setLoading(false);
     }
