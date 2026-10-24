@@ -2116,13 +2116,6 @@
     "speed": "Vitesse",
     "language": "Langue"
   },
-  "accessCode": {
-    "title": "Saisissez le code d’accès",
-    "placeholder": "Code d’accès",
-    "error": "Code d’accès invalide. Veuillez réessayer.",
-    "notReached": "La requête n'a pas atteint le serveur (erreur réseau, ou blocage par la protection d'accès de la plateforme d'hébergement). Vérifiez le réseau ou l'adresse d'accès, puis réessayez.",
-    "rateLimited": "Trop de tentatives de saisie du code d’accès. Patientez un instant et réessayez."
-  },
   "proMode": {
     "attach": "Joindre un support",
     "mentionCourse": "引用课堂",

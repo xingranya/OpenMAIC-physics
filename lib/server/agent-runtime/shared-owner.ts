@@ -8,14 +8,14 @@
  * installation, and `POST /api/stages/[id]/publish` refuses every owner because
  * publishing an anonymous partition is not something the product allows.
  *
- * For one team behind one `ACCESS_CODE` that partitioning buys nothing — those
+ * For one team behind one shared access gate that partitioning buys nothing — those
  * visitors already share the site password and can read each other's courses by
- * id (`SECURITY.md` says as much about `ACCESS_CODE`). `PERSISTENCE_SHARED_OWNER_ID`
+ * id. `PERSISTENCE_SHARED_OWNER_ID`
  * replaces the cookie-derived id with that fixed value, so the deployment has
  * one course library, and publishing works.
  *
- * It **requires** `ACCESS_CODE`, and refuses to run without one: see the note
- * in {@link resolveSharedOwnerId}. It is also not a substitute for server
+ * It **requires a site-wide access gate**, and refuses to run without one: see the
+ * note in {@link resolveSharedOwnerId}. It is also not a substitute for server
  * persistence — Postgres answers where courses live, this answers who owns
  * them, and a multi-user or multi-instance deployment still wants the former.
  *
@@ -58,18 +58,16 @@ export function resolveSharedOwnerId(): string | undefined {
         'cannot use the reserved "anon:" prefix or a character the key sanitiser would rewrite.',
     );
   }
-  // The gate this assumes is the middleware's: with `ACCESS_CODE` unset it lets
-  // every request through, and resolving them all to one owner would hand a
-  // single readable, editable, publishable course library to whoever asks. That
-  // is a far worse deployment than the per-browser partitioning this setting
-  // exists to remove, so it is refused rather than warned about — the operator
-  // either wants an access code or did not mean to set this.
-  if (!process.env.ACCESS_CODE) {
-    throw new Error(
-      `${SHARED_OWNER_ENV} requires ACCESS_CODE. Without an access code the middleware lets ` +
-        'every request through, so a single shared owner would expose one course library to ' +
-        `anyone who can reach the deployment. Set ACCESS_CODE, or unset ${SHARED_OWNER_ENV}.`,
-    );
-  }
-  return raw;
+  // 这套机制原本依赖**站点级门禁**：全员共用一个口令（访问码），进门就弹框。
+  // 访问码已随账号系统一起退役——站点现在对所有访问者开放，
+  // 而「所有请求共用一个 owner」在没有站点级门禁时等于把一份课程库
+  // 交给任何能访问到的人（能读、能改、能发布）。
+  // 因此这个模式在当前部署下**一律拒绝**：操作者要么恢复站点级门禁，
+  // 要么取消这个变量。保持 fail-closed，而不是降级成一句警告。
+  throw new Error(
+    `${SHARED_OWNER_ENV} requires a site-wide access gate, which this deployment no longer has ` +
+      '(the shared access code was retired in favour of per-user accounts). Resolving every ' +
+      'request to one owner would expose a single course library to anyone who can reach the ' +
+      `deployment. Restore a site-wide gate, or unset ${SHARED_OWNER_ENV}.`,
+  );
 }

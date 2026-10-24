@@ -2116,13 +2116,6 @@
     "speed": "Velocidade",
     "language": "Idioma"
   },
-  "accessCode": {
-    "title": "Digite o Código de Acesso",
-    "placeholder": "Código de acesso",
-    "error": "Código inválido. Tente novamente.",
-    "notReached": "A solicitação não chegou ao servidor (erro de rede ou bloqueio pela proteção de acesso da plataforma). Verifique a rede ou o endereço de acesso e tente novamente.",
-    "rateLimited": "Muitas tentativas com o código de acesso. Aguarde um momento e tente novamente."
-  },
   "proMode": {
     "attach": "Anexar material",
     "mentionCourse": "引用课堂",

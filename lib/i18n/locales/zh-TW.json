@@ -2101,13 +2101,6 @@
     "speed": "語速",
     "language": "語言"
   },
-  "accessCode": {
-    "title": "請輸入課堂碼",
-    "placeholder": "課堂碼",
-    "error": "課堂碼錯誤，請重試。",
-    "notReached": "請求未到達伺服器（網路異常，或被平台存取保護攔截）。請檢查網路或存取網址後重試。",
-    "rateLimited": "存取碼嘗試次數過多，請稍後再試。"
-  },
   "classroomComplete": {
     "title": "課程完成",
     "trailLabels": {

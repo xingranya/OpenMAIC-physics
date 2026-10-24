@@ -111,6 +111,18 @@ edgeone makers deploy .tmp/edgeone-stage -n <项目名> -e production --area glo
   `https://<项目>.edgeone.cool?eo_token=...&eo_time=...`。
   **正式对外访问应绑定自定义域名**，绑定后不再需要这个令牌。
   自检脚本用 `--site-query "eo_token=...&eo_time=..."` 传进去。
+  平台在**第一次**带令牌的请求上用 302 下发 Cookie，浏览器跟随后即放行。
+  实测下发的响应头原文（2026-10-24，预设域 `physics-ai-classroom-global-rvroompq.edgeone.dev`）：
+
+  ```
+  HTTP/1.1 302 Found
+  Set-Cookie: eo_token=<token>; Max-Age=10800; HttpOnly; Path=/; SameSite=None; Secure; Partitioned
+  Set-Cookie: eo_time=<ts>;   Max-Age=10800; HttpOnly; Path=/; SameSite=None; Secure; Partitioned
+  Location: https://physics-ai-classroom-global-rvroompq.edgeone.dev/api/health
+  ```
+
+  `Max-Age=10800` 即 **3 小时**——这是演示材料的「平台 Cookie 有效期 3 小时」的出处。
+  （注意：这是**平台**的 Cookie，与我们自己发的 `openmaic_access` 会话 Cookie 无关。）
 
 **实测记录（2026-10-22）**
 

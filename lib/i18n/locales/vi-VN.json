@@ -2116,13 +2116,6 @@
     "speed": "Tốc độ",
     "language": "Ngôn ngữ"
   },
-  "accessCode": {
-    "title": "Nhập mã truy cập",
-    "placeholder": "Mã truy cập",
-    "error": "Mã truy cập không đúng. Vui lòng thử lại.",
-    "notReached": "Yêu cầu không đến được máy chủ (lỗi mạng hoặc bị chặn bởi lớp bảo vệ truy cập của nền tảng). Vui lòng kiểm tra mạng hoặc địa chỉ truy cập rồi thử lại.",
-    "rateLimited": "Đã thử mã truy cập quá nhiều lần. Vui lòng đợi một lúc rồi thử lại."
-  },
   "proMode": {
     "attach": "Đính kèm tài liệu",
     "mentionCourse": "引用课堂",

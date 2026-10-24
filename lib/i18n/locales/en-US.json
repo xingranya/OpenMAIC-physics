@@ -2134,13 +2134,6 @@
     "launchPlaceholder": "Describe the learning experience you want to create",
     "launchSend": "Start build"
   },
-  "accessCode": {
-    "title": "Enter Access Code",
-    "placeholder": "Access code",
-    "error": "Invalid access code. Please try again.",
-    "notReached": "The request did not reach the server (network error, or it was blocked by the hosting platform access protection). Please check the network or the access address and try again.",
-    "rateLimited": "Too many access-code attempts. Please wait a moment and try again."
-  },
   "workbench": {
     "tool": {
       "label": {

@@ -3,19 +3,22 @@
 /**
  * 物理工作台登录页。
  *
- * 账号用于当前产品的登录校验，不连接真实教务系统、统一身份认证或大模型。
- * 登录后按角色进入学生工作台 / 教师驾驶舱。
+ * ## 两条路径
  *
- * 演示快捷入口：`/login?demo=student` 或 `/login?demo=teacher` 会自动填入
- * 演示账号并登录。这两个账号的密码本来就印在本页下方的"演示账号"卡片里
- * （见 README 与作品说明书），快捷入口只是省去现场打字——
- * **角色门禁本身依然存在**：未登录直接访问 `/physics/*` 仍会被重定向回登录页。
+ * 1. **注册 + 登录**（主路径）：账号由用户自己创建，密码用 PBKDF2 哈希后
+ *    存在**本浏览器**里，登录时校验。账号系统不接数据库、不连教务系统，
+ *    换浏览器需要重新注册——这一点在页面上写明，不含糊。
+ * 2. **一键进入**（访客体验）：以预置演示身份直接进入，不校验口令。
+ *    现场演示与应急动线都依赖它，所以保留。
+ *
+ * 演示快捷入口：`/login?demo=student` 或 `/login?demo=teacher` 会直接以该角色进入。
+ * **角色门禁依然存在**：未登录直接访问 `/physics/*` 仍会被重定向回登录页。
  */
 
 import * as React from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { ArrowRight, Eye, EyeOff, GraduationCap, Sparkles, UserCog } from 'lucide-react';
+import { ArrowRight, Eye, EyeOff, GraduationCap, Sparkles, UserCog, UserPlus } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -23,18 +26,41 @@ import { usePhysicsState } from '@/components/physics/state-provider';
 import { BRAND_FULL_NAME, COURSE, DEMO, PLATFORM, SCHOOL } from '@/lib/school';
 import { DEMO_HINT } from '@/lib/physics/session';
 import { routeFor } from '@/lib/physics/shortcuts';
+import type { AccountErrorCode } from '@/lib/physics/accounts';
+
+type AuthTab = 'login' | 'register';
+
+/** 账号域的错误码 → 人话。**逐项可区分**，界面要能说清到底哪里不对。 */
+const ERROR_MESSAGES: Record<AccountErrorCode, string> = {
+  'username-required': '请填写账号。',
+  'username-too-short': '账号至少 3 个字符。',
+  'username-too-long': '账号最多 32 个字符。',
+  'username-invalid': '账号只能包含字母、数字、下划线、连字符或中文。',
+  'username-taken': '这个账号已被占用，换一个试试。',
+  'password-required': '请填写密码。',
+  'password-too-short': '密码至少 8 位。',
+  'password-too-long': '密码最多 128 位。',
+  'display-name-too-long': '显示名最多 24 个字符。',
+  'role-invalid': '请选择身份。',
+  'invalid-credentials': '账号或密码不正确。',
+  'storage-unavailable': '当前浏览器不允许保存账号，无法完成注册。',
+};
 
 export function PhysicsLogin() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { signIn, session } = usePhysicsState();
+  const { signIn, register, enterAsDemo, session } = usePhysicsState();
+  const [tab, setTab] = React.useState<AuthTab>('login');
   const [username, setUsername] = React.useState('');
   const [password, setPassword] = React.useState('');
+  const [displayName, setDisplayName] = React.useState('');
+  const [role, setRole] = React.useState<'student' | 'teacher'>('student');
   const [showPassword, setShowPassword] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [busy, setBusy] = React.useState(false);
 
   const demoRole = searchParams.get('demo');
-  const autoFilled = React.useRef(false);
+  const autoEntered = React.useRef(false);
 
   // 命中演示快捷入口时以该角色为准，否则沿用已有会话。
   const demoHint = React.useMemo(
@@ -49,31 +75,46 @@ export function PhysicsLogin() {
     }
   }, [router, session, demoHint]);
 
-  // 演示快捷入口：自动填入并登录演示账号。
+  // 演示快捷入口：直接以该演示身份进入。
   // 即使当前已有其他角色的会话也要执行——访问 ?demo=teacher 本身就是
   // "我要以教师身份进入"的明确意图，演示现场常在同一个标签里先学生后教师。
   React.useEffect(() => {
-    if (autoFilled.current || !demoHint) return;
-    autoFilled.current = true;
-    setUsername(demoHint.username);
-    setPassword(DEMO.password);
-    if (signIn(demoHint.username, DEMO.password)) {
-      router.replace(
-        routeFor(demoHint.role, demoHint.role === 'student' ? 'overview' : 'dashboard'),
-      );
-    }
-  }, [demoHint, router, signIn]);
+    if (autoEntered.current || !demoHint) return;
+    autoEntered.current = true;
+    enterAsDemo(demoHint.role);
+    router.replace(routeFor(demoHint.role, demoHint.role === 'student' ? 'overview' : 'dashboard'));
+  }, [demoHint, router, enterAsDemo]);
 
-  const submit = (event: React.FormEvent<HTMLFormElement>) => {
+  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (busy) return;
     setError(null);
-    if (!signIn(username, password)) {
-      setError('账号或密码不正确。演示账号见下方提示。');
-      return;
+    setBusy(true);
+    try {
+      const outcome =
+        tab === 'register'
+          ? await register({ username, password, displayName, role })
+          : await signIn(username, password);
+      if (!outcome.ok) {
+        setError(ERROR_MESSAGES[outcome.error] ?? '操作失败，请重试。');
+        return;
+      }
+      // 落点按**会话里的角色**决定：教师进驾驶舱，学生进学习总览。
+      router.replace(
+        routeFor(
+          outcome.session.role,
+          outcome.session.role === 'teacher' ? 'dashboard' : 'overview',
+        ),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '操作失败，请重试。');
+    } finally {
+      setBusy(false);
     }
   };
 
   const fillDemo = (demoUsername: string) => {
+    setTab('login');
     setUsername(demoUsername);
     setPassword(DEMO.password);
     setError(null);
@@ -109,7 +150,34 @@ export function PhysicsLogin() {
             </p>
           </div>
 
-          <form className="mt-6 flex flex-col gap-3" onSubmit={submit}>
+          {/* 登录 / 注册 切换 */}
+          <div
+            role="tablist"
+            aria-label="登录或注册"
+            className="mt-6 grid grid-cols-2 gap-1 rounded-lg bg-muted/60 p-1"
+          >
+            {(['login', 'register'] as const).map((item) => (
+              <button
+                key={item}
+                type="button"
+                role="tab"
+                aria-selected={tab === item}
+                onClick={() => {
+                  setTab(item);
+                  setError(null);
+                }}
+                className={`rounded-md px-3 py-1.5 text-[12.5px] font-medium transition-colors ${
+                  tab === item
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {item === 'login' ? '登录' : '注册新账号'}
+              </button>
+            ))}
+          </div>
+
+          <form className="mt-4 flex flex-col gap-3" onSubmit={submit}>
             <div>
               <label
                 htmlFor="physics-username"
@@ -121,11 +189,58 @@ export function PhysicsLogin() {
                 id="physics-username"
                 value={username}
                 onChange={(event) => setUsername(event.target.value)}
-                placeholder="student 或 teacher"
+                placeholder={tab === 'register' ? '自己起一个账号，如 2026010118' : '输入账号'}
                 autoComplete="username"
                 autoFocus
               />
             </div>
+
+            {tab === 'register' ? (
+              <div>
+                <label
+                  htmlFor="physics-display-name"
+                  className="mb-1.5 block text-[12px] font-medium text-foreground"
+                >
+                  显示名（选填）
+                </label>
+                <Input
+                  id="physics-display-name"
+                  value={displayName}
+                  onChange={(event) => setDisplayName(event.target.value)}
+                  placeholder="留空则用账号"
+                  autoComplete="name"
+                />
+              </div>
+            ) : null}
+
+            {tab === 'register' ? (
+              <div>
+                <span className="mb-1.5 block text-[12px] font-medium text-foreground">身份</span>
+                <div className="grid grid-cols-2 gap-2">
+                  {(['student', 'teacher'] as const).map((item) => (
+                    <button
+                      key={item}
+                      type="button"
+                      onClick={() => setRole(item)}
+                      aria-pressed={role === item}
+                      className={`flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-[12.5px] transition-colors ${
+                        role === item
+                          ? 'border-primary bg-primary/5 text-primary'
+                          : 'border-border text-muted-foreground hover:border-primary/40'
+                      }`}
+                    >
+                      {item === 'student' ? (
+                        <GraduationCap className="size-3.5" aria-hidden="true" />
+                      ) : (
+                        <UserCog className="size-3.5" aria-hidden="true" />
+                      )}
+                      {item === 'student' ? '学生' : '教师'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
             <div>
               <label
                 htmlFor="physics-password"
@@ -139,8 +254,8 @@ export function PhysicsLogin() {
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
-                  placeholder="演示密码"
-                  autoComplete="current-password"
+                  placeholder={tab === 'register' ? '至少 8 位' : '输入密码'}
+                  autoComplete={tab === 'register' ? 'new-password' : 'current-password'}
                   className="pr-9"
                 />
                 <button
@@ -160,15 +275,27 @@ export function PhysicsLogin() {
               </p>
             ) : null}
 
-            <Button type="submit" className="mt-1 w-full">
-              登录
-              <ArrowRight className="size-4" />
+            <Button type="submit" className="mt-1 w-full" disabled={busy}>
+              {busy ? '处理中…' : tab === 'register' ? '注册并进入' : '登录'}
+              {tab === 'register' ? (
+                <UserPlus className="size-4" />
+              ) : (
+                <ArrowRight className="size-4" />
+              )}
             </Button>
+
+            {tab === 'register' ? (
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                账号保存在<strong className="font-medium text-foreground">本浏览器</strong>
+                里（密码经 PBKDF2 哈希后存储，不保存明文）。
+                本产品不接数据库、不连教务系统——换浏览器或换设备需要重新注册。
+              </p>
+            ) : null}
           </form>
 
           <div className="mt-5 rounded-lg border border-dashed border-border p-3">
             <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-              演示账号
+              访客体验（演示账号）
             </p>
             <ul className="mt-2 flex flex-col gap-1.5">
               {DEMO_HINT.map((hint) => (
@@ -210,6 +337,10 @@ export function PhysicsLogin() {
                 </Link>
               ))}
             </div>
+            <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+              「一键进入」是以预置演示身份直接体验产品，不校验口令；
+              你的学习记录同样保存在本浏览器，与注册账号互不可见。
+            </p>
           </div>
         </div>
 
