@@ -1,9 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { describe, expect, it, vi } from 'vitest';
 
-import { findShortcutsForPalette } from '@/lib/physics/shortcuts';
+import { findShortcutsForPalette, resolveDeepLinkRoleGate } from '@/lib/physics/shortcuts';
 
 /**
- * 命令面板的角色可见性回归护栏。
+ * 角色作用域回归护栏：**命令面板**的可见性 + **深链接**的一致性。
  *
  * 背景（第四轮独立复审 F2）：工作台的视图切换是「本地状态 + 原生 History API」，
  * **并不真的会换页**——这是为了让断网时切视图不发请求。而命令面板里的
@@ -16,6 +18,17 @@ import { findShortcutsForPalette } from '@/lib/physics/shortcuts';
  * 2. 工作台的 `navigate` 本身也只接受当前角色的视图（纵深防御）。
  *
  * 本测试守住第 1 层，同时守住"过滤不能把角色自身的条目一起滤掉"。
+ *
+ * ── 深链接那一层（本轮补）──
+ *
+ * 上面两层都管的是**应用内**的跳转。**首屏深链接**是第三条路：
+ * 路径前缀决定渲染哪个角色的内容（`app/teacher/[view]` 渲染教师组件），
+ * 而路径是任何人都能手输的——学生直接打开 `/teacher/evaluation`，
+ * 看到的就是教师端内容，侧栏却还是学生导航。
+ *
+ * 判定抽成纯函数（`resolveDeepLinkRoleGate`）便于直接测；
+ * 但**纯函数测试证明不了组件真的接上了它**，所以下面还有一条
+ * **渲染层**断言：把组件真渲染一遍，看教师端内容到底有没有出现。
  */
 describe('命令面板的角色可见性', () => {
   const studentLabels = findShortcutsForPalette('student').map((b) => b.label);
@@ -56,5 +69,33 @@ describe('命令面板的角色可见性', () => {
       .filter((b) => b.action.type === 'navigate')
       .map((b) => (b.action as { role: string }).role);
     expect(teacherViews.every((role) => role === 'teacher')).toBe(true);
+  });
+});
+
+describe('深链接的角色一致性判定', () => {
+  it('学生深链接教师端路由 → 挡下并送回学生首页', () => {
+    const gate = resolveDeepLinkRoleGate('teacher', 'student');
+    expect(gate.blocked).toBe(true);
+    expect(gate.redirectTo).toBe('/physics/overview');
+  });
+
+  it('教师深链接学生端路由 → 挡下并送回教师首页', () => {
+    const gate = resolveDeepLinkRoleGate('student', 'teacher');
+    expect(gate.blocked).toBe(true);
+    expect(gate.redirectTo).toBe('/teacher/dashboard');
+  });
+
+  it('同角色深链接 → 不挡（正常深链接必须能用）', () => {
+    expect(resolveDeepLinkRoleGate('student', 'student').blocked).toBe(false);
+    expect(resolveDeepLinkRoleGate('teacher', 'teacher').blocked).toBe(false);
+    expect(resolveDeepLinkRoleGate('teacher', 'student').redirectTo).toBe('/physics/overview');
+  });
+
+  it('会话还没水合时**不挡**——否则会误伤正常刷新', () => {
+    // 会话在 sessionStorage 里，挂载前读不到。此时贸然判「跨角色」，
+    // 会把一次正常刷新变成「正在返回…」。
+    expect(resolveDeepLinkRoleGate('teacher', null).blocked).toBe(false);
+    expect(resolveDeepLinkRoleGate(null, 'student').blocked).toBe(false);
+    expect(resolveDeepLinkRoleGate(null, null).blocked).toBe(false);
   });
 });
