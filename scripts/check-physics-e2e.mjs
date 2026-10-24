@@ -33,6 +33,7 @@
 import process from 'node:process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { describeCheckFailure, guardCheck, toFailureRecord } from './e2e-resilience-lib.mjs';
 
 const args = process.argv.slice(2);
 function argValue(name, fallback) {
@@ -203,16 +204,23 @@ async function acquireSiteAccess() {
  *
  * ## 为什么需要重试
  *
- * 自检会连打 24+ 个请求，而这台机器到 EdgeOne 海外边缘的连接**是间歇性失败的**：
- * 实测同一时刻 curl 能连上（TCP 握手 1ms），Node 的 fetch 却有大约五分之一的
- * 概率报 `UND_ERR_CONNECT_TIMEOUT`（10s 连接超时）。
+ * 自检会连打几十个请求，而这台机器到 EdgeOne 海外边缘的连接**是间歇性失败的**：
+ * 实测同一时刻 curl 能连上（TCP 握手 1ms），Node 的 fetch 却有相当高的概率报
+ * `UND_ERR_CONNECT_TIMEOUT`（10s 连接超时）。
  * 那是**本机网络**的问题，不是站点的问题——但自检是门禁，门禁要测的是站点。
  *
  * 所以这里只对**连接层**失败（fetch 直接 reject）重试，带退避；
  * HTTP 层的任何状态码（含 4xx/5xx）都**不重试**——那是站点自己的答案，
  * 重试只会把真实故障糊过去。
+ *
+ * ## 为什么默认重试次数是 5
+ *
+ * 设单次连接失败概率为 p，重试 n 次后「全败」的概率是 pⁿ。单次 p≈0.2 时：
+ * 3 次 → 0.8%，一轮自检几十个请求累计下来「至少有一处全败」的概率接近三成；
+ * 5 次 → 0.03%，累计约百分之二。**门禁不能因为本机抖动而误报站点故障**，
+ * 所以按累计概率选次数，而不是按单次概率拍脑袋。
  */
-async function fetchWithTimeout(path, init = {}, attempts = 3) {
+async function fetchWithTimeout(path, init = {}, attempts = 5) {
   let lastError = null;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     const controller = new AbortController();
@@ -297,12 +305,13 @@ async function checkChunks() {
   const broken = [];
   for (const path of chunkPaths) {
     try {
-      // chunk 扫描是**几十个连续请求**，默认的 3 次重试扛不住：单次连接失败率
+      // chunk 扫描是**几十个连续请求**，连接层重试必须够狠：单次连接失败率
       // 约五分之一，3 次全败的概率 0.2³ ≈ 0.8%，42 个 chunk 连打下来
       // 「至少有一个全败」的概率接近三成——那会把网络抖动报成站点故障。
-      // 这里把连接层重试提到 5 次（0.2⁵ ≈ 0.03%），而 HTTP 层的任何状态码
-      // 仍然**不重试**：那是站点自己的答案，重试只会把真实故障糊过去。
-      const response = await fetchWithTimeout(path, {}, 5);
+      // 默认的 5 次重试（0.2⁵ ≈ 0.03%）就是按这个累计概率定的；
+      // 而 HTTP 层的任何状态码仍然**不重试**：那是站点自己的答案，
+      // 重试只会把真实故障糊过去。
+      const response = await fetchWithTimeout(path);
       if (response.status !== 200) broken.push(`${path} → ${response.status}`);
     } catch (error) {
       broken.push(`${path} → ${String(error)}`);
@@ -526,6 +535,24 @@ async function checkBuildId() {
   }
 }
 
+/**
+ * 汇总结果并决定退出码。
+ *
+ * 单独抽出来，是因为「检查全部跑完」和「检查中途抛了」两条路径都要用它——
+ * 否则中途抛了就会只留一屏栈信息、连「一共几项、过了几项」都看不到。
+ */
+function summarize() {
+  const failed = results.filter((item) => !item.ok);
+  process.stdout.write(
+    `\n合计 ${results.length} 项，通过 ${results.length - failed.length}，失败 ${failed.length}\n`,
+  );
+  if (failed.length > 0) {
+    process.stdout.write('失败项：\n');
+    failed.forEach((item) => process.stdout.write(`  - ${item.name}：${item.detail ?? ''}\n`));
+    process.exitCode = 1;
+  }
+}
+
 async function main() {
   process.stdout.write(`物理 AI 智慧课堂 · 端到端自检\n目标：${BASE_URL}\n\n`);
   await acquireSiteAccess();
@@ -560,22 +587,29 @@ async function main() {
     return;
   }
 
-  // 先做门禁校验：它负责取到会话 Cookie，后面的页面/资源检查都要靠这个 Cookie。
-  await checkAccessCode();
-  await checkRoutes();
-  await checkChunks();
-  await checkBuildId();
-  await checkProviderDegradation();
+  // 每项检查**独立兜底**：一项挂了（多半是本机网络抖动）只记一条 FAIL，
+  // 后面的检查照跑。这样一轮自检要么给出完整结论，要么给出「哪一项连不上」，
+  // 而不是变成一屏 Node 栈信息。
+  await guardCheck('ACCESS_CODE 门禁', checkAccessCode, record);
+  await guardCheck('关键路由可达', checkRoutes, record);
+  await guardCheck('客户端 chunk 全部 200', checkChunks, record);
+  await guardCheck('BUILD_ID 与目标产物一致', checkBuildId, record);
+  await guardCheck('模型未配置时优雅降级', checkProviderDegradation, record);
 
-  const failed = results.filter((item) => !item.ok);
-  process.stdout.write(
-    `\n合计 ${results.length} 项，通过 ${results.length - failed.length}，失败 ${failed.length}\n`,
-  );
-  if (failed.length > 0) {
-    process.stdout.write('失败项：\n');
-    failed.forEach((item) => process.stdout.write(`  - ${item.name}：${item.detail ?? ''}\n`));
-    process.exitCode = 1;
-  }
+  summarize();
 }
 
-await main();
+// 顶层兜底：**绝不让异常以未捕获 rejection 的形式收场**。
+// 那种收场方式只留一屏 Node 栈信息，看不出「是本机网络还是站点」，
+// 判读成本远高于一条结构化的 FAIL。
+try {
+  await main();
+} catch (error) {
+  const failure = toFailureRecord('自检整体执行', error);
+  record(failure.name, failure.ok, failure.detail);
+  process.stdout.write(
+    '  提示：连接层失败通常是**本机到 EdgeOne 海外边缘**的网络抖动，不是站点故障。\n' +
+      `  另起一条命令复现：curl -s -o /dev/null -w '%{http_code}\\n' ${BASE_URL}/api/health\n`,
+  );
+  summarize();
+}
