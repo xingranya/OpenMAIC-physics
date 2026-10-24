@@ -86,24 +86,23 @@ describe('resolveRequestOwnerId', () => {
     expect(responseHeaders.has('set-cookie')).toBe(false);
   });
 
-  it('resolves to the configured shared owner instead of a cookie partition', () => {
-    // What the single-tenant setting buys: one identity for every browser, so
-    // the course list is shared and `publish` (which refuses `anon:` owners)
-    // has something it will accept.
+  it('refuses the shared owner instead of resolving every request to it', () => {
+    // 共享 owner 模式依赖**站点级门禁**（原先是访问码）：只有门禁挡着，
+    // 「所有请求共用一个 owner」才安全。访问码退役后没有那个门禁了，
+    // 于是这个模式**一律拒绝**（fail-closed），而不是悄悄降级成按 Cookie 分区
+    // ——降级恰恰是这个设置当初要消除的「记不清自己是谁」。
     vi.stubEnv('PERSISTENCE_SHARED_OWNER_ID', 'team-alpha');
-    vi.stubEnv('ACCESS_CODE', 'demo-code-that-is-long-enough');
     const responseHeaders = new Headers();
 
-    const ownerId = resolveRequestOwnerId(
-      new Request('http://localhost/agent', {
-        headers: { cookie: 'anonymous_id=a652e716-0e2e-47f5-8432-4ee60f6f0977' },
-      }),
-      responseHeaders,
-    );
-
-    expect(ownerId).toBe('team-alpha');
-    expect(ownerId.startsWith('anon:')).toBe(false);
-    // Nothing to remember per browser, so no cookie is minted or refreshed.
+    expect(() =>
+      resolveRequestOwnerId(
+        new Request('http://localhost/agent', {
+          headers: { cookie: 'anonymous_id=a652e716-0e2e-47f5-8432-4ee60f6f0977' },
+        }),
+        responseHeaders,
+      ),
+    ).toThrow(/site-wide/);
+    // 拒绝时不该留下半截状态（没发 cookie）。
     expect(responseHeaders.has('set-cookie')).toBe(false);
   });
 
@@ -111,7 +110,6 @@ describe('resolveRequestOwnerId', () => {
     // A host auth layer added later must not require clearing this variable
     // first, so the explicit identity keeps winning.
     vi.stubEnv('PERSISTENCE_SHARED_OWNER_ID', 'team-alpha');
-    vi.stubEnv('ACCESS_CODE', 'demo-code-that-is-long-enough');
     const responseHeaders = new Headers();
 
     expect(

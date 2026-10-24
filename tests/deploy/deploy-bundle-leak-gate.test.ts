@@ -68,10 +68,26 @@ describe('产物泄露门禁（fail-closed）', () => {
     const root = createTempRoot();
     try {
       const bundle = join(root, 'index.js');
-      writeFileSync(bundle, '{"PATH":"/usr/bin","ACCESS_CODE":"xxxx"}');
+      writeFileSync(bundle, '{"PATH":"/usr/bin","DEFAULT_MODEL":"openai:@makers/deepseek-v4-flash"}');
       const result = assertBundleHasNoEnvLeak(bundle, { root, env: {} });
-      expect(result.bundledNames).toContain('ACCESS_CODE');
+      expect(result.bundledNames).toContain('DEFAULT_MODEL');
       expect(result.bundledNames).not.toContain('WEKNORA_API_KEY');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('退役的访问码若被内联进产物：中止', () => {
+    // 访问码已经随账号系统退役，不再是允许进入函数包的环境变量。
+    // 它要是还出现在产物里，说明部署脚本的净化环境漏了它——那等于
+    // 把一把**所有人共用**的口令又塞回了线上包。
+    const root = createTempRoot();
+    try {
+      const bundle = join(root, 'index.js');
+      writeFileSync(bundle, '{"ACCESS_CODE":"xxxx"}');
+      expect(() => assertBundleHasNoEnvLeak(bundle, { root, env: {} })).toThrow(
+        /白名单外的环境变量 ACCESS_CODE/,
+      );
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
