@@ -119,7 +119,7 @@ edgeone makers deploy .tmp/edgeone-stage -n <项目名> -e production --area glo
 | `edgeone whoami` | 账号 100043806721 / APPID 1374239834（登录态可用） |
 | `edgeone makers deploy -n physics-ai-classroom -e preview` | 报错：需先创建 production 部署 |
 | `edgeone makers deploy -n physics-ai-classroom -e production` | 报错：`pnpm install` 失败——corepack 缓存里没有 `pnpm@10.28.0`（`ENOENT: stat ~/.cache/node/corepack/v1/pnpm/10.28.0`） |
-| `node scripts/deploy-edgeone.mjs` | **部署成功**：项目 `physics-ai-classroom-global`（ID `makers-kru2xpkwfs7q`，加速区域 `Area: "overseas"`＝全球可用区**不含**中国大陆），预设域 `https://physics-ai-classroom-global-rvroompq.edgeone.dev`，部署 ID `dp9ld15xnio1`，函数包 119.3 MiB（上限 128 MiB）；自定义域名 `dun.xran.uk` 已绑定 |
+| `node scripts/deploy-edgeone.mjs` | **部署成功**：项目 `physics-ai-classroom-global`（ID `makers-kru2xpkwfs7q`，加速区域 `Area: "overseas"`＝全球可用区**不含**中国大陆），预设域 `https://physics-ai-classroom-global-rvroompq.edgeone.dev`，部署 ID `dp4c95mdsunb`，函数包 119.3 MiB（上限 128 MiB）；自定义域名 `dun.xran.uk` 已绑定 |
 | 线上静态页（`/physics/overview` 等 SSG 路由） | HTTP 200，首屏标题「大学物理 AI 智慧课堂 · 长江大学文理学院」 |
 | 线上动态路由（`/api/health`、`/physics/overview`、`/teacher/dashboard` 等 SSR 路由） | **HTTP 200**（修复前是 502 / 500），根因与修法见 §8.1e；线上自检 `node scripts/check-physics-e2e.mjs --base-url <地址> --access-code <码>` **25 / 25 通过** |
 | 函数落点 | `actualRegions = {"overseas": "ap-singapore"}` —— **无大陆节点**；旧项目（含大陆）已按「删除重建」要求删除 |
@@ -591,7 +591,7 @@ node scripts/prune-edgeone-function.mjs --yes      # 真执行
 
 > **体积口径**：`119.3 MiB` 是**最终上传体积**（按文件字节求和，脚本里的 `dirSize`），
 > 与平台「解包后体积」的判定口径不完全等同——同一目录用 `du -sk` 量是更大的
-> （块对齐会更大）。本项目按 119.3 MiB 部署**被平台接受**（部署 ID `dp9ld15xnio1`），
+> （块对齐会更大）。本项目按 119.3 MiB 部署**被平台接受**（部署 ID `dp4c95mdsunb`），
 > 说明平台的判定口径与文件字节求和一致或更宽松。
 
 ### 8.1e 云函数依赖为什么必须改名成 `deps`（**线上 5xx 的真正根因**）
