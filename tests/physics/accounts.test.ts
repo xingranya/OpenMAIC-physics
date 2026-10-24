@@ -18,6 +18,7 @@ import {
   ACCOUNT_MIN_PASSWORD_LENGTH,
   PASSWORD_HASH_ITERATIONS,
   PASSWORD_SALT_BYTES,
+  RESERVED_DEMO_USERNAMES,
   constantTimeEqual,
   createAccountSession,
   decodeBase64,
@@ -30,6 +31,8 @@ import {
   type AccountRepository,
   type PhysicsAccount,
 } from '@/lib/physics/accounts';
+import { DEMO_ACCOUNTS } from '@/lib/physics/data';
+import { authenticate } from '@/lib/physics/session';
 
 /** 确定性的假加密实现：可断言「派生了没有」，且不依赖真随机。 */
 function fakeCrypto(): AccountCrypto & { deriveCalls: number } {
@@ -165,6 +168,48 @@ describe('账号域 · 注册校验', () => {
         role: 'student',
       }),
     ).toBeNull();
+  });
+});
+
+/**
+ * 演示账号名必须保留。
+ *
+ * ## 为什么
+ *
+ * 演示账号（`student` / `teacher`）不在账号表里，登录时走的是
+ * `authenticate()` 的明文比对。如果允许注册同名账号，就会出现两个同名身份：
+ * 用 `dunzhongwan` 登录落到 `demo-student` 的数据分区，用自己设的口令登录
+ * 落到另一个分区——同名不同人，现场演示时最难解释。
+ */
+describe('账号域 · 演示账号名保留', () => {
+  it('注册 student / teacher 被拒绝', () => {
+    expect(
+      validateRegistration({ username: 'student', password: 'physics-2026', role: 'student' }),
+    ).toBe('username-reserved');
+    expect(
+      validateRegistration({ username: 'teacher', password: 'physics-2026', role: 'teacher' }),
+    ).toBe('username-reserved');
+  });
+
+  it('大小写与首尾空格同样被拒（比对的是归一后的名字）', () => {
+    expect(
+      validateRegistration({ username: '  Student ', password: 'physics-2026', role: 'student' }),
+    ).toBe('username-reserved');
+    expect(
+      validateRegistration({ username: 'TEACHER', password: 'physics-2026', role: 'teacher' }),
+    ).toBe('username-reserved');
+  });
+
+  it('保留名单覆盖全部演示账号（防漂移：新增演示账号必须同步）', () => {
+    for (const account of DEMO_ACCOUNTS) {
+      expect(RESERVED_DEMO_USERNAMES).toContain(normalizeUsername(account.username));
+    }
+  });
+
+  it('演示账号本身仍然能登录（保留名只拦注册，不拦登录）', () => {
+    expect(authenticate('student', 'dunzhongwan')?.role).toBe('student');
+    expect(authenticate('teacher', 'dunzhongwan')?.role).toBe('teacher');
+    expect(authenticate('student', 'wrong-password')).toBeNull();
   });
 });
 

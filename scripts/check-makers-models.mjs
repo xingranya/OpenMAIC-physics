@@ -15,7 +15,11 @@
  *
  * 退出码：0 = 网关可达且列出了模型；1 = Key 缺失或网关返回错误。
  */
-import { MAKERS_MODELS_BASE_URL, MAKERS_MODELS_PROVIDER_ID } from './makers-models.constants.mjs';
+import {
+  MAKERS_MODELS_BASE_URL,
+  MAKERS_MODELS_BUILTIN_MODEL,
+  MAKERS_MODELS_PROVIDER_ID,
+} from './makers-models.constants.mjs';
 
 function readKey() {
   const argv = process.argv.slice(2);
@@ -45,8 +49,48 @@ try {
   process.exit(1);
 }
 
+/**
+ * 最小推理探针。
+ *
+ * ## 为什么需要它
+ *
+ * 2026-10-24 实测：网关的 `GET /v1/models` 返回
+ * `404 Invalid request path`，而 `POST /v1/chat/completions` 正常。
+ * 列表端点不是必需能力——用它来判「Key 能不能用」会把**可用的 Key 误报成无效**，
+ * 现场就会变成「配了 Key 却说没有可用模型」。所以 404/405 时退化成一次
+ * `max_tokens: 1` 的真实推理，以推理端点为准。
+ */
+async function probeChatCompletion(key) {
+  try {
+    const response = await fetch(`${MAKERS_MODELS_BASE_URL}/chat/completions`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: MAKERS_MODELS_BUILTIN_MODEL,
+        messages: [{ role: 'user', content: 'ping' }],
+        max_tokens: 1,
+      }),
+    });
+    if (response.ok) return true;
+    const body = await response.text().catch(() => '');
+    console.error(`推理探针返回 ${response.status}：${body.slice(0, 300)}`);
+    return false;
+  } catch (error) {
+    console.error(`推理探针失败：${error instanceof Error ? error.message : String(error)}`);
+    return false;
+  }
+}
+
 if (!response.ok) {
   const body = await response.text().catch(() => '');
+  if ((response.status === 404 || response.status === 405) && (await probeChatCompletion(key))) {
+    console.log('网关的 /models 列表端点不可用（' + response.status + '），但推理端点可用。');
+    console.log(`\n可用模型（按内置默认）：${MAKERS_MODELS_BUILTIN_MODEL}`);
+    console.log('\n在 EdgeOne 控制台配置：');
+    console.log('  MAKERS_MODELS_KEY=<your-key>');
+    console.log(`  DEFAULT_MODEL=${MAKERS_MODELS_PROVIDER_ID}:${MAKERS_MODELS_BUILTIN_MODEL}`);
+    process.exit(0);
+  }
   console.error(`网关返回 ${response.status} ${response.statusText}`);
   if (body) console.error(body.slice(0, 500));
   process.exit(1);

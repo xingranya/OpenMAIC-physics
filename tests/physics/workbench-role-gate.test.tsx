@@ -86,6 +86,7 @@ vi.mock('@/components/physics/student/overview', () => ({
 import { StudentViewRouter } from '@/components/physics/student-router';
 import { TeacherViewRouter } from '@/components/physics/teacher-router';
 import { WorkbenchShell } from '@/components/physics/workbench';
+import { resolveWorkbenchRedirect } from '@/lib/physics/shortcuts';
 
 /**
  * 渲染工作台外壳，并把**该路径本该渲染的视图路由**作为 children 传进去。
@@ -131,5 +132,77 @@ describe('深链接的角色门禁（渲染层）', () => {
     const html = renderShell('/physics/overview');
     expect(html).toContain('STUDENT-CONTENT:overview');
     expect(html).not.toContain('正在返回');
+  });
+
+  /**
+   * 未知视图不能成为绕过口。
+   *
+   * `parseWorkbenchPath` 只认 5 个教师视图，`/teacher/foo` 被解析成 null；
+   * 旧门禁在 `!pathRole` 时**直接放行**，而教师路由的 switch 有 `default`
+   * → 学生打开 `/teacher/foo` 会看到教师驾驶舱（实测确认过）。
+   * 所以判定必须看**路径前缀**，而不是「这个视图认不认识」。
+   */
+  it('学生深链接**不存在的教师视图**时，教师端内容同样不出现', () => {
+    harness.role = 'student';
+    const html = renderShell('/teacher/foo');
+    expect(html).not.toContain('TEACHER-CONTENT');
+    expect(html).toContain('正在返回学生工作台');
+  });
+
+  it('同角色深链接**不存在的视图**时，送回该角色首页（不渲染默认页）', () => {
+    harness.role = 'student';
+    const html = renderShell('/physics/not-a-view');
+    expect(html).not.toContain('STUDENT-CONTENT');
+    expect(html).toContain('正在返回学生工作台');
+  });
+});
+
+/**
+ * 判定逻辑本身的边界（纯函数）。
+ *
+ * 渲染层测试只能证明「接上了」，边界条件（前缀、未知视图、未水合）在这里钉。
+ */
+describe('深链接判定的边界', () => {
+  it('未知视图不改变「路径属于哪个角色」的判断', () => {
+    expect(resolveWorkbenchRedirect('/teacher/foo', 'student')).toEqual({
+      blocked: true,
+      redirectTo: '/physics/overview',
+    });
+  });
+
+  it('同角色的合法视图不拦（不能误伤正常刷新）', () => {
+    expect(resolveWorkbenchRedirect('/teacher/evaluation', 'teacher')).toEqual({
+      blocked: false,
+      redirectTo: null,
+    });
+    expect(resolveWorkbenchRedirect('/physics/lab', 'student')).toEqual({
+      blocked: false,
+      redirectTo: null,
+    });
+  });
+
+  it('同角色的未知视图送回该角色首页', () => {
+    expect(resolveWorkbenchRedirect('/teacher/foo', 'teacher')).toEqual({
+      blocked: true,
+      redirectTo: '/teacher/dashboard',
+    });
+    expect(resolveWorkbenchRedirect('/physics', 'student')).toEqual({
+      blocked: true,
+      redirectTo: '/physics/overview',
+    });
+  });
+
+  it('会话还没水合时不判定（否则刷新会被误伤）', () => {
+    expect(resolveWorkbenchRedirect('/teacher/foo', null)).toEqual({
+      blocked: false,
+      redirectTo: null,
+    });
+  });
+
+  it('不属于工作台的路径不判定', () => {
+    expect(resolveWorkbenchRedirect('/login', 'student')).toEqual({
+      blocked: false,
+      redirectTo: null,
+    });
   });
 });

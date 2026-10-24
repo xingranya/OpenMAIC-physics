@@ -523,12 +523,41 @@ export function assertBundleHasNoEnvLeak(bundlePath, options = {}) {
   }
 
   if (problems.length > 0) {
+    // `.env` 也是构建输入：Next 会读它，而 `edgeone makers env set` 会把变量
+    // **同时写进本地 .env**。于是「在平台配好 Key」的下一步就是「构建把 Key
+    // 内联进 edge 函数」，报错却指向 cleanEnv——不把这条写清楚，排查会绕远路。
+    const inDotEnv = unexpected.filter((name) => dotEnvVariableNames(root).has(name));
+    const hint =
+      inDotEnv.length > 0
+        ? `\n其中 ${inDotEnv.join('、')} 出现在本地 .env 里。` +
+          '`edgeone makers env set` 会把变量同时写进本地 .env，而 Next 构建会读 .env——' +
+          '平台侧已经保存过了，本地这几行应当删掉：' +
+          '\n  凭据只放平台环境变量，不要留在仓库目录的任何文件里。删掉后重新部署。'
+        : '\n请检查部署脚本是否走了净化环境（scripts/deploy-edgeone.mjs 的 cleanEnv）。';
     throw new Error(
-      `构建产物把本机环境内联进了 edge 函数（${problems.join('、')}）。` +
-        '请检查部署脚本是否走了净化环境（scripts/deploy-edgeone.mjs 的 cleanEnv）。',
+      `构建产物把本机环境内联进了 edge 函数（${problems.join('、')}）。${hint}`,
     );
   }
   return { bundledNames };
+}
+
+/**
+ * 本地 `.env*` 里出现的**变量名**（只读键名，不读值）。
+ *
+ * 用途：产物泄露门禁报错时，能直接指出「这个变量是从本地 .env 进去的」，
+ * 而不是让人去翻 cleanEnv。
+ */
+function dotEnvVariableNames(root) {
+  const names = new Set();
+  for (const file of ['.env', '.env.local', '.env.production', '.env.development']) {
+    const path = join(root, file);
+    if (!existsSync(path)) continue;
+    for (const line of readFileSync(path, 'utf8').split('\n')) {
+      const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=/);
+      if (match) names.add(match[1]);
+    }
+  }
+  return names;
 }
 
 async function main() {

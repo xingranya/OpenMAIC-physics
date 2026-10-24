@@ -37,6 +37,7 @@ const ERROR_MESSAGES: Record<AccountErrorCode, string> = {
   'username-too-long': '账号最多 32 个字符。',
   'username-invalid': '账号只能包含字母、数字、下划线、连字符或中文。',
   'username-taken': '这个账号已被占用，换一个试试。',
+  'username-reserved': '这个账号是演示账号，请换一个。',
   'password-required': '请填写密码。',
   'password-too-short': '密码至少 8 位。',
   'password-too-long': '密码最多 128 位。',
@@ -44,6 +45,7 @@ const ERROR_MESSAGES: Record<AccountErrorCode, string> = {
   'role-invalid': '请选择身份。',
   'invalid-credentials': '账号或密码不正确。',
   'storage-unavailable': '当前浏览器不允许保存账号，无法完成注册。',
+  'storage-corrupt': '本地账号数据已损坏，已自动备份原数据。请清除本站数据后重新注册。',
 };
 
 export function PhysicsLogin() {

@@ -104,6 +104,55 @@ export function resolveDeepLinkRoleGate(
   };
 }
 
+/**
+ * 工作台深链接的**完整**判定：角色一致性 + 视图是否存在。
+ *
+ * ## 为什么不能只看 `parseWorkbenchPath`
+ *
+ * `parseWorkbenchPath` 只认已知视图，`/teacher/foo` 会被解析成 `null`。
+ * 旧判定在 `!pathRole` 时直接放行，而教师路由的 `switch` 有 `default`
+ * → **学生打开 `/teacher/foo` 能看到教师驾驶舱**（实测确认）。
+ * 「视图名不认识」不等于「不知道这是哪个角色的路径」——前缀已经把角色说清楚了。
+ *
+ * ## 两类后果分开处理
+ *
+ * - 跨角色（学生开 `/teacher/*`，或反过来）→ 送回**自己角色**首页；
+ * - 同角色但视图不存在（含 `/physics` 这种缺视图的路径）→ 也送回自己角色首页，
+ *   而不是让路由的 `default` 顶上一个「看起来正常」的页面——地址栏与内容错配
+ *   比直接回首页更难排查。
+ *
+ * 会话未水合时不判定，避免刷新被误伤（与 `resolveDeepLinkRoleGate` 同一口径）。
+ */
+export function resolveWorkbenchRedirect(
+  pathname: string,
+  sessionRole: UserRole | null,
+): { blocked: boolean; redirectTo: string | null } {
+  const segments = String(pathname ?? '')
+    .split('/')
+    .filter(Boolean);
+  const prefix = segments[0] ?? '';
+  const view = segments[1] ?? '';
+
+  const pathRole: UserRole | null =
+    prefix === STUDENT_ROUTE_PREFIX.slice(1)
+      ? 'student'
+      : prefix === TEACHER_ROUTE_PREFIX.slice(1)
+        ? 'teacher'
+        : null;
+
+  if (!pathRole || !sessionRole) return { blocked: false, redirectTo: null };
+
+  const home = routeFor(sessionRole, ROLE_HOME_VIEW[sessionRole]);
+  if (pathRole !== sessionRole) return { blocked: true, redirectTo: home };
+
+  const known = (
+    sessionRole === 'student' ? STUDENT_VIEW_IDS : TEACHER_VIEW_IDS
+  ) as readonly string[];
+  return known.includes(view)
+    ? { blocked: false, redirectTo: null }
+    : { blocked: true, redirectTo: home };
+}
+
 const studentShortcutSet: Array<Omit<ShortcutBinding, 'scope'>> = [
   {
     label: '总览',

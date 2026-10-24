@@ -47,7 +47,7 @@ import {
   STUDENT_ROUTE_PREFIX,
   TEACHER_ROUTE_PREFIX,
   findShortcutsForPalette,
-  resolveDeepLinkRoleGate,
+  resolveWorkbenchRedirect,
   routeFor,
   type ShortcutBinding,
   type StudentView,
@@ -125,9 +125,12 @@ export function WorkbenchShell({ children }: { children: React.ReactNode }) {
    *
    * 这里把跨角色深链接送回自己角色的首页；并且**在跳转完成前不渲染别角色的内容**
    * ——children 是按路由渲染的，不挡一下就会闪一帧教师端界面。
+   *
+   * 判定看的是**路径前缀**而不是「视图名认不认识」：`/teacher/foo` 这种不存在的
+   * 视图曾经因为解析成 null 而被放行，直接渲染出教师驾驶舱（路由 switch 的
+   * default 兜底）。同角色但视图不存在时也回首页，避免地址栏与内容错配。
    */
-  const parsedRole = parsed?.role ?? null;
-  const roleGate = resolveDeepLinkRoleGate(parsedRole, role);
+  const roleGate = resolveWorkbenchRedirect(pathname, role);
 
   React.useEffect(() => {
     if (!hydrated || !roleGate.blocked || !roleGate.redirectTo) return;

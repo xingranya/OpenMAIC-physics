@@ -15,6 +15,7 @@
  * 材料里必须如实这样写，不能暗示它是服务端账号体系。
  */
 import {
+  AccountStorageCorruptError,
   PASSWORD_HASH_BITS,
   type AccountCrypto,
   type AccountDeps,
@@ -124,15 +125,38 @@ export class LocalAccountRepository implements AccountRepository {
   async list(): Promise<PhysicsAccount[]> {
     const storage = this.resolve();
     if (!storage) return [];
+    const raw = storage.getItem(ACCOUNT_STORAGE_KEY);
+    if (!raw) return [];
+
+    // ## 损坏时**绝不**返回空数组
+    //
+    // 返回 `[]` 看起来最"稳"，实际最危险：注册流程拿到空数组后会
+    // `save([newAccount])`，把整张账号表覆盖成只有新账号——原有账号全部消失，
+    // 而且用户看不到任何提示。所以这里先备份原始内容，再抛错让上层给提示。
+    let parsed: unknown;
     try {
-      const raw = storage.getItem(ACCOUNT_STORAGE_KEY);
-      if (!raw) return [];
-      const parsed: unknown = JSON.parse(raw);
-      if (!Array.isArray(parsed)) return [];
-      return parsed.filter(isAccountShape);
+      parsed = JSON.parse(raw);
     } catch {
-      return [];
+      throw this.backupAndBuildCorruptError(raw, storage);
     }
+    if (!Array.isArray(parsed)) {
+      throw this.backupAndBuildCorruptError(raw, storage);
+    }
+    return parsed.filter(isAccountShape);
+  }
+
+  /**
+   * 把损坏的原始字符串另存一份，再构造要抛的错误。
+   *
+   * 备份失败（例如配额已满）也**不改变结论**：仍然抛错，绝不退回空数组。
+   */
+  private backupAndBuildCorruptError(raw: string, storage: Storage): AccountStorageCorruptError {
+    try {
+      storage.setItem(`${ACCOUNT_STORAGE_KEY}:corrupt-${Date.now()}`, raw);
+    } catch {
+      /* 备份失败不改变"损坏"这个事实 */
+    }
+    return new AccountStorageCorruptError();
   }
 
   async save(accounts: PhysicsAccount[]): Promise<void> {

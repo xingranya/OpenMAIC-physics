@@ -37,6 +37,26 @@ export const ACCOUNT_MAX_USERNAME_LENGTH = 32;
 /** 显示名最大长度。 */
 export const ACCOUNT_MAX_DISPLAY_NAME_LENGTH = 24;
 
+/**
+ * **演示账号**的用户名，注册时保留。
+ *
+ * ## 为什么必须保留
+ *
+ * 演示账号（`student` / `teacher`）不在账号表里，登录时走的是
+ * `lib/physics/session.ts` 的 `authenticate()`（明文比对，见 `DEMO_ACCOUNTS`）。
+ * 如果允许注册同名账号，就会出现**两个同名身份**：用 `dunzhongwan` 登录落到
+ * `demo-student` 的数据分区，用自己设的口令登录落到另一个分区——
+ * 同一个名字、两份学习数据，现场演示时最难解释。
+ *
+ * ## 为什么写成字面量而不是 import
+ *
+ * `accounts.ts` 被中间件间接引用（`middleware.ts` → `account-store.ts` → 这里）。
+ * 把 `lib/physics/data.ts`（含整份课程与画像数据）拖进边缘运行时没必要。
+ * 两边的一致性由 `tests/physics/accounts.test.ts` 的「保留名单覆盖全部演示账号」
+ * 那条断言盯着——新增演示账号而忘了同步，测试会红。
+ */
+export const RESERVED_DEMO_USERNAMES: readonly string[] = ['student', 'teacher'];
+
 /** PBKDF2 迭代次数。取 OWASP 2023 对 PBKDF2-HMAC-SHA256 的建议量级。 */
 export const PASSWORD_HASH_ITERATIONS = 210_000;
 
@@ -108,13 +128,15 @@ export type AccountErrorCode =
   | 'username-too-long'
   | 'username-invalid'
   | 'username-taken'
+  | 'username-reserved'
   | 'password-required'
   | 'password-too-short'
   | 'password-too-long'
   | 'display-name-too-long'
   | 'role-invalid'
   | 'invalid-credentials'
-  | 'storage-unavailable';
+  | 'storage-unavailable'
+  | 'storage-corrupt';
 
 export interface AccountFailure {
   ok: false;
@@ -127,6 +149,26 @@ export interface AccountSuccess<T> {
 }
 
 export type AccountResult<T> = AccountSuccess<T> | AccountFailure;
+
+/**
+ * 账号存储损坏：JSON 解析失败，或解析出来不是数组。
+ *
+ * ## 为什么需要专门一类错误
+ *
+ * 旧实现遇到损坏直接 `return []`，注册时 `[...accounts, account]` 会把整张
+ * 账号表覆盖成只有新账号——**原有账号全部消失且没有任何提示**。
+ * 「注册失败」是可接受的，静默抹掉别人的账号不行。
+ *
+ * 所以仓库层（`account-store.ts`）遇到损坏时先备份原始内容，再抛这个错；
+ * 领域层（本文件）把它翻译成 `storage-corrupt` 错误码，界面给出可读提示。
+ * 类型定义放在领域层，是为了让适配层依赖领域层，而不是反过来。
+ */
+export class AccountStorageCorruptError extends Error {
+  constructor(message = '本地账号数据无法解析') {
+    super(message);
+    this.name = 'AccountStorageCorruptError';
+  }
+}
 
 /**
  * 用户名规范化：去首尾空格 + 转小写。
@@ -166,6 +208,8 @@ export function validateRegistration(input: {
   if (username.length < ACCOUNT_MIN_USERNAME_LENGTH) return 'username-too-short';
   if (username.length > ACCOUNT_MAX_USERNAME_LENGTH) return 'username-too-long';
   if (!isValidUsername(username)) return 'username-invalid';
+  // 演示账号名保留：否则会出现「同名两个身份」，见 RESERVED_DEMO_USERNAMES。
+  if (RESERVED_DEMO_USERNAMES.includes(normalizeUsername(username))) return 'username-reserved';
 
   const password = String(input.password ?? '');
   if (!password) return 'password-required';
@@ -274,7 +318,14 @@ export async function registerAccount(
   if (invalid) return { ok: false, error: invalid };
 
   const username = normalizeUsername(input.username);
-  const accounts = await repository.list();
+  let accounts: PhysicsAccount[];
+  try {
+    accounts = await repository.list();
+  } catch (error) {
+    // 存储坏了就**别写**：继续写会把整张表覆盖成只有这个新账号。
+    if (error instanceof AccountStorageCorruptError) return { ok: false, error: 'storage-corrupt' };
+    throw error;
+  }
   if (accounts.some((item) => item.username === username)) {
     return { ok: false, error: 'username-taken' };
   }
@@ -316,7 +367,15 @@ export async function loginAccount(
   deps: AccountDeps,
 ): Promise<AccountResult<PhysicsAccount>> {
   const normalized = normalizeUsername(username);
-  const accounts = await repository.list();
+  let accounts: PhysicsAccount[];
+  try {
+    accounts = await repository.list();
+  } catch (error) {
+    // 读不出来就说「坏了」，不要伪装成「账号或密码不正确」——
+    // 后者会让用户以为是自己记错了口令。
+    if (error instanceof AccountStorageCorruptError) return { ok: false, error: 'storage-corrupt' };
+    throw error;
+  }
   const account = accounts.find((item) => item.username === normalized);
 
   if (!account) {
