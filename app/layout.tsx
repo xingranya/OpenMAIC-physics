@@ -10,6 +10,7 @@ import { I18nProvider } from '@/lib/hooks/use-i18n';
 import { Toaster } from '@/components/ui/sonner';
 import { ServerProvidersInit } from '@/components/server-providers-init';
 import { StorageHealthNotice } from '@/components/storage-health-notice';
+import { SessionBridge } from '@/components/physics/session-bridge';
 
 // The UI font is loaded from @fontsource's stylesheet rather than next/font,
 // because only the stylesheet carries the per-subset `unicode-range`
@@ -67,6 +68,9 @@ export default function RootLayout({
       >
         <ThemeProvider>
           <I18nProvider>
+            {/* 必须在所有会打 /api/ 的组件之前：它把会话令牌接到
+                x-physics-session 请求头上（Cookie 在部分平台上到不了函数入口）。 */}
+            <SessionBridge />
             <ServerProvidersInit />
             {children}
             <Toaster position="top-center" />

@@ -399,10 +399,12 @@ function checkDocChunkCount(actual) {
  * 由云函数入口的 `createSessionGate` 强制
  * （见 `scripts/prune-edgeone-function.mjs`）。
  *
- * 这里验三件事：
+ * 这里验四件事：
  * 1. 未登录调用高耗能接口 → 401（门禁真的在生效）；
  * 2. 带会话 Cookie → 不再是 401（不是把所有人都拒了）；
- * 3. 不消耗外部资源的接口不拦（否则「断网也能演示」这类承诺会失效）。
+ * 3. 带会话**请求头**（`x-physics-session`）→ 也不再是 401
+ *    （平台转发层读不出 Cookie 时的第二条通道）；
+ * 4. 不消耗外部资源的接口不拦（否则「断网也能演示」这类承诺会失效）。
  */
 async function checkSessionGate() {
   const gated = await fetchWithTimeout('/api/chat');
@@ -421,9 +423,34 @@ async function checkSessionGate() {
   const cookie = `${SESSION_COOKIE_NAME}=probe-session.${Date.now()}`;
   const withSession = await fetchWithTimeout('/api/chat', { headers: { Cookie: cookie } });
   if (withSession.status === 401) {
-    record('会话门禁 · 带会话后放行', false, '带会话 Cookie 仍然 401 —— 门禁把已登录也一起拒了');
+    // 失败时把函数入口回报的「实际到达的请求头名」打出来：
+    // 没有这条信息，就只能靠猜是「平台没转发 Cookie」还是「判定写错了」——
+    // 本项目已经在这上面误判过一次（真因是生成器的正则被字符串转义吃掉了）。
+    record(
+      '会话门禁 · 带会话后放行',
+      false,
+      `带会话 Cookie 仍然 401 —— 门禁把已登录也一起拒了（到达的请求头：${
+        withSession.headers.get('x-session-gate-headers') ?? '未回报'
+      }）`,
+    );
   } else {
     record('会话门禁 · 带会话后放行', true, `带会话 Cookie → ${withSession.status}（不再是 401）`);
+  }
+
+  // 第二条通道：请求头。平台转发层若读不出 Cookie，这条必须仍然放行。
+  const withHeader = await fetchWithTimeout('/api/chat', {
+    headers: { 'x-physics-session': `probe-session.${Date.now()}` },
+  });
+  if (withHeader.status === 401) {
+    record(
+      '会话门禁 · 带会话请求头也放行',
+      false,
+      `带 x-physics-session 仍然 401 —— 第二条通道没接上（到达的请求头：${
+        withHeader.headers.get('x-session-gate-headers') ?? '未回报'
+      }）`,
+    );
+  } else {
+    record('会话门禁 · 带会话请求头也放行', true, `带 x-physics-session → ${withHeader.status}`);
   }
 
   // 不消耗外部资源的接口不该拦。

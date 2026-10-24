@@ -26,6 +26,7 @@ import { NextRequest } from 'next/server';
 
 import { middleware, SESSION_REQUIRED_PREFIXES, requiresSession } from '@/middleware';
 import { SESSION_COOKIE_NAME, isSessionCookieValue } from '@/lib/physics/account-store';
+import { SESSION_HEADER_NAME } from '@/lib/physics/session-header';
 
 const REPO_ROOT = process.cwd();
 const PRUNE_SCRIPT = join(REPO_ROOT, 'scripts', 'prune-edgeone-function.mjs');
@@ -35,20 +36,69 @@ function sessionValue(): string {
   return `probe-account.${Date.now()}`;
 }
 
-function request(pathname: string, cookie?: string): NextRequest {
+/**
+ * 取出函数入口**生成后**的某一行源码。
+ *
+ * 生成器里那一行是「一个字符串字面量 + 逗号」，例如
+ * `        "const SESSION_COOKIE_NAME = 'physics_session';",`
+ * ——把它求值，得到的就是真正写进 `index.mjs` 的那行代码。
+ *
+ * 为什么不能直接断言源文件里含某个子串：源文件里写的是**转义前**的形态，
+ * 而运行时看到的是**转义后**的形态。两者不同正是线上 401 的成因
+ * （`\.` 在字符串里被吃成 `.`，正则从「点 + 十位以上数字」变成
+ * 「任意字符 + d」），只断言源文件子串的测试会**全绿放行**。
+ */
+function generatedLine(fragment: string): string {
+  const source = readFileSync(PRUNE_SCRIPT, 'utf8');
+  const line = source
+    .split('\n')
+    .find((candidate) => candidate.includes(fragment) && candidate.trim().endsWith(','));
+  if (!line) throw new Error(`生成器里找不到 ${fragment}`);
+  // 该行形如 `<缩进>'<字符串>',` —— 去掉缩进与尾逗号后就是一个合法的字符串字面量。
+  const literal = line.trim().replace(/,$/, '');
+  return new Function(`return ${literal};`)() as string;
+}
+
+function request(pathname: string, cookie?: string, sessionHeader?: string): NextRequest {
   const headers = new Headers();
   if (cookie) headers.set('cookie', `${SESSION_COOKIE_NAME}=${cookie}`);
+  if (sessionHeader) headers.set(SESSION_HEADER_NAME, sessionHeader);
   return new NextRequest(`http://localhost${pathname}`, { method: 'GET', headers });
 }
 
 describe('会话门禁 · 三处契约一致', () => {
   it('Cookie 名在三处完全相同', () => {
     expect(SESSION_COOKIE_NAME).toBe('physics_session');
+    expect(generatedLine("const SESSION_COOKIE_NAME = 'physics_session';")).toBe(
+      `const SESSION_COOKIE_NAME = '${SESSION_COOKIE_NAME}';`,
+    );
+  });
 
-    // 第 3 份：构建期生成进函数入口的源码。锚点是**完整字面量**，
-    // 注释里写同形的一行匹配不到（否则这道断言就是恒真的）。
-    const generated = readFileSync(PRUNE_SCRIPT, 'utf8');
-    expect(generated).toContain(`"const SESSION_COOKIE_NAME = '${SESSION_COOKIE_NAME}';"`);
+  it('会话请求头名在三处完全相同', () => {
+    expect(SESSION_HEADER_NAME).toBe('x-physics-session');
+    expect(generatedLine('const SESSION_HEADER_NAME =')).toBe(
+      `const SESSION_HEADER_NAME = '${SESSION_HEADER_NAME}';`,
+    );
+  });
+
+  /**
+   * 这条是线上 401 的回归测试。
+   *
+   * 生成器把正则写在字符串里，`\.` / `\d` 必须写成 `\\.` / `\\d`；
+   * 少一个反斜杠，生成出来的就是 `/^[…]{1,128}.d{10,16}$/`——
+   * 合法令牌（`abc.1700000000000`）永远匹配不上，而**本地走的是 Next 中间件**，
+   * 根本碰不到这段代码，所以单测、构建、本地联调全都不会红。
+   */
+  it('函数入口的令牌形状判定与实际令牌匹配（转义不能被打坏）', () => {
+    const source = generatedLine('const SESSION_COOKIE_PATTERN =');
+    const pattern = new Function(`return ${source.replace(/^const SESSION_COOKIE_PATTERN = /, '')}`)();
+    expect(pattern).toBeInstanceOf(RegExp);
+    expect(String(pattern)).toBe(String(/^[A-Za-z0-9._-]{1,128}\.\d{10,16}$/));
+    expect(pattern.test(sessionValue())).toBe(true);
+    expect(pattern.test(`demo-student.${Date.now()}`)).toBe(true);
+    // 反向：形状不对的必须仍然拒绝，别为了放行把门拆了。
+    expect(pattern.test('not-a-session')).toBe(false);
+    expect(pattern.test('probe-account')).toBe(false);
   });
 
   it('「必须登录」的前缀列表在中间件与函数入口之间一致', () => {
@@ -82,8 +132,22 @@ describe('会话门禁 · 行为', () => {
     expect(response.status).not.toBe(401);
   });
 
+  /**
+   * 第二条通道：平台转发层读不出 Cookie 时，客户端发的请求头仍要放行。
+   * 这条与上面那条**互不替代**——任一条失效，线上就会出现「登录了还是 401」。
+   */
+  it('带合法会话请求头（没有 Cookie）→ 放行', async () => {
+    const response = await middleware(request('/api/chat', undefined, sessionValue()));
+    expect(response.status).not.toBe(401);
+  });
+
   it('带**形状不合法**的 Cookie → 仍然 401（不能靠乱写 Cookie 混进去）', async () => {
     const response = await middleware(request('/api/chat', 'not-a-session'));
+    expect(response.status).toBe(401);
+  });
+
+  it('带**形状不合法**的会话请求头 → 仍然 401', async () => {
+    const response = await middleware(request('/api/chat', undefined, 'not-a-session'));
     expect(response.status).toBe(401);
   });
 

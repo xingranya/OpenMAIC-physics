@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -68,6 +68,34 @@ describe('failedFiles', () => {
 
   it('报告文件不存在时返回 null（而不是空集合）', () => {
     expect(failedFiles(join(tmpdir(), 'definitely-not-here.json'), '/repo')).toBeNull();
+  });
+
+  /**
+   * 符号链接下的路径归一（实测踩过的坑）。
+   *
+   * 基线树解在 `mkdtempSync(tmpdir())` 下，macOS 的 `/var` 是指向
+   * `/private/var` 的符号链接；vitest 报告给的是 **realpath**，脚本传的 root
+   * 是**符号链接路径**。不归一的话两侧路径永远对不上，当前树的每一个失败
+   * 文件都会被判成「基线里没有」→ 全量误报成「本分支引入」。
+   */
+  it('root 是符号链接时仍能算出相对路径（/var → /private/var）', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'baseline-symlink-'));
+    try {
+      mkdirSync(join(dir, 'real'));
+      writeFileSync(join(dir, 'real', 'a.test.ts'), '// x');
+      symlinkSync(join(dir, 'real'), join(dir, 'link'));
+      const report = join(dir, 'report.json');
+      writeFileSync(
+        report,
+        JSON.stringify({
+          testResults: [{ name: join(dir, 'real', 'a.test.ts'), status: 'failed' }],
+        }),
+      );
+      const failed = failedFiles(report, join(dir, 'link'));
+      expect([...(failed as Set<string>)]).toEqual(['a.test.ts']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

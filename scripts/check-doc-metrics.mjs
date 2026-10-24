@@ -229,25 +229,37 @@ const METRICS = [
     // 同一组数字在 §3 的对照表与 §8.4 的正文里也各出现一次。
     // 第八轮复审实测：只守护 §8.1 的话，把这两处改成别的数字，门禁仍 exit=0。
     label: '物理域总规模（§3 对照表）',
-    // 捕获组：1 = 纯领域层行数，2 = 浏览器适配层行数，3 = 合计。
-    declaredGroup: 3,
-    pattern: /纯领域层 11 文件 ([\d\s]+) 行 \+ 浏览器适配层 8 文件 ([\d\s]+) 行，共 ([\d\s]+) 行/,
+    // 捕获组：1 = 纯领域层文件数，2 = 纯领域层行数，
+    //         3 = 浏览器适配层文件数，4 = 浏览器适配层行数，5 = 合计行数。
+    //
+    // 文件数也进捕获组：原先把它写死成「8 文件」，于是**文件数漂了门禁也不响**
+    // （实测早已是 10 个，材料里还写着 8）。数字与文件数现在一起核。
+    declaredGroup: 5,
+    pattern:
+      /纯领域层 (\d+) 文件 ([\d\s]+) 行 \+ 浏览器适配层 (\d+) 文件 ([\d\s]+) 行，共 ([\d\s]+) 行/,
     measure: () => countLines(collect(join(ROOT, 'lib', 'physics'), '.ts')),
-    // 额外校验纯层、适配层与合计三个分项。
+    // 额外校验纯层、适配层的文件数与行数，以及合计。
     extra: (match) => {
       const total = countLines(collect(join(ROOT, 'lib', 'physics'), '.ts'));
       const pure = measurePureTier();
+      const files = collect(join(ROOT, 'lib', 'physics'), '.ts').length;
       return {
         groups: [
-          { label: '纯领域层', declared: Number(match[1].replace(/\s/g, '')), actual: pure },
+          { label: '纯领域层文件数', declared: Number(match[1]), actual: PURE_TIER.size },
+          { label: '纯领域层行数', declared: Number(match[2].replace(/\s/g, '')), actual: pure },
           {
-            label: '浏览器适配层',
-            declared: Number(match[2].replace(/\s/g, '')),
+            label: '浏览器适配层文件数',
+            declared: Number(match[3]),
+            actual: files - PURE_TIER.size,
+          },
+          {
+            label: '浏览器适配层行数',
+            declared: Number(match[4].replace(/\s/g, '')),
             actual: total - pure,
           },
           {
             label: '物理域合计',
-            declared: Number(match[3].replace(/\s/g, '')),
+            declared: Number(match[5].replace(/\s/g, '')),
             actual: total,
           },
         ],

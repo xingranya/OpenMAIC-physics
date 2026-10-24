@@ -77,6 +77,9 @@ next-env.d.ts
 # 因此只忽略 docs/ 下除「参赛」以外的内容。
 /docs/*
 !/docs/参赛
+# 上线收尾说明：交付时给下一位接手者的「改了什么 / 线上什么结果 / 还没验证什么」，
+# 必须进版本库——只存在某个人本机上的交接文档等于没有。
+!/docs/上线收尾说明.md
 # Eval results
 eval/whiteboard-layout/results/
 eval/outline-language/results/

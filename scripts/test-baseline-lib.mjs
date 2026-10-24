@@ -12,8 +12,29 @@
  * **文件已被本分支删除**的情况（特性整个移除，测试文件随之删除），
  * 把它说成「本分支顺手修好的」是错的。
  */
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
+
+/**
+ * 把路径归一成**真实路径**（解析符号链接），失败就原样返回。
+ *
+ * 为什么必须归一：基线树解在 `mkdtempSync(tmpdir())` 下，而 macOS 的
+ * `/var` 是指向 `/private/var` 的符号链接。vitest 报告里给的是 **realpath**
+ * （`/private/var/...`），脚本传进去的 root 是**符号链接路径**（`/var/...`），
+ * 于是 `absolute.replace(root + '/', '')` 一刀切不掉，两侧路径根本不可比：
+ * 当前树的每一个失败文件都会被判成「基线里没有」→ 全量误报成「本分支引入」。
+ * （实测踩过：报出 30 个 `/privatetests/...` 这种半截路径。）
+ *
+ * 报告里的路径未必真实存在（单测会造假路径），所以 realpath 失败要能退回原值。
+ */
+function toRealPath(value) {
+  const text = String(value).replace(/\\/g, '/');
+  try {
+    return realpathSync(text).replace(/\\/g, '/');
+  } catch {
+    return text;
+  }
+}
 
 /**
  * 从 vitest 的 JSON 报告里读出失败的测试文件集合。
@@ -29,6 +50,7 @@ import { join } from 'node:path';
 export function failedFiles(reportPath, root) {
   if (!existsSync(reportPath)) return null;
   const report = JSON.parse(readFileSync(reportPath, 'utf8'));
+  const rootReal = root ? toRealPath(root) : '';
   const failed = new Set();
   for (const file of report.testResults ?? []) {
     // 注意：`??` 与 `?:` 混用会踩优先级坑（`a ?? b ? c : d` 实际是
@@ -43,8 +65,9 @@ export function failedFiles(reportPath, root) {
           : 'failed';
     }
     if (status === 'failed') {
-      const absolute = file.name.replace(/\\/g, '/');
-      failed.add(root ? absolute.replace(`${root}/`, '') : absolute);
+      const absolute = toRealPath(file.name);
+      const prefix = rootReal ? `${rootReal}/` : '';
+      failed.add(prefix && absolute.startsWith(prefix) ? absolute.slice(prefix.length) : absolute);
     }
   }
   return failed;

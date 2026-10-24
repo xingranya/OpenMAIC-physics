@@ -134,9 +134,9 @@ edgeone makers deploy .tmp/edgeone-stage -n <项目名> -e production --area glo
 | `edgeone whoami` | 账号 100043806721 / APPID 1374239834（登录态可用） |
 | `edgeone makers deploy -n physics-ai-classroom -e preview` | 报错：需先创建 production 部署 |
 | `edgeone makers deploy -n physics-ai-classroom -e production` | 报错：`pnpm install` 失败——corepack 缓存里没有 `pnpm@10.28.0`（`ENOENT: stat ~/.cache/node/corepack/v1/pnpm/10.28.0`） |
-| `node scripts/deploy-edgeone.mjs` | **部署成功**：项目 `physics-ai-classroom-global`（ID `makers-kru2xpkwfs7q`，加速区域 `Area: "overseas"`＝全球可用区**不含**中国大陆），预设域 `https://physics-ai-classroom-global-rvroompq.edgeone.dev`，部署 ID `dp4c95mdsunb`，函数包 119.3 MiB（上限 128 MiB）；自定义域名 `dun.xran.uk` 已绑定 |
+| `node scripts/deploy-edgeone.mjs` | **部署成功**：项目 `physics-ai-classroom-global`（ID `makers-kru2xpkwfs7q`，加速区域 `Area: "overseas"`＝全球可用区**不含**中国大陆），预设域 `https://physics-ai-classroom-global-rvroompq.edgeone.dev`，部署 ID `dpuzsvgpvle7`，函数包 119.4 MiB（上限 128 MiB）；自定义域名 `dun.xran.uk` 已绑定 |
 | 线上静态页（`/physics/overview` 等 SSG 路由） | HTTP 200，首屏标题「大学物理 AI 智慧课堂 · 长江大学文理学院」 |
-| 线上动态路由（`/api/health`、`/physics/overview`、`/teacher/dashboard` 等 SSR 路由） | **HTTP 200**（修复前是 502 / 500），根因与修法见 §8.1e；线上自检 `node scripts/check-physics-e2e.mjs --base-url <地址>` **25 / 25 通过**（**上一次部署、访问码时代的实测**；账号系统上线后需按新脚本重跑） |
+| 线上动态路由（`/api/health`、`/physics/overview`、`/teacher/dashboard` 等 SSR 路由） | **HTTP 200**（修复前是 502 / 500），根因与修法见 §8.1e；线上自检 `node scripts/check-physics-e2e.mjs --base-url https://dun.xran.uk` **25 / 25 通过**（**账号系统版本、部署 `dpuzsvgpvle7` 当次实测**） |
 | 函数落点 | `actualRegions = {"overseas": "ap-singapore"}` —— **无大陆节点**；旧项目（含大陆）已按「删除重建」要求删除 |
 
 **坑：corepack 缓存缺失导致 `pnpm install` 跑不起来**
@@ -243,7 +243,7 @@ cd OpenMAIC
 >
 > 这两条**症状不同、成因也不同**，排查时不要混为一谈：我们做过对照实验
 > （同一份产物、只改运行期判定值，standalone 与非 standalone 两种形态下
-> 42 个客户端 chunk 全部 200），所以"形态不一致 → chunk 500"并不成立；
+> 41 个客户端 chunk 全部 200），所以"形态不一致 → chunk 500"并不成立；
 > 真正会打空按钮的是上面第二条。
 
 > **关于 `build:packages`**
@@ -518,7 +518,7 @@ pnpm build:packages && pnpm build      # 产物中不应出现 .next/standalone
 # 2) 启动（构建与运行都带 EDGEONE=1）；**必须重启，不能复用旧进程**
 EDGEONE=1 pnpm start -- -p 3434        # 或 ./node_modules/.bin/next start -p 3434
 
-# 3) 跑自检脚本（24 项检查）
+# 3) 跑自检脚本（25 项检查）
 node scripts/check-physics-e2e.mjs --base-url http://127.0.0.1:3434
 ```
 
@@ -527,8 +527,8 @@ node scripts/check-physics-e2e.mjs --base-url http://127.0.0.1:3434
 | 检查项 | 通过条件 |
 | --- | --- |
 | 15 条关键路由 | HTTP 200，且首帧含校名与「正在加载工作台」水合安全标记 |
-| 客户端 chunk | 页面引用的**每一个** chunk 都是 200（本次 42 个客户端 chunk） |
-| 会话门禁 | 未登录调高耗能接口 → 401；带会话 Cookie → 放行；不消耗外部资源的接口不拦 |
+| 客户端 chunk | 页面引用的**每一个** chunk 都是 200（本次 41 个客户端 chunk） |
+| 会话门禁 | 未登录调高耗能接口 → 401；带会话 Cookie → 放行；带会话请求头（`x-physics-session`）→ 放行；不消耗外部资源的接口不拦 |
 | 材料自引 chunk 数 | 说明书 / 部署手册 / 答辩预案三处写的 chunk 数与实测一致 |
 | BUILD_ID | 服务返回的 BUILD_ID 与目标产物一致 |
 | 模型降级前提 | 未配置模型 Key 时 provider 为空，生成路径优雅降级 |
@@ -607,13 +607,13 @@ node scripts/prune-edgeone-function.mjs --yes      # 真执行
 
 实测：**285.7 MiB → 118.0 MiB**（裁剪 + 拍平 + 别名/工作区包实体化之后；
 只裁剪、不拍平时是 151.6 MiB，仍超限）。再按运行期反馈补包（4 个包 / 1.4 MiB），
-**最终上传 119.3 MiB**。
+**最终上传 119.4 MiB**。
 
-**当前产物实测（门禁口径）**：函数包最终体积 **119.3 MiB**，运行期门禁覆盖 **67 条路由**。
+**当前产物实测（门禁口径）**：函数包最终体积 **119.4 MiB**，运行期门禁覆盖 **65 条路由**。
 
-> **体积口径**：`119.3 MiB` 是**最终上传体积**（按文件字节求和，脚本里的 `dirSize`），
+> **体积口径**：`119.4 MiB` 是**最终上传体积**（按文件字节求和，脚本里的 `dirSize`），
 > 与平台「解包后体积」的判定口径不完全等同——同一目录用 `du -sk` 量是更大的
-> （块对齐会更大）。本项目按 119.3 MiB 部署**被平台接受**（部署 ID `dp4c95mdsunb`），
+> （块对齐会更大）。本项目按 119.4 MiB 部署**被平台接受**（部署 ID `dpuzsvgpvle7`），
 > 说明平台的判定口径与文件字节求和一致或更宽松。
 
 ### 8.1e 云函数依赖为什么必须改名成 `deps`（**线上 5xx 的真正根因**）
@@ -733,6 +733,35 @@ Cookie 形态：<账号 id>.<登录时间戳>，形状判定 /^[A-Za-z0-9._-]{1,
 其余接口与页面路由：照旧放行（站点对所有访问者开放）
 ```
 
+**⚠️ 2026-10-24 定位的真实故障：生成器里的正则被字符串转义打坏。**
+
+上线后出现「带合法会话 Cookie 仍然 401」，而**同一份产物在本地放行**。
+真因不是平台、不是 Cookie 名、也不是判定逻辑——是上面那行正则**写在 JS 字符串里**：
+源文件写的是 `\.` / `\d`（单反斜杠），字符串求值后变成 `.` / `d`，
+生成进 `index.mjs` 的正则于是成了 `/^[A-Za-z0-9._-]{1,128}.d{10,16}$/`
+（「任意字符 + 10~16 个字母 d」），**任何合法令牌都匹配不上**。
+
+本地查不出来的原因很关键：本地跑的是 `middleware.ts`（Next 中间件），
+**根本不执行这段生成代码**，所以单测、构建、本地联调全绿。
+
+```bash
+# 证据：求值生成器里那一行，看到的是 .d 而不是 \.\d
+node -e 'const fs=require("fs");const s=fs.readFileSync("scripts/prune-edgeone-function.mjs","utf8");
+const l=s.split("\n").find(x=>x.includes("const SESSION_COOKIE_PATTERN"));
+console.log(eval(l.trim().replace(/,$/,"")));'
+# 修前：const SESSION_COOKIE_PATTERN = /^[A-Za-z0-9._-]{1,128}.d{10,16}$/;
+# 修后：const SESSION_COOKIE_PATTERN = /^[A-Za-z0-9._-]{1,128}\.\d{10,16}$/;
+```
+
+修法与防回归：源文件里写成 `\\.` / `\\d`；并让
+`tests/deploy/session-gate-contract.test.ts` **求值生成后的正则**再断言——
+只匹配源文件子串的断言对这个错误是**全绿放行**的。实测：故意去掉一层反斜杠，该测试立刻变红。
+
+同一次修复还加了第二条通道：客户端同时发 `x-physics-session` 请求头，
+门禁**任一合法即放行**（两条通道强度相同，令牌无签名、只验形状）。
+401 响应会带 `x-session-gate-headers`（**只有请求头名字，不含任何值**），
+用来一眼看出「平台上 Cookie 到底有没有到函数入口」——省掉一次瞎猜。
+
 **为什么只守这几条前缀**：判据是「会不会花钱」——这六条会调用模型、搜索或转写服务，
 匿名调用等于替别人烧额度；其余接口（本地解析、材料上传、静态查询）不消耗外部资源，
 **拦了会让「断网也能演示」这类承诺失效**。
@@ -778,7 +807,7 @@ Next 中间件（`middleware.ts`，本地开发与 Vercel 备份部署用）、�
 | 项 | 平台实况 | 本地/仓库里的对应值 | 影响 |
 | --- | --- | --- | --- |
 | **函数运行时版本** | **Nodejs20.19**，由平台固定，改不动 | 控制台「项目设置 → Node.js 版本」与 `edgeone.json` 的 `nodeVersion` 都设成 `24.5.0`，构建日志也确实是 `v24.5.0`，但函数运行时仍显示 `Nodejs20.19` | 产物里的 `engines.node` 应当**匹配平台实际提供的运行时**。仓库 `package.json` 写的是上游要求的 `>=22.19.0`，平台上没有满足它的运行时，平台可能在拉起阶段直接拒收。本项目把**产物副本**放宽到 `>=20.19.0`（仓库里的不动）。⚠️ 注意：仓库里 `@earendil-works/pi-ai` / `pi-agent-core` 自报 `>=22.19.0`、`svg-pathdata` 自报 `>=22.16.0`，在 Node 20.19 上属**未声明支持**，涉及 AI 助教与导出路径时需留意 |
-| **云函数包体积** | 解包后 ≤ **128 MiB** | 直接 deploy 是 285.7 MiB，裁剪+拍平+依赖实体化后 118.0 MiB，补包后**最终上传 119.3 MiB** | 超限平台拒收（错误码 30），见 §8.1d / §8.1e |
+| **云函数包体积** | 解包后 ≤ **128 MiB** | 直接 deploy 是 285.7 MiB，裁剪+拍平+依赖实体化后 118.0 MiB，补包后**最终上传 119.4 MiB** | 超限平台拒收（错误码 30），见 §8.1d / §8.1e |
 | **函数地域** | **跟随加速区域**：本项目 `Area: "overseas"` → 部署 MetaData 的 `actualRegions` = `{"overseas": "ap-singapore"}`，**无大陆节点**；旧的「含大陆」项目（`Area: "global"`）才是 `{mainland: ap-guangzhou, overseas: ap-singapore}` | `edgeone.json` 的 `cloudFunctions.regions.overseas` 只会**新增**海外节点；`mainland: []` 不会凭空长出大陆节点 | 部署 MetaData 的 `actualRegions` **实测**为 `{"overseas": "ap-singapore"}`（**无 mainland 节点**）—— 大陆节点来自**加速区域**，不是平台强改（详见 §8.1f-1） |
 | **预设域名访问保护** | `*.edgeone.cool` 需带 `eo_token` | 仓库里没有这个概念 | 不带令牌的请求会拿到**平台自己的 401 页面**（不是应用的 401）；CLI 部署成功时打印的地址带 `?eo_token=…&eo_time=…`，绑定自定义域名后不再需要 |
 
@@ -945,7 +974,7 @@ Node 沿父目录向上两步就找到仓库根的 `node_modules`，把产物里
 
 ```bash
 node scripts/repair-edgeone-runtime-deps.mjs   # 运行期反馈补包（多轮直到不缺）
-node scripts/verify-edgeone-runtime.mjs        # 仓库外运行时门禁：打全部 67 条路由
+node scripts/verify-edgeone-runtime.mjs        # 仓库外运行时门禁：打全部 65 条路由
 ```
 
 **为什么不用静态闭包**：静态闭包（产物引用的包 + 它们的**全部**传递依赖）是
@@ -964,11 +993,11 @@ node scripts/verify-edgeone-runtime.mjs        # 仓库外运行时门禁：打�
     这类差异**逐请求归因**（只看该请求自己产生的 stderr），
     否则会把别的路由的报错算到当前路由头上。
 
-**实测**：修完之后，仓库外跑 **67 条路由** → `200×13 400×1 404×19 405×32 500×2`，
+**实测**：修完之后，仓库外跑 **65 条路由** → `200×12 400×1 404×19 405×31 500×2`，
 其中 2 条 500 已归因为 sharp 的 macOS 差异（平台上 linux-x64 正常）。
 
 > **体积口径补充**：丢掉 source map（496 个文件 / 5.8 MiB，运行期不用）后，
-> 裁剪结果是 **285.7 MiB → 118.0 MiB**，补包后 **最终上传 119.3 MiB**（上限 128 MiB）。
+> 裁剪结果是 **285.7 MiB → 118.0 MiB**，补包后 **最终上传 119.4 MiB**（上限 128 MiB）。
 
 > **这道护栏自己也得有牙齿**：`tests/deploy/edgeone-probe-isolation.test.ts`
 > 对**每一层**都做了变异验证——删掉调用点的断言、把两道判据分别短路、

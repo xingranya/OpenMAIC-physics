@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { SESSION_COOKIE_NAME, isSessionCookieValue } from '@/lib/physics/account-store';
+import { SESSION_HEADER_NAME, sessionTokenFromCookieHeader } from '@/lib/physics/session-header';
 
 /**
  * 会话门禁：只有**高耗能接口**要求已登录。
@@ -12,6 +13,21 @@ import { SESSION_COOKIE_NAME, isSessionCookieValue } from '@/lib/physics/account
  * 现在换成真正的账号系统（注册 + 登录），站点本身对所有访问者开放，
  * 门禁只守在**会消耗模型额度或上游资源**的接口前面。
  *
+ * ## 为什么同时认 Cookie 与请求头
+ *
+ * 线上曾出现「带合法 Cookie 仍然 401」。真因不在判定逻辑，而在**生成器**：
+ * `scripts/prune-edgeone-function.mjs` 把形状正则写在字符串字面量里，
+ * 少写了一层反斜杠，`\.` / `\d` 在字符串求值时被吃成 `.` / `d`，
+ * 于是函数入口拿到的是 `/^[…]{1,128}.d{10,16}$/` —— 合法令牌永远匹配不上。
+ * 而**本地跑的是本文件（Next 中间件），根本碰不到那段生成代码**，
+ * 所以单测、构建、本地联调全绿，线上恒 401。
+ *
+ * 那个转义错误已修，并加了会真红的回归测试（`session-gate-contract.test.ts`
+ * 会求值生成后的正则，而不是只匹配源文件子串）。
+ * 请求头这条通道是**冗余保险**：万一平台转发层将来吞掉 Cookie，
+ * 客户端发的 `x-physics-session` 仍能放行。两条通道强度相同
+ * （令牌无签名，验的是形状，挡的是随手匿名调用）。
+ *
  * ## 与函数入口的一致性（重要）
  *
  * EdgeOne Pages **不部署 Next 中间件**（实测产物的
@@ -19,7 +35,7 @@ import { SESSION_COOKIE_NAME, isSessionCookieValue } from '@/lib/physics/account
  * 所以线上真正生效的是 `scripts/prune-edgeone-function.mjs` 生成的
  * `createSessionGate`。本文件是**本地开发与 Vercel 备份部署**用的那份。
  *
- * 两处的 Cookie 名与「必须登录」前缀列表必须一致——
+ * 两处的 Cookie 名、请求头名与「必须登录」前缀列表必须一致——
  * 由 `tests/deploy/session-gate-contract.test.ts` 盯着，不靠人记。
  */
 
@@ -44,6 +60,18 @@ export function requiresSession(pathname: string): boolean {
   return SESSION_REQUIRED_PREFIXES.some((prefix) => pathname.startsWith(prefix));
 }
 
+/**
+ * 取这次请求携带的会话令牌：Cookie 优先，其次请求头。
+ *
+ * 两个都验形状，都不验签名（令牌无签名，见 `account-store.ts`）。
+ */
+export function readSessionToken(request: NextRequest): string | null {
+  const fromCookie = sessionTokenFromCookieHeader(request.headers.get('cookie'));
+  if (fromCookie) return fromCookie;
+  const fromHeader = request.headers.get(SESSION_HEADER_NAME);
+  return fromHeader && isSessionCookieValue(fromHeader) ? fromHeader : null;
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
@@ -51,8 +79,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const cookie = request.cookies.get(SESSION_COOKIE_NAME);
-  if (cookie?.value && isSessionCookieValue(cookie.value)) {
+  if (readSessionToken(request)) {
     return NextResponse.next();
   }
 
