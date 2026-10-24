@@ -186,7 +186,9 @@ describe('e2e 抗抖动 · 端到端行为（真跑脚本）', () => {
 
   /** 拆掉 socket，制造真实的 ECONNRESET（不是 5xx）。 */
   function dropConnection(res: ServerResponse): void {
-    res.socket.destroy();
+    const socket = res.socket;
+    if (!socket) throw new Error('响应没有关联 socket，无法制造断连');
+    socket.destroy();
   }
 
   it('瞬时断连（前 4 次失败、第 5 次成功）不该被当成失败', async () => {
