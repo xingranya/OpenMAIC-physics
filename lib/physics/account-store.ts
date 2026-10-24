@@ -41,9 +41,11 @@ export const SESSION_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
 /**
  * 会话 Cookie 的形状：`<账号 id>.<登录时间戳>`。
  *
- * 服务器**只能验证形状**，验证不了「是不是本人」——签名密钥在浏览器里，
- * 这是一个刻意的取舍：账号校验在本地进行，服务器这边要的是
- * 「挡得住随手匿名调用」，不是强身份鉴权。材料里必须这样写。
+ * 服务器**只能验证形状**，验证不了「是不是本人」——这个 Cookie 里
+ * **没有任何签名**：内容就是账号 id 与登录时间戳，客户端自己写的。
+ * 这是一个刻意的取舍：账号校验在本地进行（不接数据库），服务器这边要的是
+ * 「挡得住随手匿名调用」，不是强身份鉴权。材料里必须这样写，
+ * 也不能含糊成「服务端验证了身份」或「有签名」。
  */
 const SESSION_COOKIE_PATTERN = /^[A-Za-z0-9._-]{1,128}\.\d{10,16}$/;
 
@@ -63,6 +65,23 @@ export function hasSessionCookie(): boolean {
   return document.cookie
     .split(';')
     .some((part) => part.trim().startsWith(`${SESSION_COOKIE_NAME}=`));
+}
+
+/**
+ * 是否该因为「没有会话」而**在客户端**拦下这次请求。
+ *
+ * ## 为什么只在浏览器里判
+ *
+ * 客户端这道拦截是**UX 提示**（给一句人话），真正的判定在服务端
+ * （会话门禁）。所以：
+ * - 浏览器里没有会话 → 拦，给一句「请先登录」；
+ * - **非浏览器环境**（SSR / 单元测试）→ 不拦。那里的「没有 Cookie」
+ *   并不代表用户没登录，拦了只会让正常的服务端 401 变成一个
+ *   没有上下文的假失败。
+ */
+export function shouldBlockForMissingSession(): boolean {
+  if (typeof document === 'undefined') return false;
+  return !hasSessionCookie();
 }
 
 function getStorage(): Storage | undefined {
@@ -178,8 +197,9 @@ export function browserAccountDeps(): AccountDeps {
 /**
  * 下发会话 Cookie（供云函数判断「是否已登录」）。
  *
- * **诚实说明**：这个 Cookie 是**客户端自己写的**，签名密钥在浏览器里，
- * 所以服务器只能验证「形状对不对」，**验证不了「是不是本人」**。
+ * **诚实说明**：这个 Cookie 是**客户端自己写的**，内容就是账号 id 与
+ * 登录时间戳，**没有任何签名**——所以服务器只能验证「形状对不对」，
+ * **验证不了「是不是本人」**。
  * 它的作用是**挡住随手匿名调用高耗能接口**，不是强身份鉴权。
  * 材料里必须这样写，不能含糊成「服务端验证了身份」。
  */
