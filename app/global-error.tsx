@@ -49,7 +49,7 @@ export default function GlobalError({
           padding: '48px 24px',
         }}
       >
-        <img src={SCHOOL.emblemSrc} alt={`${SCHOOL.college} 院徽`} width={96} height={96} />
+        <img src={SCHOOL.emblemMarkSrc} alt={`${SCHOOL.college} 院徽`} width={96} height={96} />
         <p style={{ fontSize: 56, fontWeight: 700, color: '#075985', margin: 0 }}>500</p>
         <h1 style={{ fontSize: 22, fontWeight: 600, margin: 0 }}>这个页面暂时出错了</h1>
         <p style={{ maxWidth: 420, fontSize: 14, lineHeight: 1.7, color: '#475569', margin: 0 }}>

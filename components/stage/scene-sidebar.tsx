@@ -133,9 +133,9 @@ export function SceneSidebar({
             title={t('generation.backToHome')}
           >
             <img
-              src={SCHOOL.emblemSrc}
+              src={SCHOOL.emblemMarkSrc}
               alt={`${SCHOOL.college} 院徽`}
-              className="h-6 object-contain"
+              className="size-6 shrink-0 object-contain"
             />
           </button>
           <button

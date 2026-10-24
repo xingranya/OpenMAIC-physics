@@ -1773,6 +1773,21 @@ function getCompatThinkingBodyParams(
   modelId: string,
   config: ThinkingConfig,
 ): Record<string, unknown> | undefined {
+  // MiniMax M3（经 Makers 网关时模型 id 形如 `minimax/minimax-m3`）默认把**思考写进
+  // 正文**（`<think>…`），大纲解析直接失败——线上报「模型未返回有效的大纲内容」。
+  //
+  // 实测只有 `thinking: { type: 'disabled' }` 能真正关掉：
+  //   · `reasoning_effort: 'none'`      → 无效，仍输出 `<think>`
+  //   · `chat_template_kwargs.thinking` → 无效，仍输出 `<think>`
+  //   · `thinking: { type: 'disabled' }`→ 生效，输出纯 JSON，且同一请求 3.3s → 2.4s
+  //
+  // 关思考同时缓解了边缘 30 秒上限（单场景内容生成原先约 32.5s）。
+  // 用户在设置里显式选「开」时不覆盖。
+  if (providerId === 'openai' && modelId.toLowerCase().includes('minimax')) {
+    const mode = getThinkingMode(config);
+    return { thinking: { type: mode === 'enabled' ? 'enabled' : 'disabled' } };
+  }
+
   // Makers 网关的 deepseek 默认**开着推理**（响应里带 reasoning_content）。
   // 这里默认关掉：省推理 token，也少一段等待。
   //

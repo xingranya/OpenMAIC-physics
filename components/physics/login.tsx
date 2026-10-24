@@ -136,12 +136,15 @@ export function PhysicsLogin() {
       <div className="relative w-full max-w-md">
         <div className="rounded-2xl border border-border/70 bg-background/95 p-7 shadow-2xl backdrop-blur">
           <div className="flex flex-col items-center text-center">
+            {/* 这里用**方形圆章**而不是 260×60 的品牌横幅：
+                横幅自带书法校名，深色主题下深色笔画会整片消失，
+                而且下面的文字已经把校名说清楚了，重复一遍反而更糊。 */}
             <img
-              src={SCHOOL.emblemSrc}
+              src={SCHOOL.emblemMarkSrc}
               alt={`${SCHOOL.college} 校徽`}
-              width={260}
+              width={62}
               height={60}
-              className="h-12 w-auto object-contain"
+              className="h-14 w-14 object-contain"
             />
             <p className="mt-3 text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
               {SCHOOL.college}

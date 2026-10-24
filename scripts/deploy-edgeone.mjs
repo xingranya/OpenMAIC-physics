@@ -534,9 +534,7 @@ export function assertBundleHasNoEnvLeak(bundlePath, options = {}) {
           '平台侧已经保存过了，本地这几行应当删掉：' +
           '\n  凭据只放平台环境变量，不要留在仓库目录的任何文件里。删掉后重新部署。'
         : '\n请检查部署脚本是否走了净化环境（scripts/deploy-edgeone.mjs 的 cleanEnv）。';
-    throw new Error(
-      `构建产物把本机环境内联进了 edge 函数（${problems.join('、')}）。${hint}`,
-    );
+    throw new Error(`构建产物把本机环境内联进了 edge 函数（${problems.join('、')}）。${hint}`);
   }
   return { bundledNames };
 }
@@ -716,14 +714,28 @@ async function main() {
     if (process.env.EDGEONE_PAGES_API_TOKEN) {
       deployEnv.EDGEONE_PAGES_API_TOKEN = process.env.EDGEONE_PAGES_API_TOKEN;
     }
-    run(
-      'edgeone',
-      ['makers', 'deploy', '.', '-n', PROJECT_NAME, '-e', 'production', '--area', AREA, '--json'],
-      {
-        cwd: STAGE_DIR,
-        env: deployEnv,
-      },
-    );
+    const deployArgs = [
+      'makers',
+      'deploy',
+      '.',
+      '-n',
+      PROJECT_NAME,
+      '-e',
+      'production',
+      '--area',
+      AREA,
+      '--json',
+    ];
+    // CI（GitHub Actions）里没有 `~/.edgeone` 的登录态，必须显式传令牌。
+    // 令牌走 argv 只在部署这一步可见，且**不进** CLEAN_ENV_KEYS——
+    // 构建子进程的 env 会被 CLI 内联进 edge 产物（已实测）。
+    if (process.env.EDGEONE_PAGES_API_TOKEN) {
+      deployArgs.push('-t', process.env.EDGEONE_PAGES_API_TOKEN);
+    }
+    run('edgeone', deployArgs, {
+      cwd: STAGE_DIR,
+      env: deployEnv,
+    });
   } finally {
     // 把产物挪回仓库根（保持 .edgeone/ 依旧是仓库内的构建产物）。
     if (existsSync(join(STAGE_DIR, '.edgeone'))) {

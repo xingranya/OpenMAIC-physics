@@ -29,7 +29,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { useI18n } from '@/lib/hooks/use-i18n';
-import { BRAND_FULL_NAME, SCHOOL } from '@/lib/school/identity';
+import { BRAND_FULL_NAME, PLATFORM, SCHOOL } from '@/lib/school/identity';
 import { shouldBlockForMissingSession } from '@/lib/physics/account-store';
 import { createLogger } from '@/lib/logger';
 import { Button } from '@/components/ui/button';
@@ -789,31 +789,48 @@ function HomePage() {
         transition={{ duration: 0.6, ease: 'easeOut' }}
         className={cn('relative z-20 w-full max-w-[800px] flex flex-col items-center mt-[10vh]')}
       >
-        {/* ── Logo ── */}
-        <div className="relative" data-pro-morph="lockup">
-          <motion.img
-            src="/brand/college-brand.png"
-            alt={SCHOOL.college}
-            initial={heroEnter({ opacity: 0, scale: 0.9 })}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{
-              delay: 0.1,
-              type: 'spring',
-              stiffness: 200,
-              damping: 20,
-            }}
-            className="h-12 md:h-16 mb-2 -ml-2 md:-ml-3"
+        {/* ── Logo + 校名 ──
+            用**方形校徽 + 文字**，不要用 260×60 的品牌横幅：横幅自带书法校名，
+            深色主题下深色笔画会整片消失；它自带的英文行在 48px 高度上也读不出来。 */}
+        <motion.div
+          initial={heroEnter({ opacity: 0, scale: 0.9 })}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{
+            delay: 0.1,
+            type: 'spring',
+            stiffness: 200,
+            damping: 20,
+          }}
+          className="mb-3 flex items-center gap-3"
+          data-pro-morph="lockup"
+        >
+          <img
+            src={SCHOOL.emblemMarkSrc}
+            alt={`${SCHOOL.college} 校徽`}
+            width={62}
+            height={60}
+            className="h-12 w-12 object-contain md:h-14 md:w-14"
           />
-        </div>
+          <div className="text-left">
+            <p className="text-[17px] font-semibold tracking-wide md:text-[19px]">
+              {SCHOOL.college}
+            </p>
+            <p className="mt-0.5 text-[11px] tracking-[0.14em] text-muted-foreground">
+              {PLATFORM.systemName}
+            </p>
+          </div>
+        </motion.div>
 
-        {/* ── Slogan ── */}
+        {/* ── 定位语 ──
+            原先显示的是上游英文标语（i18n 的 home.slogan），既不是校本文案、
+            在深色主题下也偏灰；改为校本 tagline，与登录页、页脚保持同一句。 */}
         <motion.p
           initial={heroEnter({ opacity: 0 })}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.25 }}
-          className="text-sm text-muted-foreground/60 mb-6"
+          className="mb-6 max-w-[620px] text-center text-[12.5px] leading-relaxed text-muted-foreground/80"
         >
-          {t('home.slogan')}
+          {PLATFORM.tagline}
         </motion.p>
 
         {/* ── 物理学习门户：双入口 + 快捷开讲 ── */}

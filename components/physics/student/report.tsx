@@ -82,7 +82,7 @@ export function StudentReport() {
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-5">
       {/* 打印页眉（仅打印时可见） */}
       <div className="physics-print-header">
-        <img src={SCHOOL.emblemSrc} alt="" width={120} height={28} className="h-6 w-auto" />
+        <img src={SCHOOL.emblemMarkSrc} alt="" width={62} height={60} className="size-6 shrink-0 object-contain" />
         <div>
           <p className="text-[13px] font-semibold">{BRAND_FULL_NAME}</p>
           <p className="text-[11px] text-muted-foreground">

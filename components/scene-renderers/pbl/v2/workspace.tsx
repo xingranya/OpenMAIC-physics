@@ -443,11 +443,11 @@ function WorkspaceTopBar({
       <div className="relative flex min-w-0 flex-1 items-center gap-3">
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-violet-200/25 bg-violet-100/[0.08] shadow-[0_0_24px_rgba(157,140,255,0.18)]">
           <Image
-            src={SCHOOL.emblemSrc}
+            src={SCHOOL.emblemMarkSrc}
             alt={`${SCHOOL.college} 院徽`}
-            width={28}
-            height={28}
-            className="h-6 w-6 rounded-full object-contain"
+            width={62}
+            height={60}
+            className="size-6 shrink-0 object-contain"
           />
         </div>
         <div className="min-w-0">

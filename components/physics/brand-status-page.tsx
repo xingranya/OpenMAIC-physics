@@ -32,11 +32,11 @@ export function BrandStatusPage({ code, title, description, action }: BrandStatu
       style={{ background: 'var(--school-primary-softer, #f0f8fd)' }}
     >
       <img
-        src={SCHOOL.emblemSrc}
+        src={SCHOOL.emblemMarkSrc}
         alt={`${SCHOOL.college} 院徽`}
-        width={96}
-        height={96}
-        className="rounded-full object-contain"
+        width={62}
+        height={60}
+        className="size-24 object-contain"
       />
 
       <div className="flex flex-col items-center gap-2">

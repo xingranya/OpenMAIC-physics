@@ -903,6 +903,48 @@ curl -s https://dun.xran.uk/api/server-providers
 2. 在 EdgeOne 控制台调高函数超时（若该版本开放此配置）；
 3. 把单场景内容拆成「骨架 + 分段补全」两次请求，让每次都在 30 秒内（改代码）。
 
+### 8.1i 推送即部署（GitHub → EdgeOne）
+
+目标：**每次 push 自动构建并上线**，不再手动跑脚本。
+
+#### 为什么不用控制台的「导入 Git 仓库」
+
+平台侧 Git 构建的顺序是：
+
+```
+安装依赖 → 跑构建命令 → 平台用 opennext 打包 SSR 函数 → 上传
+```
+
+**没有构建后钩子**。而本项目未裁剪的函数包是 **180 MiB**，超过平台 128 MiB 上限
+（错误码 30，本地实测过）。裁剪必须发生在「opennext 打包之后、上传之前」——
+这个时点在平台侧插不进去。所以「导入 Git 仓库」这条路对本项目**会失败在体积上**，
+不是配置问题。
+
+#### 实际采用：GitHub Actions 跑同一条流水线
+
+`.github/workflows/deploy-edgeone.yml`：push 到 `feature/physics-ai-classroom`
+（或手动 `workflow_dispatch`）时，在 GitHub 的 runner 上执行
+`pnpm install → node scripts/deploy-edgeone.mjs`，即「构建 → 裁剪 → 体积/泄露门禁 → 上传」，
+与本地完全一致。
+
+配置（一次性）：
+
+1. EdgeOne 控制台 → Makers → 项目设置 → **API Token**，复制；
+2. GitHub 仓库 → Settings → Secrets and variables → Actions → **New repository secret**；
+3. 名称填 `EDGEONE_PAGES_API_TOKEN`，值粘上一步的 Token；
+4. 之后任意 push 即自动部署（Actions 里能看到 Deployment ID）。
+
+> 没配 Secret 时：普通 push 只打一条 `::warning::` 并跳过部署（不会让每次提交挂红叉），
+> 手动触发则直接失败——人在现场就该看见问题。
+
+#### 仍然想用控制台 Git 导入的话
+
+控制台 → Makers → 创建项目 → 导入 Git 仓库 → 选 `xingranya/OpenMAIC-physics` →
+根目录 `OpenMAIC-physics`、构建命令 `node scripts/sync-maic-importer.mjs && EDGEONE=1 pnpm build`、
+Node 版本 `24.5.0`、加速区域选**全球可用区（不含中国大陆）**。
+**预期会在上传阶段报 128 MiB 超限**（原因见上）。真要走这条路，需要平台先提供
+「构建后命令」或放宽函数包上限。
+
 ### 8.1h 自定义域名绑定（`dun.xran.uk`）
 
 **前提**：项目必须建在**加速区域 = 全球可用区（不含中国大陆）**（`Area: "overseas"`），

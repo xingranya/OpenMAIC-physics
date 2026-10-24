@@ -1,0 +1,78 @@
+name: Deploy to EdgeOne
+
+# 推送即部署（GitHub → EdgeOne）。
+#
+# ## 为什么不用控制台的「导入 Git 仓库」直接绑
+#
+# 平台侧 Git 构建的顺序是「安装 → 构建命令 → 平台自己用 opennext 打包 SSR 函数 → 上传」，
+# **没有构建后钩子**。而本项目的函数包未裁剪时是 **180 MiB**，超过平台 128 MiB 上限
+# （错误码 30，实测过）。裁剪（`scripts/prune-edgeone-function.mjs`）必须发生在
+# 「opennext 打包之后、上传之前」，这个时点在平台侧插不进去。
+#
+# 所以这里用 Actions 跑**和本地完全相同**的那条流水线：
+# 构建 → 裁剪 → 体积/泄露门禁 → 上传。效果一样是「push 即上线」。
+#
+# ## 需要配置的 Secret
+#
+#   仓库 → Settings → Secrets and variables → Actions → New repository secret
+#   名称：EDGEONE_PAGES_API_TOKEN
+#   值  ：EdgeOne 控制台签发的 API Token
+#
+# 没配时：普通 push 只打一条 warning 并跳过（不让每次提交挂红叉），
+# 手动触发（workflow_dispatch）则直接失败——人在现场就该看见问题。
+
+on:
+  push:
+    branches:
+      - feature/physics-ai-classroom
+  workflow_dispatch:
+
+concurrency:
+  # 同一分支不并发部署：两个部署同时上传会互相覆盖产物。
+  group: edgeone-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      EDGEONE_PAGES_API_TOKEN: ${{ secrets.EDGEONE_PAGES_API_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.5.0'
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install EdgeOne CLI
+        run: npm install -g edgeone
+
+      - name: Token missing
+        if: env.EDGEONE_PAGES_API_TOKEN == ''
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "::error::缺少 EDGEONE_PAGES_API_TOKEN，无法部署。"
+            exit 1
+          fi
+          echo "::warning::未配置 EDGEONE_PAGES_API_TOKEN，本次跳过部署（代码已推送，站点未更新）。"
+
+      - name: Build, prune and deploy
+        if: env.EDGEONE_PAGES_API_TOKEN != ''
+        env:
+          EDGEONE_PROJECT_NAME: physics-ai-classroom-global
+          EDGEONE_PROJECT_AREA: overseas
+        run: node scripts/deploy-edgeone.mjs

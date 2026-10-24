@@ -270,12 +270,15 @@ export function WorkbenchShell({ children }: { children: React.ReactNode }) {
           )}
         >
           <div className="flex items-center gap-2.5 border-b border-white/8 px-4 py-4">
+            {/* 用**方形校徽 + 文字**，不要用 260×60 的横幅：横幅压到 32px 高时
+                书法与英文行会糊成一团，深色主题下深色笔画还会整片消失。
+                248px 侧栏减去内边距与图标后还剩约 174px，两行文字都放得下。 */}
             <img
-              src={SCHOOL.emblemSrc}
+              src={SCHOOL.emblemMarkSrc}
               alt={`${SCHOOL.college} 校徽`}
-              width={260}
+              width={62}
               height={60}
-              className="h-8 w-auto shrink-0 object-contain"
+              className="size-8 shrink-0 object-contain"
             />
             <div className="min-w-0">
               <p className="truncate text-[12px] font-semibold text-white">
