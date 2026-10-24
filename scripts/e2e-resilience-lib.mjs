@@ -31,8 +31,6 @@
 export const CONNECTION_ERROR_CODES = new Set([
   'UND_ERR_CONNECT_TIMEOUT',
   'UND_ERR_SOCKET',
-  'UND_ERR_HEADERS_TIMEOUT',
-  'UND_ERR_BODY_TIMEOUT',
   'ECONNRESET',
   'ECONNREFUSED',
   'ECONNABORTED',
@@ -43,6 +41,18 @@ export const CONNECTION_ERROR_CODES = new Set([
   'EHOSTUNREACH',
   'ENETUNREACH',
   'ENETDOWN',
+]);
+
+/**
+ * 「连接已建立、但服务端迟迟不给响应」的错误码。
+ *
+ * 这两种**不能**算「本机连不上」：TCP 已经握手成功，对面就是我们的服务，
+ * 是它慢。混进「本机连不上」会把排查方向指到链路上，而真正该查的是站点
+ * （独立复审 F8）。
+ */
+export const RESPONSE_TIMEOUT_ERROR_CODES = new Set([
+  'UND_ERR_HEADERS_TIMEOUT',
+  'UND_ERR_BODY_TIMEOUT',
 ]);
 
 /**
@@ -94,13 +104,17 @@ export function errorText(error) {
 }
 
 /**
- * 这是「本机连不上」还是「站点返回了坏答案」。
+ * 这是「本机连不上」还是「站点响应慢」还是「别的」。
  *
  * - 连接层失败 → `true`：fetch 根本没拿到 HTTP 响应，问题在链路上；
  * - 其它 → `false`：拿到了响应或别的错误，那多半是站点自己的问题。
  */
 export function isConnectionFailure(error) {
   if (!error) return false;
+  // 响应超时**先排除**：它是「连上了但对面慢」，说成「本机连不上」会把
+  // 排查方向指错。注意 undici 会把 headers/body 超时也包成
+  // `TypeError: fetch failed`，所以光看文本分不出来——必须先看错误码。
+  if (isResponseTimeout(error)) return false;
   for (const code of collectErrorCodes(error)) {
     if (CONNECTION_ERROR_CODES.has(code)) return true;
   }
@@ -108,6 +122,17 @@ export function isConnectionFailure(error) {
   return /fetch failed|connect timeout|socket hang up|network (?:error|is unreachable)|getaddrinfo/i.test(
     text,
   );
+}
+
+/**
+ * 「连接已建立、但响应超时」。
+ *
+ * 与「本机连不上」是**不同的责任方**：TCP 握手成功，对面就是我们的服务，
+ * 是它慢。报告里必须分开说，否则会去查链路，而真正该查的是站点。
+ */
+export function isResponseTimeout(error) {
+  if (!error) return false;
+  return collectErrorCodes(error).some((code) => RESPONSE_TIMEOUT_ERROR_CODES.has(code));
 }
 
 /**
@@ -120,6 +145,9 @@ export function describeCheckFailure(error) {
   const text = errorText(error);
   if (isConnectionFailure(error)) {
     return `本机连不上目标站点（连接层失败，不是站点返回的答案）：${text}`;
+  }
+  if (isResponseTimeout(error)) {
+    return `连接已建立但响应超时（可能是站点响应慢或负载高，不是本机网络问题）：${text}`;
   }
   return `检查执行失败：${text}`;
 }

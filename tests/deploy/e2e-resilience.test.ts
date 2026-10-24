@@ -28,7 +28,7 @@ import { describe, expect, it } from 'vitest';
 import { spawn } from 'node:child_process';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { mkdirSync, rmSync } from 'node:fs';
+import { closeSync, mkdirSync, openSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   collectErrorCodes,
@@ -73,31 +73,44 @@ async function startServer(
  * **必须用异步 spawn**：本地 HTTP 服务与测试同进程，`spawnSync` 会把事件循环
  * 堵死，服务永远应答不了，脚本只会一路超时——那测到的是「事件循环被堵」，
  * 不是「脚本的抗抖动行为」。第一版就是栽在这里。
+ *
+ * **输出必须落盘再读**：实测在**全量** vitest（704 个文件并行、机器满载）下
+ * 出现过一次子进程 stdout 只收到表头、后面的输出全丢——管道 + 满载的事件循环
+ * 会让「子进程写了但父进程没收到」变成偶发失败（同一份代码单独跑 10/10 全绿）。
+ * 落盘就没有这个窗口：子进程退出后读文件，拿到的必然是完整输出。
+ * 这也和「日志落盘 + 退出码」的纪律一致：退出码要靠 `echo EXIT=$?` 拿，
+ * 不能靠管道（管道会把退出码换成最后一个命令的）。
  */
 function runScript(
   args: string[],
   cwd: string,
 ): Promise<{ stdout: string; stderr: string; status: number | null }> {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [SCRIPT, ...args], { cwd });
-    let stdout = '';
-    let stderr = '';
-    child.stdout.on('data', (chunk) => {
-      stdout += String(chunk);
-    });
-    child.stderr.on('data', (chunk) => {
-      stderr += String(chunk);
+    const outPath = join(cwd, 'e2e-out.log');
+    const fd = openSync(outPath, 'w');
+    const child = spawn(process.execPath, [SCRIPT, ...args], {
+      cwd,
+      // stdout 与 stderr 合并落同一个文件：断言本来就看合并内容，
+      // 分成两个管道只会多两个可能丢输出的口子。
+      stdio: ['ignore', fd, fd],
     });
     const killer = setTimeout(() => child.kill('SIGKILL'), 120_000);
     child.on('close', (status) => {
       clearTimeout(killer);
-      resolve({ stdout, stderr, status });
+      closeSync(fd);
+      let output = '';
+      try {
+        output = readFileSync(outPath, 'utf8');
+      } catch {
+        output = '';
+      }
+      resolve({ stdout: output, stderr: '', status });
     });
   });
 }
 
 describe('e2e 抗抖动 · 连接层失败的判定', () => {
-  it('undici 的连接层错误藏在 cause 里，也要能认出��', () => {
+  it('undici 的连接层错误藏在 cause 里，也要能认出来', () => {
     // 这正是真实形态：TypeError: fetch failed → cause.code = UND_ERR_CONNECT_TIMEOUT
     const error = new TypeError('fetch failed', {
       cause: Object.assign(new Error('Connect Timeout Error'), {
@@ -194,18 +207,19 @@ describe('e2e 抗抖动 · 端到端行为（真跑脚本）', () => {
   it('瞬时断连（前 4 次失败、第 5 次成功）不该被当成失败', async () => {
     // 这一条钉住**连接层重试次数**：单次 p≈0.2 时，3 次重试的累计失败率
     // （0.8%/次 × 几十个请求）会把网络抖动报成站点故障；5 次才降到 0.03%。
-    // 断言落在**行为**上：注入 4 次失败后，第 5 次成功 → 这一项必须是 PASS。
+    // 断言落在**行为**上：注入 4 次失败后，第 5 次成功 → 脚本拿到的是**响应**，
+    // 而不是「连不上目标站点」。
     let attempts = 0;
     const server = await startServer((req, res) => {
       const url = req.url ?? '/';
-      if (url.startsWith('/api/access-code/status')) {
+      if (url.startsWith('/api/chat')) {
         attempts += 1;
         if (attempts <= 4) {
           dropConnection(res);
           return;
         }
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: true, enabled: false }));
+        res.end(JSON.stringify({ success: true }));
         return;
       }
       if (url.startsWith('/api/health')) {
@@ -233,16 +247,67 @@ describe('e2e 抗抖动 · 端到端行为（真跑脚本）', () => {
     }
 
     expect(attempts).toBeGreaterThanOrEqual(5);
-    expect(stdout).toContain('[PASS] ACCESS_CODE 门禁');
-    expect(stdout).not.toContain('[FAIL] ACCESS_CODE 门禁');
+    // 重试到位了：脚本拿到的是响应（200），不是「本机连不上」。
+    expect(stdout).not.toContain('本机连不上目标站点');
+    expect(stdout).toContain('[FAIL] 会话门禁 · 未登录调用高耗能接口被拦截');
+  }, 120_000);
+
+  it('站点侧 5xx：该项判 FAIL、**不重试**、且不说成「本机连不上」', async () => {
+    // 独立复审 M6 变异：把 5xx 也重试，这条测试必须变红。
+    // HTTP 层的状态码是**站点自己的答案**，重试只会把真实故障糊过去。
+    let hits = 0;
+    const server = await startServer((req, res) => {
+      const url = req.url ?? '/';
+      if (url.startsWith('/api/chat')) {
+        hits += 1;
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: 'boom' }));
+        return;
+      }
+      if (url.startsWith('/api/health')) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, status: 'ok' }));
+        return;
+      }
+      if (url.startsWith('/api/server-providers')) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, providers: {} }));
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(HTML);
+    });
+
+    const workDir = makeWorkDir('e2e-resilience-5xx');
+    let stdout = '';
+    let status: number | null = null;
+    try {
+      const result = await runScript(['--base-url', `http://127.0.0.1:${server.port}`], workDir);
+      stdout = result.stdout;
+      status = result.status;
+    } finally {
+      await server.close();
+      rmSync(workDir, { recursive: true, force: true });
+    }
+
+    // ① **只被请求 2 次**：会话门禁有两项检查各打一次，HTTP 层不重试。
+    //    若把 5xx 也重试（重试次数 5），这里会是 10 次。
+    expect(hits).toBe(2);
+
+    // ② 该项判 FAIL（门禁拦得住），且说清是服务端 5xx，
+    //    **不是**「本机连不上」——责任方说反了会把人引到错误方向。
+    expect(status).toBe(1);
+    expect(stdout).toContain('[FAIL] 会话门禁 · 未登录调用高耗能接口被拦截');
+    expect(stdout).toContain('实际 500');
+    expect(stdout).not.toContain('本机连不上目标站点');
   }, 120_000);
 
   it('某条路由**一直**断连时：该项记 FAIL、**后续检查照跑**、末尾有总数、且无 Node 栈', async () => {
-    // 对 /api/access-code/status 每次都断开连接 → 客户端拿到 ECONNRESET。
+    // 对 /api/chat 每次都断开连接 → 客户端拿到 ECONNRESET。
     // 这是「本机连不上」的确定性复现，不依赖外网稳定性。
     const server = await startServer((req, res) => {
       const url = req.url ?? '/';
-      if (url.startsWith('/api/access-code/status')) {
+      if (url.startsWith('/api/chat')) {
         dropConnection(res);
         return;
       }
@@ -278,7 +343,7 @@ describe('e2e 抗抖动 · 端到端行为（真跑脚本）', () => {
     expect(status).toBe(1);
 
     // 断连的那一项被记成了 FAIL，且文案说的是「本机连不上」而不是「访问码错」
-    expect(stdout).toContain('[FAIL] ACCESS_CODE 门禁');
+    expect(stdout).toContain('[FAIL] 会话门禁');
     expect(stdout).toContain('本机连不上目标站点');
 
     // **关键**：后面的检查照跑了 —— 这一条是「per-check 兜底」的牙齿。

@@ -118,7 +118,7 @@ const LIMIT_MIB = 128;
  * handler 直接服务、不经函数，所以呈现出「静态页 200、动态页 502」的怪现象。
  *
  * 所以这里只透传构建真正需要的变量，其余一律不带。平台侧的运行时环境变量
- * （ACCESS_CODE / EDGEONE / DEFAULT_MODEL）由 `edgeone makers env set` 写在
+ * （EDGEONE / DEFAULT_MODEL）由 `edgeone makers env set` 写在
  * 平台环境里，与本地进程无关。
  */
 const CLEAN_ENV_KEYS = [
@@ -144,7 +144,6 @@ const CLEAN_ENV_KEYS = [
  */
 const DEFAULT_ALLOWED_ENV_NAMES = [
   ...CLEAN_ENV_KEYS,
-  'ACCESS_CODE',
   'EDGEONE',
   'DEFAULT_MODEL',
   'EDGEONE_PROJECT_ID',

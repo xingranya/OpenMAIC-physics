@@ -15,9 +15,6 @@ export async function register(): Promise<void> {
   // want; the persistence stack is Node-only.
   if (process.env.NEXT_RUNTIME !== 'nodejs') return;
 
-  const { warnIfAccessCodeIsUnset } = await import('@/lib/server/access-code-warning');
-  warnIfAccessCodeIsUnset(process.env.ACCESS_CODE);
-
   // 部署形态断言：本项目部署到腾讯云 EdgeOne Pages（无状态边缘平台），
   // 明确禁用 PostgreSQL 持久化、Agent Workbench 与后台 Agent runner。
   // 这三者都需要长驻进程或固定数据库，与边缘运行时互斥；误配时在这里

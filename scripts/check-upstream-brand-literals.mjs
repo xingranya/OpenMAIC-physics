@@ -7,8 +7,7 @@
  * 本项目是 OpenMAIC 的二开，「全站无上游品牌残留」是硬约束。但这条约束
  * 在复审里被**两次**靠人工 grep 才发现：
  *
- *   - `components/access-code-modal.tsx` 的访问码弹框副标题直接写着
- *     「OpenMAIC」——那是**用户进门第一眼**看到的界面；
+ *   - 访问码弹框的副标题直接写着「OpenMAIC」——那是**用户进门第一眼**看到的界面；
  *   - `components/physics/workbench.tsx` 的页脚写着「基于 OpenMAIC 二次开发」。
  *
  * 两次都是「靠人记得去 grep」，而不是「有东西拦着」。所以把它变成门禁。
@@ -22,7 +21,6 @@
  *
  *   - `@openmaic/storage` 这类**工作区包名**：是上游被 vendored 进来的
  *     内部包标识，改名等于重写整个依赖图，收益为零、风险极大；
- *   - `openmaic_access` 这类**会话 Cookie 名**：内部协议常量；
  *   - `X-OpenMAIC-Element-Reference-Accepted` 这类**自有 API 的响应头名**：
  *     收发两端都在本仓库内，不对外呈现，也不表达「本应用是谁」。
  *
@@ -49,8 +47,7 @@ const SCAN_ROOTS = ['app', 'components', 'lib'];
 /**
  * 禁止出现的上游品牌字面量片段。
  *
- * 大小写敏感是有意的：`@openmaic/*` 是工作区包名（合法），
- * `openmaic_access` 是内部 Cookie 名（合法），它们都是小写。
+ * 大小写敏感是有意的：`@openmaic/*` 是工作区包名（合法），它全小写。
  */
 const FORBIDDEN = ['OpenMAIC', 'open.maic.chat', 'THU-MAIC'];
 

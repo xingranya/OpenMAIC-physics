@@ -69,46 +69,6 @@ function linkTree(src, dest) {
 }
 
 /**
- * 解析访问码：显式参数 → 环境变量 → 仓库根的 `.env`。
- *
- * ## 为什么不能硬编码
- *
- * 访问码是「课堂门禁」的钥匙。仓库根的 `.env` 被 `.gitignore` 明确排除
- * （`.env*`），意图很清楚：**密钥不进仓库**。
- *
- * 但本脚本原先把访问码**硬编码**在源码里——于是它随公开仓库一起发布，
- * `.env` 的排除形同虚设。任何拿到仓库的人都能直接进课堂。
- *
- * 现在改为三级查找，三者都拿不到就返回空串（由调用方 fail-closed）。
- *
- * ## 为什么 `.env` 要相对**仓库根**找
- *
- * 部署脚本给子进程的环境是**收窄**过的（只放 PATH / HOME / TMPDIR 等），
- * `ACCESS_CODE` 不会出现在子进程的 `process.env` 里；能拿到它的唯一途径
- * 就是读仓库根的 `.env` 文件。而子进程的 cwd 是仓库根，所以按仓库根解析
- * 最稳（不依赖调用时的 cwd）。
- */
-export function readAccessCode(explicit, repoRoot = detectRepoRoot()) {
-  if (explicit && explicit.trim()) return explicit.trim();
-  const fromEnv = process.env.ACCESS_CODE;
-  if (fromEnv && fromEnv.trim()) return fromEnv.trim();
-  try {
-    const text = readFileSync(join(repoRoot, '.env'), 'utf8');
-    for (const line of text.split('\n')) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) continue;
-      const match = /^ACCESS_CODE\s*=\s*(.*)$/.exec(trimmed);
-      if (!match) continue;
-      const value = match[1].trim().replace(/^["']|["']$/g, '');
-      if (value) return value;
-    }
-  } catch {
-    /* 没有 .env（或读不到）：继续往下走 */
-  }
-  return '';
-}
-
-/**
  * 从产物的路由清单里取出全部可访问路径。
  *
  * 清单的键是**文件路径**（`/api/stages/[id]/route`），最后一段 `route`/`page`
@@ -182,10 +142,12 @@ async function waitForServer(base, timeoutMs = 60000) {
  *   probeDir: string, stderr: string, stdout: string
  * }>}
  */
+/** 会话 Cookie 名。与客户端、中间件、部署脚本三处一致（契约测试盯着）。 */
+const SESSION_COOKIE_NAME = 'physics_session';
+
 export async function runRuntimeProbe(fnDir, options = {}) {
   const nodeBin = options.nodeBin || process.execPath;
   const repoRoot = options.repoRoot || detectRepoRoot();
-  const accessCode = readAccessCode(options.accessCode, repoRoot);
   const port = options.port || detectPort(fnDir);
 
   const workDir = options.workDir || outsideRepoTemp('edgeone-runtime', repoRoot);
@@ -218,22 +180,6 @@ export async function runRuntimeProbe(fnDir, options = {}) {
     throw error;
   }
 
-  // 没有访问码就**拒绝放行**：拿不到凭据时绝大多数路由会返回 401，
-  // 门禁只能探到「函数起没起来」，探不到「跑起来会不会炸」——
-  // 而后者正是这道门禁存在的理由。宁可明确报错，也不要静默降级。
-  if (!accessCode) {
-    try {
-      rmSync(workDir, { recursive: true, force: true });
-    } catch {
-      /* 同上 */
-    }
-    throw new Error(
-      '拿不到访问码，无法做运行期门禁。\n' +
-        `  查找顺序：--access-code 参数 → ACCESS_CODE 环境变量 → ${join(repoRoot, '.env')}\n` +
-        '  请在其中任一处提供访问码后重跑。',
-    );
-  }
-
   const child = spawn(nodeBin, ['index.mjs'], {
     cwd: pkgDir,
     env: {
@@ -242,10 +188,7 @@ export async function runRuntimeProbe(fnDir, options = {}) {
       HOSTNAME: '127.0.0.1',
       NODE_ENV: 'production',
       EDGEONE: '1',
-      ACCESS_CODE: accessCode,
       DEFAULT_MODEL: process.env.PROBE_DEFAULT_MODEL || 'openai:@makers/deepseek-v4-flash',
-      // 平台上是只读文件系统；这里也用只读语义，避免本地能写、线上不能写。
-      ALLOW_INSECURE_ACCESS_COOKIE: '1',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -290,21 +233,10 @@ export async function runRuntimeProbe(fnDir, options = {}) {
     };
   }
 
-  // 换一张访问码会话 Cookie
-  let cookie = '';
-  try {
-    const verify = await fetch(`${base}/api/access-code/verify`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ code: accessCode }),
-    });
-    await verify.text();
-    const setCookies =
-      typeof verify.headers.getSetCookie === 'function' ? verify.headers.getSetCookie() : [];
-    cookie = setCookies.map((c) => c.split(';')[0]).join('; ');
-  } catch {
-    /* 换不到 Cookie 就按未授权探测，仍然能暴露 5xx */
-  }
+  // 以「已登录」的身份探测：会话 Cookie 的形状是 <账号 id>.<时间戳>，
+  // 门禁只验形状（强度如实写在线上材料里），所以这里直接造一张。
+  // 不带 Cookie 也能探——只是受门禁保护的路由会返回 401，探不到它们的真实行为。
+  const cookie = `${SESSION_COOKIE_NAME}=runtime-probe.${Date.now()}`;
 
   // 打全部路由
   const routes = collectRoutes(fnDir);
@@ -400,11 +332,7 @@ export function extractMissingPackages(loadErrors) {
 // ---- CLI ----
 async function main() {
   const argv = process.argv.slice(2);
-  const accessCodeFlag = argv.indexOf('--access-code');
-  const accessCode = accessCodeFlag >= 0 ? argv[accessCodeFlag + 1] : undefined;
   const positional = argv.filter((arg, index) => {
-    if (arg === '--access-code') return false;
-    if (accessCodeFlag >= 0 && index === accessCodeFlag + 1) return false;
     return !arg.startsWith('--');
   });
 
@@ -415,7 +343,7 @@ async function main() {
 
   let result;
   try {
-    result = await runRuntimeProbe(fnDir, { nodeBin, accessCode });
+    result = await runRuntimeProbe(fnDir, { nodeBin });
   } catch (error) {
     // 断言类失败（探针落进仓库、拿不到访问码等）必须给出可读信息，
     // 而不是一坨 unhandled rejection 栈。

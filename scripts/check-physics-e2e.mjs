@@ -9,7 +9,7 @@
  *   1. 关键路由可达，且首帧是「水合安全」的形态（与服务端一致）；
  *   2. 页面引用的**每一个客户端 chunk 都返回 200**——
  *      chunk 500 会让 React 整站不水合，表现就是"文字正常、按钮全哑"；
- *   3. `ACCESS_CODE` 门禁真的拦得住未授权访问；
+ *   3. **会话门禁**真的拦得住未登录的高耗能接口调用；
  *   4. 未配置模型时 provider 为空、生成路径优雅降级；
  *   5. **服务返回的 BUILD_ID 与目标产物一致**——
  *      重建产物后若忘了重启服务，旧进程会按旧 BUILD_ID 返回 HTML，
@@ -20,12 +20,11 @@
  * 用法：
  *   node scripts/check-physics-e2e.mjs --base-url http://127.0.0.1:3000
  *   node scripts/check-physics-e2e.mjs --base-url http://127.0.0.1:3000 \
- *        --access-code your-code          # 同时验证口令门禁
  *   node scripts/check-physics-e2e.mjs --base-url https://your.site \
  *        --expect-build-id <id>           # 线上部署：显式声明期望的 BUILD_ID
  *   node scripts/check-physics-e2e.mjs --base-url https://xxx.edgeone.cool \
  *        --site-query "eo_token=...&eo_time=..." \
- *        --access-code your-code          # EdgeOne 预设域名：带平台令牌 + 访问码
+ *        --site-query "eo_token=...&eo_time=..."   # EdgeOne 预设域名：带平台令牌
  *
  * 退出码：全部通过为 0，存在失败项为 1。
  */
@@ -43,7 +42,12 @@ function argValue(name, fallback) {
 }
 
 const BASE_URL = argValue('--base-url', 'http://127.0.0.1:3000').replace(/\/$/, '');
-const ACCESS_CODE = argValue('--access-code', '');
+/**
+ * 会话 Cookie 名。**三处必须一致**：客户端下发（lib/physics/account-store.ts）、
+ * 中间件（middleware.ts）、云函数入口（scripts/prune-edgeone-function.mjs）。
+ * 由 `tests/deploy/session-gate-contract.test.ts` 盯着。
+ */
+const SESSION_COOKIE_NAME = 'physics_session';
 const TIMEOUT_MS = 15_000;
 /** 仓库根目录（本脚本按仓库根运行）。 */
 const ROOT = process.cwd();
@@ -106,9 +110,7 @@ function record(name, ok, detail) {
 /**
  * 把多份 Cookie 头按 **cookie 名**合并去重（同名保留先出现的）。
  *
- * EdgeOne 预设域名有两层 Cookie：
- *   - 平台保护层下发的 eo_token / eo_time；
- *   - 应用门禁下发的 openmaic_access。
+ * EdgeOne 预设域名有一层 Cookie：平台保护层下发的 eo_token / eo_time。
  * 两层都要带，缺任何一层都会被对应的保护层拦成 401。
  * 之前调用点显式传 `headers: { Cookie: xxx }` 会把平台那层**顶掉**，
  * 于是「已登录可用」被误判成「站点不可达」，甚至在解析平台 401 的 HTML 时崩栈。
@@ -161,12 +163,9 @@ const SITE_QUERY = argValue('--site-query', '');
 /** 平台下发的 Cookie（EdgeOne 预设域名保护层）。 */
 let siteCookie = '';
 
-/** 应用自己的访问码会话 Cookie（middleware 校验 HMAC 签名）。 */
-let authCookie = '';
-
 /** 合并两层 Cookie。 */
 function cookieHeader() {
-  return [siteCookie, authCookie].filter(Boolean).join('; ');
+  return siteCookie;
 }
 
 /** 用带 eo_token 的链接换取平台 Cookie。 */
@@ -229,7 +228,7 @@ async function fetchWithTimeout(path, init = {}, attempts = 5) {
       // 用 Headers 实例统一承载请求头：既能正确读取调用方传入的 Headers，
       // 也避免 `{ ...init.headers }` 展开 Headers 实例得到空对象的问题。
       const headers = new Headers(init.headers || {});
-      // 门禁（ACCESS_CODE）开启时，未授权请求会被 middleware 拦成 401。
+      // 会话门禁开启时，未登录请求会被拦成 401。
       // 取到会话 Cookie 之后的每一次请求都必须带上它，否则页面路由全 401，
       // 自检会把「已登录可用」误判成「站点不可达」。
       // **平台 Cookie 与应用 Cookie 必须合并**：调用方显式传了 Cookie 也不能把平台那层丢掉。
@@ -392,94 +391,53 @@ function checkDocChunkCount(actual) {
   }
 }
 
-async function checkAccessCode() {
-  const status = await fetchWithTimeout('/api/access-code/status');
-  const statusJson = await readJson(status);
-  if (!statusJson) {
+/**
+ * 会话门禁：高耗能接口必须已登录。
+ *
+ * 站点不再有访问码——入口换成账号系统（注册 + 登录）。
+ * 门禁只守在**会消耗模型额度或上游资源**的接口前面，
+ * 由云函数入口的 `createSessionGate` 强制
+ * （见 `scripts/prune-edgeone-function.mjs`）。
+ *
+ * 这里验三件事：
+ * 1. 未登录调用高耗能接口 → 401（门禁真的在生效）；
+ * 2. 带会话 Cookie → 不再是 401（不是把所有人都拒了）；
+ * 3. 不消耗外部资源的接口不拦（否则「断网也能演示」这类承诺会失效）。
+ */
+async function checkSessionGate() {
+  const gated = await fetchWithTimeout('/api/chat');
+  if (gated.status !== 401) {
     record(
-      'ACCESS_CODE 门禁',
+      '会话门禁 · 未登录调用高耗能接口被拦截',
       false,
-      `GET /api/access-code/status 返回 HTTP ${status.status}（非 JSON，可能是平台访问保护层拦截）`,
-    );
-    return;
-  }
-  if (!statusJson.enabled) {
-    record('ACCESS_CODE 门禁', true, '未配置 ACCESS_CODE（本地演示形态），跳过门禁校验');
-    return;
-  }
-  if (!ACCESS_CODE) {
-    record(
-      'ACCESS_CODE 门禁',
-      false,
-      '服务端已启用 ACCESS_CODE，但未提供 --access-code，无法验证门禁',
-    );
-    return;
-  }
-
-  const unauthorized = await fetchWithTimeout('/api/stages');
-  if (unauthorized.status !== 401) {
-    record(
-      'ACCESS_CODE 未授权被拦截',
-      false,
-      `GET /api/stages 期望 401，实际 ${unauthorized.status}`,
+      `GET /api/chat 期望 401，实际 ${gated.status}`,
     );
   } else {
-    record('ACCESS_CODE 未授权被拦截', true, 'GET /api/stages → 401');
+    record('会话门禁 · 未登录调用高耗能接口被拦截', true, 'GET /api/chat → 401');
   }
 
-  const wrong = await fetchWithTimeout('/api/access-code/verify', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ code: 'definitely-wrong-code' }),
-  });
-  if (wrong.status !== 401) {
-    record('ACCESS_CODE 错误口令被拒绝', false, `期望 401，实际 ${wrong.status}`);
+  // 带一个形状合法的会话 Cookie。**门禁只验形状**（强度如实写在线上材料里），
+  // 所以这里造一个即可——它验的是「门禁认这个 Cookie」，不是「这个人是谁」。
+  const cookie = `${SESSION_COOKIE_NAME}=probe-session.${Date.now()}`;
+  const withSession = await fetchWithTimeout('/api/chat', { headers: { Cookie: cookie } });
+  if (withSession.status === 401) {
+    record('会话门禁 · 带会话后放行', false, '带会话 Cookie 仍然 401 —— 门禁把已登录也一起拒了');
   } else {
-    record('ACCESS_CODE 错误口令被拒绝', true, 'POST /api/access-code/verify → 401');
+    record('会话门禁 · 带会话后放行', true, `带会话 Cookie → ${withSession.status}（不再是 401）`);
   }
 
-  const accepted = await fetchWithTimeout('/api/access-code/verify', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ code: ACCESS_CODE }),
-  });
-  const setCookie = accepted.headers.get('set-cookie') ?? '';
-  if (accepted.status !== 200 || !setCookie.includes('openmaic_access=')) {
-    record(
-      'ACCESS_CODE 正确口令放行',
-      false,
-      `期望 200 + Set-Cookie，实际 ${accepted.status} / ${setCookie ? '有 Set-Cookie' : '无 Set-Cookie'}`,
-    );
-    return;
-  }
-  record('ACCESS_CODE 正确口令放行', true, 'HTTP 200 + Set-Cookie: openmaic_access');
-
-  const cookie = setCookie.split(';')[0];
-  authCookie = cookie;
-  const authenticated = await fetchWithTimeout('/api/access-code/status', {
-    headers: { Cookie: cookie },
-  });
-  const authJson = await readJson(authenticated);
-  if (authJson?.authenticated === true) {
-    record(
-      'ACCESS_CODE 会话生效',
-      true,
-      '带 Cookie 后 /api/access-code/status → authenticated: true',
-    );
+  // 不消耗外部资源的接口不该拦。
+  const open = await fetchWithTimeout('/api/health');
+  if (open.status === 401) {
+    record('会话门禁 · 非高耗能接口不拦', false, 'GET /api/health 被 401 拦下 —— 匿名访问本该放行');
   } else {
-    record(
-      'ACCESS_CODE 会话生效',
-      false,
-      `带 Cookie 后 authenticated = ${String(authJson.authenticated)}`,
-    );
+    record('会话门禁 · 非高耗能接口不拦', true, `GET /api/health → ${open.status}`);
   }
 }
 
 async function checkProviderDegradation() {
-  // 启用 ACCESS_CODE 时，provider 列表同样受门禁保护，需要带上会话 Cookie。
-  const response = await fetchWithTimeout('/api/server-providers', {
-    headers: authCookie ? { Cookie: authCookie } : {},
-  });
+  // provider 列表不消耗外部资源，不受会话门禁保护；匿名也应能查到。
+  const response = await fetchWithTimeout('/api/server-providers');
   const json = await readJson(response);
   if (response.status !== 200 || !json?.success) {
     record(
@@ -573,7 +531,9 @@ async function main() {
     // 而真正要修的是证书。
     const text = String(error);
     const isTls = /certificate|TLS|SSL|CERT_/i.test(text) || /fetch failed/.test(text);
-    process.stdout.write(`[FAIL] 目标站点不可达 — ${text}\n`);
+    // 用 record() 而不是直接 write：**这条要进账**，否则末尾的总数会显示
+    // 「失败 0」而退出码是 1，自相矛盾（独立复审 F9）。
+    record('目标站点不可达', false, text);
     if (isTls) {
       process.stdout.write(
         '  提示：若是自定义域名，先查 TLS 证书是否已为该域名签发——' +
@@ -584,13 +544,17 @@ async function main() {
       );
     }
     process.exitCode = 1;
+    // 这条早退路径也要出总数：否则报告里只有一句「不可达」，
+    // 看不到「一共该跑多少项、跑了多少项」——判读成本反而更高
+    // （独立复审 F9）。
+    summarize();
     return;
   }
 
   // 每项检查**独立兜底**：一项挂了（多半是本机网络抖动）只记一条 FAIL，
   // 后面的检查照跑。这样一轮自检要么给出完整结论，要么给出「哪一项连不上」，
   // 而不是变成一屏 Node 栈信息。
-  await guardCheck('ACCESS_CODE 门禁', checkAccessCode, record);
+  await guardCheck('会话门禁', checkSessionGate, record);
   await guardCheck('关键路由可达', checkRoutes, record);
   await guardCheck('客户端 chunk 全部 200', checkChunks, record);
   await guardCheck('BUILD_ID 与目标产物一致', checkBuildId, record);

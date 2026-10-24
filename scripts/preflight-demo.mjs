@@ -15,7 +15,6 @@
  * 用法：
  *   node scripts/preflight-demo.mjs
  *   node scripts/preflight-demo.mjs --port 3800
- *   node scripts/preflight-demo.mjs --port 3800 --access-code '<你的访问码>'
  *
  * 说明：脚本**不会**自动清理残留进程（沙箱里 `kill` 常被禁），只会列出来，
  * 清理请显式执行 `node scripts/cleanup-local-dev.mjs --yes`。
@@ -32,7 +31,6 @@ const argValue = (name, fallback) => {
 };
 
 const PORT = Number(argValue('--port', '3800'));
-const ACCESS_CODE = argValue('--access-code', '');
 
 const problems = [];
 const notes = [];
@@ -140,7 +138,6 @@ if (problems.length === 0) {
       '--base-url',
       `http://127.0.0.1:${PORT}`,
     ];
-    if (ACCESS_CODE) checkArgs.push('--access-code', ACCESS_CODE);
     const check = spawnSync(process.execPath, checkArgs, { cwd: ROOT, encoding: 'utf8' });
     const output = `${check.stdout || ''}${check.stderr || ''}`;
     console.log('\n── 端到端自检 ──');
