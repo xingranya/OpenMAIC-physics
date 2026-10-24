@@ -66,8 +66,8 @@ This product is a derivative work of OpenMAIC, developed by THU-MAIC.
                           物理域依赖分层门禁：纯领域层零 React / 零 DOM。
   scripts/check-physics-e2e.mjs
                           端到端自检：路由首帧水合安全性、客户端 chunk 全 200、
-                          BUILD_ID 与目标产物一致、口令门禁、模型降级前提
-                          （21 项；启用 ACCESS_CODE 时 25 项）。
+                          BUILD_ID 与目标产物一致、会话门禁、模型降级前提
+                          （24 项）。
   scripts/check-makers-models.mjs
                           查询 EdgeOne Makers Models 网关当前可用的模型，
                           并给出可直接配置的 DEFAULT_MODEL。
@@ -75,11 +75,11 @@ This product is a derivative work of OpenMAIC, developed by THU-MAIC.
                           界面与出站层的上游品牌字面量门禁（TS AST 扫字符串 /
                           模板 / JSX 文本）。
   scripts/verify-edgeone-runtime.mjs
-                          仓库外运行期门禁。**访问码不写在本仓库里**：
-                          .env 被 .gitignore 明确排除，脚本也只从「参数 →
-                          环境变量 → 仓库根 .env」三级查找，拿不到就 fail-closed。
-                          （此前脚本里硬编码过访问码，等于把课堂门禁的钥匙
-                          随公开仓库一起发布——已移除。）
+                          仓库外运行期门禁。以「已登录」身份探测受会话门禁保护
+                          的路由（形状合法的会话 Cookie 即可——门禁只验形状）。
+                          （此前脚本里硬编码过站点级访问码，等于把课堂门禁的钥匙
+                          随公开仓库一起发布——已移除；访问码本身也已随账号系统
+                          一并退役，改为注册 + 登录。）
   next.config.ts          `output` 依 EDGEONE / VERCEL 环境变量判定：边缘平台
                           不产出 standalone 产物，自托管场景保留。构建与运行
                           必须看到同一份环境变量。
@@ -118,9 +118,11 @@ This product is a derivative work of OpenMAIC, developed by THU-MAIC.
     填上游项目等于把本产品的流量与用量记到上游账上——而上游是 MIT 开源项目，
     并未参与本产品的任何推广结算。这是一项**显式决策**，不是遗漏。
     同理，provider 推广位链接上的 ?aff=openmaic 联盟参数已移除。
-    仍保留上游标识的只有**内部协议常量**（工作区包名 @openmaic/*、会话 Cookie 名
-    openmaic_access、内部响应头 X-OpenMAIC-Element-Reference-Accepted）：它们
-    不对外呈现、也不表达「本应用是谁」，改掉只会破坏自身一致性。
+    仍保留上游标识的只有**内部协议常量**（工作区包名 @openmaic/*、内部响应头
+    X-OpenMAIC-Element-Reference-Accepted）：它们不对外呈现、也不表达
+    「本应用是谁」，改掉只会破坏自身一致性。
+    （原先列在这里的会话 Cookie 名 openmaic_access 已随站点级访问码一并退役，
+    现行会话 Cookie 名是 physics_session——属于本产品自己的标识。）
 
 
 第三方组件 / Third-party components

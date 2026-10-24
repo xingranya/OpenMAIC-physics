@@ -67,16 +67,19 @@ edgeone whoami            # 确认账号与 APPID
 edgeone makers link -n <项目名>
 
 # 2) 配置环境变量（不必进控制台；写入「生产」环境）
-edgeone makers env set ACCESS_CODE  <≥16位随机口令>
 edgeone makers env set EDGEONE      1
 edgeone makers env set DEFAULT_MODEL openai:@makers/deepseek-v4-flash
 edgeone makers env ls               # 复核
 
 > ⚠️ **`env set` 只影响后续部署，改完必须重新部署才生效。**
-> 实测：轮换访问码时执行了 `env set`（`env ls` 回读已确认新值），
-> 但**正在运行的部署仍然用旧口令**（新口令 401、旧口令 200）——
+> 实测：改环境变量时执行了 `env set`（`env ls` 回读已确认新值），
+> 但**正在运行的部署仍然用旧值**——
 > 平台环境变量是**部署时绑定**的，不是一次写完就实时生效。
-> 所以轮换口令的完整动作是：`env set` → **重新部署** → 用新口令复验。
+> 所以变更的完整动作是：`env set` → **重新部署** → 复验。
+>
+> ℹ️ **本项目不再配置站点级访问码**（`ACCESS_CODE`）：原先那把全员共用的访问码
+> 已彻底删除，入口换成**账号注册 + 登录**（见 §8.1e-3）。
+> 平台上「生产」与「预览」两个环境的该变量都已 `env rm` 清理干净。
 
 # 3) 部署（推荐用仓库自带的一键脚本，见下方「为什么不能直接 deploy」）
 node scripts/deploy-edgeone.mjs
@@ -122,7 +125,7 @@ edgeone makers deploy .tmp/edgeone-stage -n <项目名> -e production --area glo
   ```
 
   `Max-Age=10800` 即 **3 小时**——这是演示材料的「平台 Cookie 有效期 3 小时」的出处。
-  （注意：这是**平台**的 Cookie，与我们自己发的 `openmaic_access` 会话 Cookie 无关。）
+  （注意：这是**平台**的 Cookie，与我们自己发的 `physics_session` 会话 Cookie 无关。）
 
 **实测记录（2026-10-22）**
 
@@ -133,7 +136,7 @@ edgeone makers deploy .tmp/edgeone-stage -n <项目名> -e production --area glo
 | `edgeone makers deploy -n physics-ai-classroom -e production` | 报错：`pnpm install` 失败——corepack 缓存里没有 `pnpm@10.28.0`（`ENOENT: stat ~/.cache/node/corepack/v1/pnpm/10.28.0`） |
 | `node scripts/deploy-edgeone.mjs` | **部署成功**：项目 `physics-ai-classroom-global`（ID `makers-kru2xpkwfs7q`，加速区域 `Area: "overseas"`＝全球可用区**不含**中国大陆），预设域 `https://physics-ai-classroom-global-rvroompq.edgeone.dev`，部署 ID `dp4c95mdsunb`，函数包 119.3 MiB（上限 128 MiB）；自定义域名 `dun.xran.uk` 已绑定 |
 | 线上静态页（`/physics/overview` 等 SSG 路由） | HTTP 200，首屏标题「大学物理 AI 智慧课堂 · 长江大学文理学院」 |
-| 线上动态路由（`/api/health`、`/physics/overview`、`/teacher/dashboard` 等 SSR 路由） | **HTTP 200**（修复前是 502 / 500），根因与修法见 §8.1e；线上自检 `node scripts/check-physics-e2e.mjs --base-url <地址> --access-code <码>` **25 / 25 通过** |
+| 线上动态路由（`/api/health`、`/physics/overview`、`/teacher/dashboard` 等 SSR 路由） | **HTTP 200**（修复前是 502 / 500），根因与修法见 §8.1e；线上自检 `node scripts/check-physics-e2e.mjs --base-url <地址>` **25 / 25 通过**（**上一次部署、访问码时代的实测**；账号系统上线后需按新脚本重跑） |
 | 函数落点 | `actualRegions = {"overseas": "ap-singapore"}` —— **无大陆节点**；旧项目（含大陆）已按「删除重建」要求删除 |
 
 **坑：corepack 缓存缺失导致 `pnpm install` 跑不起来**
@@ -279,13 +282,17 @@ supportedArchitectures:
 在控制台 **项目设置 → 环境变量** 中逐条配置，参考 `deploy/edgeone.env.example`。
 **环境变量在控制台配置，不会进入客户端包。**
 
-必须配置的三项：
+必须配置的两项：
 
 ```env
 EDGEONE=1                              # 告诉 next.config.ts 构建目标是边缘平台
 DEFAULT_MODEL=<provider>:<model>       # 例：minimax:MiniMax-M2.7-highspeed
-ACCESS_CODE=<至少 16 位随机字符串>      # 站点级口令，保护部署不被他人改动
 ```
+
+> **不需要 `ACCESS_CODE`**：站点级访问码已随入口改造一并删除
+> （入口现在是**账号注册 + 登录**，账号存在浏览器本地，不上传服务端）。
+> 站点本身对所有访问者开放；只有会消耗模型额度或上游资源的接口要求已登录，
+> 见 §8.1e-3。
 
 > **为什么 `EDGEONE=1` 是必填的**：上游 `next.config.ts` 默认产出 `standalone`
 > 服务端包（供自托管使用），只在 `VERCEL` 时关闭。EdgeOne Pages 与
@@ -323,8 +330,10 @@ DEFAULT_MODEL=openai:@makers/deepseek-v4-flash
 > 参考 <https://cloud.tencent.com/document/product/1552/127415> 与
 > <https://cloud.tencent.com/document/product/1552/132759>。
 
-> `ACCESS_CODE` 是保护部署的唯一凭据。没有它，任何能访问该地址的人都能修改
-> 甚至删除整个课程库。生成方式：`openssl rand -base64 24`
+> **本站点不设站点级访问码**（全员共用一把钥匙的访问码已删除，入口是账号注册 + 登录）。
+> 访问保护由两处承担：预设域名自带**平台级访问保护**（带 `eo_token` 的地址才能首次打开），
+> 以及正式对外访问时**绑定自定义域名**（§8.1h）。课程与学习数据本身在浏览器本地，
+> 不存在"被他人改动服务器上的课程库"这一风险面。
 
 ### 2.6 KV / Blob（可选）
 
@@ -352,7 +361,7 @@ DEFAULT_MODEL=openai:@makers/deepseek-v4-flash
 按 `deploy/deploy-checklist.md` 逐项打勾。最小验收路径：
 
 1. 打开首页 → 看到校徽与「物理学习门户」
-2. 点「物理学习工作台」→ 跳登录页 → `student` / `dunzhongwan` → 进入学生总览
+2. 点「物理学习工作台」→ 跳登录页 → **注册一个账号**（或用演示账号 `student` / `dunzhongwan`，一键进入也可以）→ 进入学生总览
 3. 左侧「AI 智能课堂」→ 输入「大学物理 第三章 牛顿运动定律」→ 生成课堂 → 播放
 4. 学生端走完 诊断 → 匹配 → 闯关 → 实验 → 报告，报告能下载 Markdown
 5. 退出 → `teacher` / `dunzhongwan` → 教师端 5 视图可切换，评价复核能保存
@@ -372,8 +381,8 @@ DEFAULT_MODEL=openai:@makers/deepseek-v4-flash
 | 生成课堂报 429 | 模型额度耗尽 | 改用预置课堂包；或换 provider；或降低 `DEFAULT_MODEL` 成本 |
 | 首页一直转圈 | 未配置模型 Key | 至少配置一个 `*_API_KEY`，或直接用预置课堂包 |
 | **页面文字正常但所有按钮点不动** | 客户端 chunk 500 → React 未水合。常见原因：①构建与运行只在一侧配了 `EDGEONE=1`；②服务运行期间重建了产物 | 两侧都带 `EDGEONE=1`；重建后重启服务；跑 §8 的 `check:physics-e2e.mjs` 确认 chunk 全 200 |
-| 访问无口令保护 | 未配置 `ACCESS_CODE` | 配置后需重新验证 Cookie |
-| 本地 http 演示卡在口令弹窗 | 口令 Cookie 带了 `Secure`，http 下浏览器不回传 | 本地自检时设 `ALLOW_INSECURE_ACCESS_COOKIE=1`（仅限 http://localhost 演示；生产一律带 `Secure`） |
+| 未登录调用高耗能接口返回 401 | 会话门禁在生效（**预期行为**） | 需要该能力时先在登录页注册或登录；访客可直接点「一键进入」 |
+| 刷新后被踢回登录页 | 会话没写进浏览器存储（`physics-ai-session`） | 检查浏览器是否允许站点存储；隐私模式或清过缓存后重新登录 |
 | 导出的 MP4 不可用 | 渲染服务未部署 | 预期行为：自动降级为导出项目 ZIP |
 | `pnpm install` 报 `ERR_PNPM_EPERM … copyfile … .gitmodules` | 防护策略按文件名拦截 `.gitmodules` 的创建（防 git 子模块劫持），pnpm 写这个上游残留文件时拿到 EPERM | 见下方「`.gitmodules` 拦截的绕法」 |
 | 部署报 `Cloud SSR Node functions package size exceeds 128MiB limit` | 云函数包超平台硬上限 | 见 §8.1d（用 `scripts/prune-edgeone-function.mjs` 裁剪） |
@@ -447,7 +456,7 @@ pnpm install --package-import-method=hardlink
 
 1. Fork 仓库 → Vercel 新建项目 → 导入
 2. Node 版本选 22.19+（Vercel 默认即可）
-3. 配置 `DEFAULT_MODEL` + 模型 Key + `ACCESS_CODE`
+3. 配置 `DEFAULT_MODEL` + 模型 Key
 4. 部署完成
 
 建议两个平台都部署一个：EdgeOne 作为主（国内访问快、免费额度足），
@@ -465,7 +474,7 @@ SSR 文字照常显示、构建日志也是 EXIT=0，**只有真的点一下才�
 ### 8.0 现场演示前置检查（一条命令）
 
 ```bash
-node scripts/preflight-demo.mjs --port 3800 [--access-code '<访问码>']
+node scripts/preflight-demo.mjs --port 3800
 ```
 
 它会依次做：构建产物与 BUILD_ID → 工作区是否干净 → 本机残留进程提示 →
@@ -509,9 +518,8 @@ pnpm build:packages && pnpm build      # 产物中不应出现 .next/standalone
 # 2) 启动（构建与运行都带 EDGEONE=1）；**必须重启，不能复用旧进程**
 EDGEONE=1 pnpm start -- -p 3434        # 或 ./node_modules/.bin/next start -p 3434
 
-# 3) 跑自检脚本（未启用口令 21 项 / 启用口令 25 项）
+# 3) 跑自检脚本（24 项检查）
 node scripts/check-physics-e2e.mjs --base-url http://127.0.0.1:3434
-# 配置了口令时再加上 --access-code，并让服务带 ALLOW_INSECURE_ACCESS_COOKIE=1
 ```
 
 脚本检查的内容：
@@ -520,7 +528,9 @@ node scripts/check-physics-e2e.mjs --base-url http://127.0.0.1:3434
 | --- | --- |
 | 15 条关键路由 | HTTP 200，且首帧含校名与「正在加载工作台」水合安全标记 |
 | 客户端 chunk | 页面引用的**每一个** chunk 都是 200（本次 42 个客户端 chunk） |
-| 口令门禁 | 未授权 401、错误口令 401、正确口令放行、带 Cookie 会话生效 |
+| 会话门禁 | 未登录调高耗能接口 → 401；带会话 Cookie → 放行；不消耗外部资源的接口不拦 |
+| 材料自引 chunk 数 | 说明书 / 部署手册 / 答辩预案三处写的 chunk 数与实测一致 |
+| BUILD_ID | 服务返回的 BUILD_ID 与目标产物一致 |
 | 模型降级前提 | 未配置模型 Key 时 provider 为空，生成路径优雅降级 |
 
 任何一项失败都是阻断项，退出码非 0。
@@ -701,28 +711,42 @@ ESM 侧会以「Cannot find package」的形式继续 5xx。
 # 期望：全部 OK，失败 0/9
 ```
 
-### 8.1e-3 EdgeOne Pages **不部署 Next 中间件** → 访问码门禁要自己实现
+### 8.1e-3 EdgeOne Pages **不部署 Next 中间件** → 门禁要在函数入口自己实现
 
-`middleware.ts` 里那条「API 未授权 → 401」的规则，是本项目「ACCESS_CODE 生效、
-未授权访问被拦截」这条验收标准的实现者。但实测发现：
+`middleware.ts` 里那条「高耗能接口必须已登录」的规则，是本项目门禁的实现者之一。但实测发现：
 
 - 产物里的 `.next/server/middleware-manifest.json`，`middleware` 字段是**空的**；
 - 平台侧的 `.edgeone/edge-functions/index.js` 里也**没有**这段逻辑。
 
-⇒ **Next 中间件在 EdgeOne Pages 上根本没有部署**，中间件里的 401 规则等于不存在：
-所有 `/api/*` 路由对未授权请求是敞开的（实测 `/api/chat`、`/api/stages`
-未带 Cookie 也能打到路由）。
+⇒ **Next 中间件在 EdgeOne Pages 上根本没有部署**，中间件里的规则等于不存在。
 
-**修法**：在云函数入口 `index.mjs` 里把同一条规则**补回来**——包装 opennext 的
-handler，在调用前校验 `openmaic_access` Cookie：
+**修法**：在云函数入口 `index.mjs` 里把这条规则**重新实现**——由
+`scripts/prune-edgeone-function.mjs` 生成 `createSessionGate`，包住 opennext 的 handler：
 
 ```
-Cookie 形态：<毫秒时间戳>.<HMAC-SHA256(时间戳, ACCESS_CODE) 的小写 hex>
-有效期 7 天，允许 5 分钟时钟超前（与 lib/server/access-token-shared.ts 一致）
-白名单：/api/access-code/**、/api/health
-其余 /api/*：无合法 Cookie → 401 {"success":false,"errorCode":"INVALID_REQUEST",...}
-页面路由：照旧放行（前端弹口令框），与 middleware.ts 语义一致
+Cookie 名：physics_session
+Cookie 形态：<账号 id>.<登录时间戳>，形状判定 /^[A-Za-z0-9._-]{1,128}\.\d{10,16}$/
+必须已登录的路径前缀（只有这些）：
+  /api/generate/   /api/chat   /api/agent/
+  /api/pbl/v2/evaluate   /api/transcription   /api/web-search
+命中前缀且没有合法形状的 Cookie → 401 {"success":false,"errorCode":"INVALID_REQUEST",...}
+其余接口与页面路由：照旧放行（站点对所有访问者开放）
 ```
+
+**为什么只守这几条前缀**：判据是「会不会花钱」——这六条会调用模型、搜索或转写服务，
+匿名调用等于替别人烧额度；其余接口（本地解析、材料上传、静态查询）不消耗外部资源，
+**拦了会让「断网也能演示」这类承诺失效**。
+站点本身也**不再有全局门禁**：匿名访客可以浏览首页与静态页面，
+入口的账号注册 + 登录由客户端负责（`components/physics/login.tsx`）。
+
+**强度如实说明（不要写成「服务端验证了身份」）**：会话 Cookie 由**客户端自己写入**
+（内容是账号 id 与登录时间戳），服务器**只能验证形状**，验证不了「是不是本人」。
+它**挡得住随手匿名调用，挡不住刻意伪造**。账号校验本身发生在浏览器本地
+（不接数据库、不连教务系统）。
+
+**客户端这一侧还多做了一步**：发起「生成课堂 / 发送消息」之前先自查会话，
+未登录时给一句**可读提示**并指路（右上角「登录」或「一键进入」），
+而不是让用户只看到一个没有上下文的 401。服务端该拦的照拦，提示只是把话说清楚。
 
 两个容易踩空的细节（都实测过）：
 
@@ -733,14 +757,18 @@ Cookie 形态：<毫秒时间戳>.<HMAC-SHA256(时间戳, ACCESS_CODE) 的小写
 2. 门禁要放在**入口**（`index.mjs`），不是放在应用源码里：
    源码里的中间件平台不会部署。
 
-本地验证（用平台同款 Node 20.19 起函数包）：
+**三份实现的一致性由测试盯着**：客户端下发 Cookie（`lib/physics/account-store.ts`）、
+Next 中间件（`middleware.ts`，本地开发与 Vercel 备份部署用）、以及云函数入口
+（`scripts/prune-edgeone-function.mjs`）。Cookie 名与「必须登录」的前缀列表
+三处必须一致——由 `tests/deploy/session-gate-contract.test.ts` 断言
+（**实测 9 / 9 通过**），它同时断言中间件的行为与函数入口生成源码里的规则一致：
 
 ```
-未授权 GET /api/stages      → 401 {"success":false,"errorCode":"INVALID_REQUEST",...}
-伪造签名 GET /api/chat      → 401
-过期令牌 GET /api/chat      → 401
-合法 Cookie GET /api/chat   → 405（已到达路由，说明门禁放行）
-白名单 GET /api/health      → 200
+未登录 GET /api/chat             → 401 {"success":false,"errorCode":"INVALID_REQUEST",...}
+形状不合法的 Cookie GET /api/chat → 401（不能靠乱写 Cookie 混进去）
+带合法形状 Cookie GET /api/chat   → 放行（不再是 401）
+匿名 GET /api/health             → 200（不消耗外部资源的接口不拦）
+匿名 GET /physics/overview       → 200（页面路由对所有访问者开放）
 ```
 
 ### 8.1f 云函数在平台侧的四个「平台说了算」（都实测过）
@@ -870,7 +898,7 @@ curl -o /dev/null -w '%{http_code}\n' https://dun.xran.uk/   # 应为 200
 
 **Git 导入路径为什么不能用来部署**（实测）：控制台的「导入 Git 仓库」也会走
 平台自己的构建流水线，而**本项目的函数包后处理必须在适配器打包之后**做
-（`deps` 改名、ESM 解析钩子、访问码门禁都改在**函数包入口**上，
+（`deps` 改名、ESM 解析钩子、会话门禁都改在**函数包入口**上，
 平台构建时那个入口还不存在）。实测用 Git 导入新建的项目，
 平台构建出的云函数包**超过 128 MiB 上限**（未裁剪约 295 MiB），
 部署直接失败。因此：
