@@ -134,7 +134,7 @@ edgeone makers deploy .tmp/edgeone-stage -n <项目名> -e production --area glo
 | `edgeone whoami` | 账号 100043806721 / APPID 1374239834（登录态可用） |
 | `edgeone makers deploy -n physics-ai-classroom -e preview` | 报错：需先创建 production 部署 |
 | `edgeone makers deploy -n physics-ai-classroom -e production` | 报错：`pnpm install` 失败——corepack 缓存里没有 `pnpm@10.28.0`（`ENOENT: stat ~/.cache/node/corepack/v1/pnpm/10.28.0`） |
-| `node scripts/deploy-edgeone.mjs` | **部署成功**：项目 `physics-ai-classroom-global`（ID `makers-kru2xpkwfs7q`，加速区域 `Area: "overseas"`＝全球可用区**不含**中国大陆），预设域 `https://physics-ai-classroom-global-rvroompq.edgeone.dev`，部署 ID `dpuzsvgpvle7`，函数包 119.4 MiB（上限 128 MiB）；自定义域名 `dun.xran.uk` 已绑定 |
+| `node scripts/deploy-edgeone.mjs` | **部署成功**：项目 `physics-ai-classroom-global`（ID `makers-kru2xpkwfs7q`，加速区域 `Area: "overseas"`＝全球可用区**不含**中国大陆），预设域 `https://physics-ai-classroom-global-rvroompq.edgeone.dev`，部署 ID `dpf93bvrdv5z`，函数包 119.8 MiB（上限 128 MiB）；自定义域名 `dun.xran.uk` 已绑定 |
 | 线上静态页（`/physics/overview` 等 SSG 路由） | HTTP 200，首屏标题「大学物理 AI 智慧课堂 · 长江大学文理学院」 |
 | 线上动态路由（`/api/health`、`/physics/overview`、`/teacher/dashboard` 等 SSR 路由） | **HTTP 200**（修复前是 502 / 500），根因与修法见 §8.1e；线上自检 `node scripts/check-physics-e2e.mjs --base-url https://dun.xran.uk` **25 / 25 通过**（**账号系统版本、部署 `dpuzsvgpvle7` 当次实测**） |
 | 函数落点 | `actualRegions = {"overseas": "ap-singapore"}` —— **无大陆节点**；旧项目（含大陆）已按「删除重建」要求删除 |
@@ -607,13 +607,13 @@ node scripts/prune-edgeone-function.mjs --yes      # 真执行
 
 实测：**285.7 MiB → 118.0 MiB**（裁剪 + 拍平 + 别名/工作区包实体化之后；
 只裁剪、不拍平时是 151.6 MiB，仍超限）。再按运行期反馈补包（4 个包 / 1.4 MiB），
-**最终上传 119.4 MiB**。
+**最终上传 119.8 MiB**。
 
-**当前产物实测（门禁口径）**：函数包最终体积 **119.4 MiB**，运行期门禁覆盖 **65 条路由**。
+**当前产物实测（门禁口径）**：函数包最终体积 **119.8 MiB**，运行期门禁覆盖 **65 条路由**。
 
-> **体积口径**：`119.4 MiB` 是**最终上传体积**（按文件字节求和，脚本里的 `dirSize`），
+> **体积口径**：`119.8 MiB` 是**最终上传体积**（按文件字节求和，脚本里的 `dirSize`），
 > 与平台「解包后体积」的判定口径不完全等同——同一目录用 `du -sk` 量是更大的
-> （块对齐会更大）。本项目按 119.4 MiB 部署**被平台接受**（部署 ID `dpuzsvgpvle7`），
+> （块对齐会更大）。本项目按 119.8 MiB 部署**被平台接受**（部署 ID `dpf93bvrdv5z`），
 > 说明平台的判定口径与文件字节求和一致或更宽松。
 
 ### 8.1e 云函数依赖为什么必须改名成 `deps`（**线上 5xx 的真正根因**）
@@ -807,7 +807,7 @@ Next 中间件（`middleware.ts`，本地开发与 Vercel 备份部署用）、�
 | 项 | 平台实况 | 本地/仓库里的对应值 | 影响 |
 | --- | --- | --- | --- |
 | **函数运行时版本** | **Nodejs20.19**，由平台固定，改不动 | 控制台「项目设置 → Node.js 版本」与 `edgeone.json` 的 `nodeVersion` 都设成 `24.5.0`，构建日志也确实是 `v24.5.0`，但函数运行时仍显示 `Nodejs20.19` | 产物里的 `engines.node` 应当**匹配平台实际提供的运行时**。仓库 `package.json` 写的是上游要求的 `>=22.19.0`，平台上没有满足它的运行时，平台可能在拉起阶段直接拒收。本项目把**产物副本**放宽到 `>=20.19.0`（仓库里的不动）。⚠️ 注意：仓库里 `@earendil-works/pi-ai` / `pi-agent-core` 自报 `>=22.19.0`、`svg-pathdata` 自报 `>=22.16.0`，在 Node 20.19 上属**未声明支持**，涉及 AI 助教与导出路径时需留意 |
-| **云函数包体积** | 解包后 ≤ **128 MiB** | 直接 deploy 是 285.7 MiB，裁剪+拍平+依赖实体化后 118.0 MiB，补包后**最终上传 119.4 MiB** | 超限平台拒收（错误码 30），见 §8.1d / §8.1e |
+| **云函数包体积** | 解包后 ≤ **128 MiB** | 直接 deploy 是 285.7 MiB，裁剪+拍平+依赖实体化后 118.0 MiB，补包后**最终上传 119.8 MiB** | 超限平台拒收（错误码 30），见 §8.1d / §8.1e |
 | **函数地域** | **跟随加速区域**：本项目 `Area: "overseas"` → 部署 MetaData 的 `actualRegions` = `{"overseas": "ap-singapore"}`，**无大陆节点**；旧的「含大陆」项目（`Area: "global"`）才是 `{mainland: ap-guangzhou, overseas: ap-singapore}` | `edgeone.json` 的 `cloudFunctions.regions.overseas` 只会**新增**海外节点；`mainland: []` 不会凭空长出大陆节点 | 部署 MetaData 的 `actualRegions` **实测**为 `{"overseas": "ap-singapore"}`（**无 mainland 节点**）—— 大陆节点来自**加速区域**，不是平台强改（详见 §8.1f-1） |
 | **预设域名访问保护** | `*.edgeone.cool` 需带 `eo_token` | 仓库里没有这个概念 | 不带令牌的请求会拿到**平台自己的 401 页面**（不是应用的 401）；CLI 部署成功时打印的地址带 `?eo_token=…&eo_time=…`，绑定自定义域名后不再需要 |
 
@@ -859,6 +859,49 @@ Next 中间件（`middleware.ts`，本地开发与 Vercel 备份部署用）、�
 
 > ⚠️ 旧的 `physics-ai-classroom`（`Area: "global"`）已按「删除重建」的要求删除，
 > 现存项目只有 `physics-ai-classroom-global`（`Area: "overseas"`）。
+
+### 8.1g 模型额度与「生成课堂」的实测边界（2026-10-24）
+
+**配置**（`edgeone makers env set ... -e production`）：
+
+| 变量 | 值 |
+| --- | --- |
+| `MAKERS_MODELS_KEY` | 已配置（控制台签发，**不入库、不写本地 .env**） |
+| `DEFAULT_MODEL` | `openai:@makers/deepseek-v4-flash` |
+
+线上验证：
+
+```bash
+curl -s https://dun.xran.uk/api/server-providers
+# {"success":true,"providers":{"openai":{"models":["@makers/deepseek-v4-flash"]}},...}
+```
+
+**两个坑（都实测过）**：
+
+1. **`GET /v1/models` 返回 404**（`Invalid request path`），但
+   `POST /v1/chat/completions` 正常。`scripts/check-makers-models.mjs` 原本用列表
+   端点判「Key 可用」，会把**可用的 Key 误报成无效**；已改为 404/405 时退化成一次
+   `max_tokens: 1` 的真实推理探针。
+2. **`edgeone makers env set` 会把变量同时写进本地 `.env`**。下一次构建就会把 Key
+   内联进 edge 函数，被产物泄露门禁拦下（报错信息已改进为直接指出「来自本地 .env」）。
+   凭据只放平台环境变量，本地 `.env` 不要留。
+
+**生成链路的实测边界（别写成「生成完全可用」）**：
+
+| 阶段 | 接口 | 实测 |
+| --- | --- | --- |
+| 课堂大纲 | `/api/generate/scene-outlines-stream` | **200**，约 15–24 s |
+| 智能体角色 | `/api/generate/agent-profiles` | **200**，约 29–33 s |
+| 逐场景内容 | `/api/generate/scene-content` | **504 Gateway Time-out**，每次约 32.5 s |
+
+原因：EdgeOne 边缘函数单请求上限约 **30 秒**，而单个场景的内容生成稳定在
+**32–33 秒**——差 2–3 秒，不是逻辑错误。已排除的假设：关掉推理
+（`reasoning_effort: none`）**对耗时没有影响**（瓶颈是输出长度），所以没拿它当解法。
+
+**可选的三条解法**（代价从低到高）：
+1. 换更快的模型（网关 `/v1/models` 不可用，需在控制台确认可选清单）；
+2. 在 EdgeOne 控制台调高函数超时（若该版本开放此配置）；
+3. 把单场景内容拆成「骨架 + 分段补全」两次请求，让每次都在 30 秒内（改代码）。
 
 ### 8.1h 自定义域名绑定（`dun.xran.uk`）
 
@@ -997,7 +1040,7 @@ node scripts/verify-edgeone-runtime.mjs        # 仓库外运行时门禁：打�
 其中 2 条 500 已归因为 sharp 的 macOS 差异（平台上 linux-x64 正常）。
 
 > **体积口径补充**：丢掉 source map（496 个文件 / 5.8 MiB，运行期不用）后，
-> 裁剪结果是 **285.7 MiB → 118.0 MiB**，补包后 **最终上传 119.4 MiB**（上限 128 MiB）。
+> 裁剪结果是 **285.7 MiB → 118.0 MiB**，补包后 **最终上传 119.8 MiB**（上限 128 MiB）。
 
 > **这道护栏自己也得有牙齿**：`tests/deploy/edgeone-probe-isolation.test.ts`
 > 对**每一层**都做了变异验证——删掉调用点的断言、把两道判据分别短路、

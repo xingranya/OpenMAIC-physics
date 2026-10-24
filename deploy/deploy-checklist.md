@@ -2,7 +2,7 @@
 
 > 逐项打勾。带 ⚠️ 的项目在评委现场可能致命，**必须**全部通过。
 
-## 0. 本次验收记录（2026-10-24 · 账号系统版本 · 部署 `dpuzsvgpvle7`）
+## 0. 本次验收记录（2026-10-24 · 账号系统 + 模型额度 · 部署 `dpf93bvrdv5z`）
 
 > 只勾**当天真正实测过**的项目。没实测的保持空着——靠推断打勾比不打勾更危险。
 
@@ -18,8 +18,20 @@
 | 刷新不被踢回登录页 | 注册后 `page.reload()` | 仍在 `/physics/overview` |
 | 深链接角色门禁 | 学生账号直接打开 `/teacher/evaluation` | 被送回 `/physics/overview`，**只渲染学生内容** |
 | 控制台干净 | 上述全部流程 | **0 console error / 0 page error** |
-| 函数包体积 | `node scripts/deploy-edgeone.mjs` 输出 | **119.4 MiB**（上限 128 MiB） |
+| 函数包体积 | `node scripts/deploy-edgeone.mjs` 输出 | **119.8 MiB**（上限 128 MiB） |
 | 加速区域 | 部署脚本 fail-closed 门禁 | `Area: "overseas"`（无大陆节点）✔ |
+| 重复用户名被拒 | 同浏览器注册 → 退出 → 再注册同名 | 「这个账号已被占用，换一个试试。」 |
+| 注册演示账号名被拒 | 注册 `student` | 「这个账号是演示账号，请换一个。」 |
+| 密码不足 8 位被拒 | 注册时填 6 位密码 | 「密码至少 8 位。」 |
+| 错误口令统一提示 | 用错口令登录 | 「账号或密码不正确。」 |
+| 演示账号仍可登录 | `student` / `dunzhongwan` | 进入学生工作台 |
+| 一键进入 | `/login?demo=teacher` | 进入教师驾驶舱 |
+| 学生开 `/teacher/foo` | 本轮修复项 | 被送回 `/physics/overview` |
+| 退出后重登同账号 | 退出 → 重登 | 落地正确，userId 一致 |
+| 13 个视图逐页渲染 | 学生 8 + 教师 5 | **8/8 + 5/5**，0 console error |
+| 预置课堂包导入 | 首页点「牛顿运动定律与圆周运动」 | 进入 `/classroom/stage-preset-mechanics-03-1` |
+| 模型供给 | `curl https://dun.xran.uk/api/server-providers` | `providers.openai.models = ["@makers/deepseek-v4-flash"]` |
+| AI 课堂生成 | 首页输入需求 → 进入课堂 | **部分通过**：大纲 200、智能体 200、逐场景内容 **504**（边缘 30s 上限，见 `deploy/README.md` §8.1g） |
 
 ## A. 平台与配置
 
@@ -30,8 +42,8 @@
 - [ ] 构建成功，无原生模块（sharp / @napi-rs/canvas）加载错误
 - [ ] ⚠️ 已确认**不再配置** `ACCESS_CODE`（站点级访问码已删除，入口换成账号注册 + 登录；
       平台上「生产」与「预览」两个环境的该变量都已 `env rm` 清理）
-- [ ] ⚠️ 已配置模型供给，二选一：
-      - **（推荐）Makers Models**：只配 `MAKERS_MODELS_KEY` 即可，`DEFAULT_MODEL` 缺省时
+- [x] ⚠️ 已配置模型供给，二选一：
+      - **（推荐）Makers Models**：只配 `MAKERS_MODELS_KEY` 即可（**本项目采用这一条，已实测**），`DEFAULT_MODEL` 缺省时
         由代码自动推导为 `openai:@makers/deepseek-v4-flash`（可用 `MAKERS_MODELS`
         显式指定白名单，或用 `node scripts/check-makers-models.mjs` 查当前可用模型）；
       - **自备厂商密钥**：显式配置 `DEFAULT_MODEL=openai:<model>` 与对应的

@@ -2,15 +2,52 @@
  * Prompt loader for packaged Markdown templates and snippets.
  */
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { LoadedPrompt, PromptId, PromptVariableDefaults, SnippetId } from './types.js';
 
-// `src/prompts` and `dist/prompts` have the same depth below the package root.
-// Resolve from this module's URL via path operations so app bundlers do not
-// mistake the Markdown directory for a statically imported module asset.
-const DEFAULT_PROMPTS_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+/**
+ * 定位提示词模板目录（`templates/` 与 `snippets/` 的父目录）。
+ *
+ * ## 为什么不能只按 `import.meta.url` 推
+ *
+ * 本地与「以包的形式运行」时，`dist/prompts/loader.js` 往上两层就是包根，
+ * 模板就在那里。但**被打包器内联进应用产物后**，`import.meta.url` 指向的是
+ * 应用自己的 chunk（例如 `.../server/chunks/xxx.js`），往上两层是产物目录，
+ * 根本没有 `templates/` —— 于是 `loadPrompt()` 返回 null，接口报
+ * `Prompt template not found`。
+ *
+ * 这个故障**只在产物里出现**：本地跑源码时路径恰好是对的。
+ * EdgeOne 上实测踩过（生成课堂 500）。
+ *
+ * ## 做法
+ *
+ * 依次尝试候选目录，取第一个真的含 `templates/` 的：
+ *   1. 模块自身位置（包形态，本地与 deps/ 实体化后都对）；
+ *   2. `<cwd>/deps/@openmaic/generation`（EdgeOne 函数包把依赖改名放在 deps/）；
+ *   3. `<cwd>/node_modules/@openmaic/generation`（本地/常规 node 部署）。
+ *
+ * 都不命中时回落到 (1)，让 `loadPrompt` 照旧返回 null（行为与以前一致，不静默猜路径）。
+ */
+function resolvePromptsDir(): string {
+  const fromModule = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+  const candidates = [
+    fromModule,
+    join(process.cwd(), 'deps', '@openmaic', 'generation'),
+    join(process.cwd(), 'node_modules', '@openmaic', 'generation'),
+  ];
+  for (const dir of candidates) {
+    try {
+      if (existsSync(join(dir, 'templates'))) return dir;
+    } catch {
+      /* 访问受限就当这个候选不可用 */
+    }
+  }
+  return fromModule;
+}
+
+const DEFAULT_PROMPTS_DIR = resolvePromptsDir();
 
 const PROMPT_VARIABLE_DEFAULTS = {
   'pbl-actions': {

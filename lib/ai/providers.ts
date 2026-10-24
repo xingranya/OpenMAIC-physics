@@ -1773,6 +1773,18 @@ function getCompatThinkingBodyParams(
   modelId: string,
   config: ThinkingConfig,
 ): Record<string, unknown> | undefined {
+  // Makers 网关的 deepseek 默认**开着推理**（响应里带 reasoning_content）。
+  // 这里默认关掉：省推理 token，也少一段等待。
+  //
+  // **诚实说明**：关掉它对「逐场景内容生成」的墙钟时间几乎没影响
+  // （实测仍是约 33 秒——瓶颈是输出长度，不是推理）。保留它是因为
+  // 推理 token 会计费；若后续确认没有收益，可以整段删掉。
+  // 用户在设置里显式选「开」时按 medium 走，不覆盖用户的意图。
+  if (providerId === 'openai' && modelId.startsWith('@makers/deepseek')) {
+    const mode = getThinkingMode(config);
+    return { reasoning_effort: mode === 'enabled' ? 'medium' : 'none' };
+  }
+
   // This model is served through an OpenAI-compatible gateway even when the
   // deployment uses the `openai` provider slot. The gateway's chat template
   // toggle is neither OpenAI's `reasoning_effort` nor DeepSeek's native

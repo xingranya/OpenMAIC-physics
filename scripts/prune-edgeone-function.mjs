@@ -801,7 +801,7 @@ if (existsSync(indexEntry)) {
         "  const cookies = parseCookieHeader(readHeaderValue(request, 'cookie'));",
         '  const fromCookie = cookies[SESSION_COOKIE_NAME];',
         "  if (isValidSessionCookie(fromCookie)) return { token: fromCookie, source: 'cookie' };",
-        "  const fromHeader = readHeaderValue(request, SESSION_HEADER_NAME);",
+        '  const fromHeader = readHeaderValue(request, SESSION_HEADER_NAME);',
         "  if (isValidSessionCookie(fromHeader)) return { token: fromHeader, source: 'header' };",
         "  return { token: '', source: 'none' };",
         '}',
@@ -1160,6 +1160,29 @@ function flattenNodeModules(fnDir) {
     }
   }
 
+  // ---- 4b) 提示词模板必须在产物里（fail-closed）----
+  //
+  // `@openmaic/generation` 的运行期按「包根相对路径」读 templates/ 与 snippets/。
+  // 缺了它们，「生成课堂」会 500（Prompt template not found），而**本地看不出来**
+  // ——仓库里向上能直接找到源码包。所以这里硬性检查，宁可构建失败也不要带病上线。
+  const generationPkgDir = join(nmDir, '@openmaic', 'generation');
+  if (existsSync(generationPkgDir)) {
+    const templatesDir = join(generationPkgDir, 'templates');
+    const snippetsDir = join(generationPkgDir, 'snippets');
+    const templateCount = existsSync(templatesDir) ? readdirSync(templatesDir).length : 0;
+    if (templateCount === 0 || !existsSync(snippetsDir)) {
+      throw new Error(
+        '[prune-edgeone-function] 提示词模板没进产物：' +
+          `templates=${templateCount} 个、snippets=${existsSync(snippetsDir) ? '有' : '无'}。` +
+          '缺了它「生成课堂」会 500（Prompt template not found）。' +
+          '检查 copyRuntimeTree 是否按 package.json.files 放行了 templates/snippets/prompts-pbl。',
+      );
+    }
+    console.log(
+      `[prune-edgeone-function] 提示词模板已进产物：templates ${templateCount} 个 + snippets`,
+    );
+  }
+
   // ---- 5) 删掉 .pnpm 与顶层 packages/ ----
   let freed = 0;
   try {
@@ -1337,15 +1360,51 @@ function copyRuntimeTree(src, dest, depth = 0) {
   const srcStat = lstatSync(source);
   if (srcStat.isDirectory()) {
     mkdirSync(dest, { recursive: true });
+    // 包根的放行清单 = `package.json.files` ∪ `dist` ∪ 许可/说明。
+    //
+    // **为什么以 `files` 为准**：`@openmaic/generation` 的提示词模板
+    // （`templates/`、`snippets/`、`prompts-pbl/`）不在 dist 里，却是运行期按
+    // 「包根相对路径」读取的（见 packages/@openmaic/generation/src/prompts/loader.ts
+    // 的 DEFAULT_PROMPTS_DIR）。只放行 dist 会把它们丢掉，线上表现是
+    // 「生成课堂」直接 500：`Prompt template not found`。
+    // 本地因为能向上找到源码包，这个缺失**看不出来**——只有产物里才暴露。
+    const declared = depth === 0 ? declaredRuntimeEntries(source) : null;
     for (const entry of readdirSync(source)) {
       if (entry === 'node_modules') continue;
       // 只有**包根**才过滤；dist/ 内部整棵拷贝。
-      if (depth === 0 && entry !== 'dist' && !RUNTIME_FILES.has(entry)) continue;
+      if (
+        depth === 0 &&
+        entry !== 'dist' &&
+        !RUNTIME_FILES.has(entry) &&
+        !(declared && declared.has(entry))
+      ) {
+        continue;
+      }
       copyRuntimeTree(join(source, entry), join(dest, entry), depth + 1);
     }
     return;
   }
   cpSync(source, dest, { dereference: true });
+}
+
+/**
+ * 读取包 `package.json.files` 的**首段路径**，作为包根的放行清单。
+ *
+ * 只看首段：`files` 里可能写 `dist/**\/*.js` 这类 glob，而拷贝是按目录整棵走的。
+ */
+function declaredRuntimeEntries(packageRoot) {
+  const declared = new Set();
+  try {
+    const pkg = JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8'));
+    for (const entry of Array.isArray(pkg.files) ? pkg.files : []) {
+      if (typeof entry !== 'string') continue;
+      const first = entry.replace(/^\.\//, '').split('/')[0];
+      if (first) declared.add(first);
+    }
+  } catch {
+    /* 没有 package.json 时只用默认规则 */
+  }
+  return declared;
 }
 
 /**
