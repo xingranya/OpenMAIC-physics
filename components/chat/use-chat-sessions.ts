@@ -1,6 +1,7 @@
 'use client';
 
 import { sampleInteractiveState } from '@/lib/interactive/chat-observation';
+import { hasSessionCookie } from '@/lib/physics/account-store';
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import {
@@ -408,6 +409,22 @@ export function fetchStatelessChat(
   body: Record<string, unknown>,
   signal: AbortSignal,
 ): Promise<Response> {
+  // 会话门禁：聊天要消耗模型额度，服务端要求**已登录**。
+  // 未登录时先自查并给一句人话——否则调用方拿到的是一个没有上下文的 401，
+  // 用户只看到「发送失败」，不知道该先去登录。
+  if (!hasSessionCookie()) {
+    toast.error('请先登录后再使用 AI 智能课堂：右上角「登录」，或用「一键进入」快速体验。');
+    return Promise.resolve(
+      new Response(
+        JSON.stringify({
+          success: false,
+          errorCode: 'INVALID_REQUEST',
+          error: '请先登录后再使用 AI 智能课堂',
+        }),
+        { status: 401, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+  }
   return fetch('/api/chat', {
     method: 'POST',
     headers: withStageRoutesHeader({ 'Content-Type': 'application/json' }),

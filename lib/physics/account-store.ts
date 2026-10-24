@@ -52,6 +52,19 @@ export function isSessionCookieValue(value: string): boolean {
   return SESSION_COOKIE_PATTERN.test(String(value ?? ''));
 }
 
+/**
+ * 当前浏览器是否持有会话 Cookie（即「已登录」）。
+ *
+ * 供**高耗能入口**在发请求前自查：那些接口在服务端会 401，
+ * 与其让调用方拿到一个没有上下文的 401，不如先给一句人话。
+ */
+export function hasSessionCookie(): boolean {
+  if (typeof document === 'undefined') return false;
+  return document.cookie
+    .split(';')
+    .some((part) => part.trim().startsWith(`${SESSION_COOKIE_NAME}=`));
+}
+
 function getStorage(): Storage | undefined {
   if (typeof window === 'undefined' || !window.localStorage) return undefined;
   return window.localStorage;

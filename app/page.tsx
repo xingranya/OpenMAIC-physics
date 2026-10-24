@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import { useI18n } from '@/lib/hooks/use-i18n';
 import { BRAND_FULL_NAME, SCHOOL } from '@/lib/school/identity';
+import { hasSessionCookie } from '@/lib/physics/account-store';
 import { createLogger } from '@/lib/logger';
 import { Button } from '@/components/ui/button';
 import { InputGroup, InputGroupInput, InputGroupButton } from '@/components/ui/input-group';
@@ -524,6 +525,14 @@ function HomePage() {
     // provider always has a concrete model. State A (no usable provider)
     // surfaces through the toolbar's single Configure-Provider affordance.
     if (preparingGenerate) return;
+
+    // 会话门禁：生成课程要消耗模型额度，服务端要求**已登录**。
+    // 未登录时先给一句人话，而不是让调用方拿到一个没有上下文的 401。
+    if (!hasSessionCookie()) {
+      toast.error('请先登录后再生成课堂：右上角「登录」，或用「一键进入」快速体验。');
+      return;
+    }
+
     if (!form.requirement.trim()) {
       setError(t('upload.requirementRequired'));
       return;
