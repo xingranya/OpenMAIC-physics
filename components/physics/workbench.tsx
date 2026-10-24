@@ -47,6 +47,7 @@ import {
   STUDENT_ROUTE_PREFIX,
   TEACHER_ROUTE_PREFIX,
   findShortcutsForPalette,
+  resolveDeepLinkRoleGate,
   routeFor,
   type ShortcutBinding,
   type StudentView,
@@ -112,6 +113,26 @@ export function WorkbenchShell({ children }: { children: React.ReactNode }) {
   const parsed = parseWorkbenchPath(pathname);
   const role = session?.role ?? null;
   const nav = role === 'teacher' ? TEACHER_NAV : STUDENT_NAV;
+
+  /**
+   * **路径前缀决定渲染哪个角色的内容**：`app/teacher/[view]` 渲染教师组件、
+   * `app/physics/[view]` 渲染学生组件——而路径是任何人都能手输的。
+   *
+   * in-app 切换已被 `navigate()` 里的 allowed 集合挡住（纵深防御），
+   * 但**首屏深链接**原来没挡：学生直接打开 `/teacher/evaluation`，
+   * 看到的是教师端内容，侧栏却还是学生导航——地址栏与内容错配，
+   * 「学生进不了教师端」这句话也就不成立了。
+   *
+   * 这里把跨角色深链接送回自己角色的首页；并且**在跳转完成前不渲染别角色的内容**
+   * ——children 是按路由渲染的，不挡一下就会闪一帧教师端界面。
+   */
+  const parsedRole = parsed?.role ?? null;
+  const roleGate = resolveDeepLinkRoleGate(parsedRole, role);
+
+  React.useEffect(() => {
+    if (!hydrated || !roleGate.blocked || !roleGate.redirectTo) return;
+    router.replace(roleGate.redirectTo);
+  }, [hydrated, roleGate.blocked, roleGate.redirectTo, router]);
 
   // 当前视图放在本地状态里：断网时 Next 的动态路由跳转必然失败（要拉 RSC
   // payload），但工作台的内容全是客户端组件，不该被网络拖住。
@@ -216,6 +237,15 @@ export function WorkbenchShell({ children }: { children: React.ReactNode }) {
     return (
       <div className="flex min-h-[100dvh] items-center justify-center p-6 text-[13px] text-muted-foreground">
         正在跳转登录页…
+      </div>
+    );
+  }
+
+  // 跨角色深链接：先别渲染别角色的内容，等上面的 effect 把地址栏带回去。
+  if (roleGate.blocked) {
+    return (
+      <div className="flex min-h-[100dvh] items-center justify-center p-6 text-[13px] text-muted-foreground">
+        正在返回{role === 'teacher' ? '教师' : '学生'}工作台…
       </div>
     );
   }

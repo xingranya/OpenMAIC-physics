@@ -63,6 +63,47 @@ export function routeFor(role: UserRole, view: StudentView | TeacherView): strin
   return `${prefix}/${view}`;
 }
 
+/** 跨角色深链接被挡下后，送回自己角色的哪个视图。 */
+export const ROLE_HOME_VIEW: Record<UserRole, StudentView | TeacherView> = {
+  student: 'overview',
+  teacher: 'dashboard',
+};
+
+/**
+ * **深链接**的角色一致性判定。
+ *
+ * ## 为什么需要它
+ *
+ * 路径前缀决定渲染哪个角色的内容——`app/teacher/[view]` 渲染教师组件、
+ * `app/physics/[view]` 渲染学生组件——而**路径是任何人都能手输的**。
+ *
+ * in-app 切换已经被 `navigate()` 里的 allowed 集合挡住（纵深防御），
+ * 但**首屏深链接**是另一条路：学生直接打开 `/teacher/evaluation`，
+ * 看到的是教师端内容，侧栏却还是学生导航——地址栏与内容错配，
+ * 「学生进不了教师端」这句话也就不成立了。
+ *
+ * 命令面板那条路另有 `roleScope` 兜着（见 `ShortcutBinding.roleScope`），
+ * 深链接这条路以前没人管。
+ *
+ * ## 判定是纯函数
+ *
+ * 不碰 React / DOM，所以能直接单测；组件里只负责执行后果
+ * （不渲染别角色的内容 + 把地址栏带回去）。
+ */
+export function resolveDeepLinkRoleGate(
+  pathRole: UserRole | null,
+  sessionRole: UserRole | null,
+): { blocked: boolean; redirectTo: string | null } {
+  // 会话还没水合（读 sessionStorage）时不做判定：那时还不知道是谁，
+  // 贸然拦会误伤正常刷新。
+  if (!pathRole || !sessionRole) return { blocked: false, redirectTo: null };
+  if (pathRole === sessionRole) return { blocked: false, redirectTo: null };
+  return {
+    blocked: true,
+    redirectTo: routeFor(sessionRole, ROLE_HOME_VIEW[sessionRole]),
+  };
+}
+
 const studentShortcutSet: Array<Omit<ShortcutBinding, 'scope'>> = [
   {
     label: '总览',
