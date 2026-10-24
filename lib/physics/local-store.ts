@@ -27,6 +27,31 @@ export const LEGACY_STORAGE_KEY = PHYSICS_STORAGE_KEY;
 
 const MODERN_STORAGE_KEY = 'physics-ai-teaching-system';
 
+/**
+ * 学习数据的存储作用域——**按账号分区**。
+ *
+ * ## 为什么必须分区
+ *
+ * 有了真正的账号系统之后，「一份学习数据」不再成立：A 账号的诊断分、
+ * 实验记录、教师复核**不能**出现在 B 账号的界面上。分区依据是会话里的
+ * `userId`，所以键名带上它：`physicsAISystem:<userId>`。
+ *
+ * ## 旧数据怎么办
+ *
+ * 升级前只有**一份**无作用域的数据，它属于当时的演示身份。
+ * 所以旧键只作为**演示学生**的种子被继承一次（`LEGACY_STORAGE_SCOPE`），
+ * 其余账号从空状态开始——宁可让新账号看不到旧数据，也不能让两个账号互相看到。
+ */
+export type StorageScope = string;
+
+/** 旧版无作用域数据的归属账号（演示学生）。 */
+export const LEGACY_STORAGE_SCOPE = 'demo-student';
+
+/** 按作用域拼出存储键。 */
+export function storageKeyForScope(scope: StorageScope | undefined): string {
+  return scope ? `${PHYSICS_STORAGE_KEY}:${scope}` : PHYSICS_STORAGE_KEY;
+}
+
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
@@ -325,11 +350,24 @@ function parseEnvelope(raw: string | null): unknown {
   }
 }
 
-/** 从 localStorage 读取版本化状态；浏览器禁用存储或 JSON 损坏时返回初始状态。 */
-export function loadState(storage: StorageLike | undefined = getDefaultStorage()): AppState {
+/**
+ * 从 localStorage 读取版本化状态；浏览器禁用存储或 JSON 损坏时返回初始状态。
+ *
+ * `scope` 是账号 id：不同账号读不同的键，互不可见。
+ * 演示学生会**继承**升级前那份无作用域数据（只继承一次，继承后写入自己的键）。
+ */
+export function loadState(
+  storage: StorageLike | undefined = getDefaultStorage(),
+  scope?: StorageScope,
+): AppState {
   if (!storage) return createInitialState();
   try {
-    const raw = storage.getItem(PHYSICS_STORAGE_KEY) ?? storage.getItem(MODERN_STORAGE_KEY);
+    const key = storageKeyForScope(scope);
+    let raw = storage.getItem(key);
+    if (!raw && scope === LEGACY_STORAGE_SCOPE) {
+      // 升级前的数据只有一份，它属于演示身份。
+      raw = storage.getItem(PHYSICS_STORAGE_KEY) ?? storage.getItem(MODERN_STORAGE_KEY);
+    }
     return normaliseState(parseEnvelope(raw));
   } catch {
     return createInitialState();
@@ -343,6 +381,7 @@ export const readState = loadState;
 export function saveState(
   state: AppState,
   storage: StorageLike | undefined = getDefaultStorage(),
+  scope?: StorageScope,
 ): boolean {
   if (!storage) return false;
   const envelope: StorageEnvelope<AppState> = {
@@ -350,7 +389,7 @@ export function saveState(
     data: normaliseState(state),
   };
   try {
-    storage.setItem(PHYSICS_STORAGE_KEY, JSON.stringify(envelope));
+    storage.setItem(storageKeyForScope(scope), JSON.stringify(envelope));
     return true;
   } catch {
     return false;
@@ -360,10 +399,22 @@ export function saveState(
 export const persistState = saveState;
 export const writeState = saveState;
 
-/** 清空学习数据，同时移除旧键，返回是否完成了至少一次删除。 */
-export function clearState(storage: StorageLike | undefined = getDefaultStorage()): boolean {
+/**
+ * 清空学习数据。
+ *
+ * 带 `scope` 时**只清这个账号的**数据（别人的记录不受影响）；
+ * 不带 `scope` 时清掉全部旧键（升级前的用法与测试）。
+ */
+export function clearState(
+  storage: StorageLike | undefined = getDefaultStorage(),
+  scope?: StorageScope,
+): boolean {
   if (!storage) return false;
   try {
+    if (scope) {
+      storage.removeItem(storageKeyForScope(scope));
+      return true;
+    }
     storage.removeItem(PHYSICS_STORAGE_KEY);
     storage.removeItem(MODERN_STORAGE_KEY);
     return true;
