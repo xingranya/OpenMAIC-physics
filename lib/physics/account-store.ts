@@ -1,0 +1,183 @@
+/**
+ * 账号系统的浏览器适配层：localStorage 存储、WebCrypto 哈希、会话 Cookie。
+ *
+ * ## 为什么与领域层分开
+ *
+ * `lib/physics/accounts.ts` 是**纯领域层**——它只定义「怎么算、怎么比」，
+ * 不碰 DOM、不碰浏览器存储。这里提供这些**运行时能力**的具体实现，
+ * 并把 `AccountRepository` / `AccountCrypto` 两个接口落地。
+ *
+ * ## 存储位置与含义
+ *
+ * 账号记录存在**本浏览器的 localStorage** 里，不上传服务端。
+ * 这是本项目的明确取舍（约束要求不引入数据库），代价是：
+ * **换浏览器、换设备都看不到这些账号**，需要重新注册。
+ * 材料里必须如实这样写，不能暗示它是服务端账号体系。
+ */
+import {
+  PASSWORD_HASH_BITS,
+  type AccountCrypto,
+  type AccountDeps,
+  type AccountRepository,
+  type AccountSession,
+  type PhysicsAccount,
+} from './accounts';
+
+/** 账号在 localStorage 里的键。 */
+export const ACCOUNT_STORAGE_KEY = 'physics-ai-accounts';
+
+/**
+ * 会话 Cookie 名。
+ *
+ * 函数入口（云函数）用它判断「这个请求是不是已登录」——
+ * 见 `scripts/prune-edgeone-function.mjs` 生成的 `createSessionGate`。
+ * 两处必须一致，由 `tests/deploy/session-gate-contract.test.ts` 盯着。
+ */
+export const SESSION_COOKIE_NAME = 'physics_session';
+
+/** 会话 Cookie 的有效期（秒）。7 天，与访问码会话同量级。 */
+export const SESSION_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
+
+/**
+ * 会话 Cookie 的形状：`<账号 id>.<登录时间戳>`。
+ *
+ * 服务器**只能验证形状**，验证不了「是不是本人」——签名密钥在浏览器里，
+ * 这是一个刻意的取舍：账号校验在本地进行，服务器这边要的是
+ * 「挡得住随手匿名调用」，不是强身份鉴权。材料里必须这样写。
+ */
+const SESSION_COOKIE_PATTERN = /^[A-Za-z0-9._-]{1,128}\.\d{10,16}$/;
+
+/** 会话 Cookie 的形状是否合法。 */
+export function isSessionCookieValue(value: string): boolean {
+  return SESSION_COOKIE_PATTERN.test(String(value ?? ''));
+}
+
+function getStorage(): Storage | undefined {
+  if (typeof window === 'undefined' || !window.localStorage) return undefined;
+  return window.localStorage;
+}
+
+/**
+ * 校验从存储里读出来的账号记录。
+ *
+ * localStorage 是**可被篡改的**（用户自己就能改），数据也可能来自旧版本或
+ * 损坏的 JSON。形状不对的记录直接丢掉——**不要**因为一条脏数据让整个
+ * 登录流程崩掉。
+ */
+export function isAccountShape(value: unknown): value is PhysicsAccount {
+  if (typeof value !== 'object' || value === null) return false;
+  const record = value as Partial<PhysicsAccount>;
+  return (
+    typeof record.userId === 'string' &&
+    record.userId.length > 0 &&
+    typeof record.username === 'string' &&
+    record.username.length > 0 &&
+    typeof record.displayName === 'string' &&
+    (record.role === 'student' || record.role === 'teacher') &&
+    typeof record.salt === 'string' &&
+    typeof record.passwordHash === 'string' &&
+    typeof record.iterations === 'number' &&
+    typeof record.createdAt === 'number'
+  );
+}
+
+/** localStorage 支撑的账号仓库。 */
+export class LocalAccountRepository implements AccountRepository {
+  constructor(private readonly storage?: Storage) {}
+
+  private resolve(): Storage | undefined {
+    return this.storage ?? getStorage();
+  }
+
+  async list(): Promise<PhysicsAccount[]> {
+    const storage = this.resolve();
+    if (!storage) return [];
+    try {
+      const raw = storage.getItem(ACCOUNT_STORAGE_KEY);
+      if (!raw) return [];
+      const parsed: unknown = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter(isAccountShape);
+    } catch {
+      return [];
+    }
+  }
+
+  async save(accounts: PhysicsAccount[]): Promise<void> {
+    const storage = this.resolve();
+    if (!storage) {
+      throw new Error('浏览器存储不可用，无法保存账号');
+    }
+    storage.setItem(ACCOUNT_STORAGE_KEY, JSON.stringify(accounts));
+  }
+}
+
+/**
+ * 浏览器里的 PBKDF2 实现。
+ *
+ * `crypto.subtle` 需要**安全上下文**（HTTPS 或 localhost）——
+ * 线上是 HTTPS，开发是 localhost，都满足；若在其它协议下访问，
+ * 这里会抛出一句能看懂的错，而不是静默失败。
+ */
+export function browserAccountCrypto(): AccountCrypto {
+  return {
+    async deriveBits(password, salt, iterations) {
+      const subtle = globalThis.crypto?.subtle;
+      if (!subtle) {
+        throw new Error('当前环境不支持 Web Crypto（需要 HTTPS 或 localhost），无法安全地保存口令');
+      }
+      const key = await subtle.importKey(
+        'raw',
+        new TextEncoder().encode(password),
+        'PBKDF2',
+        false,
+        ['deriveBits'],
+      );
+      return subtle.deriveBits(
+        // 复制一份：TS 5.7 起 Uint8Array 的缓冲区类型是泛型的，
+        // 而 SubtleCrypto 要的是 ArrayBuffer 支撑的视图。
+        { name: 'PBKDF2', salt: Uint8Array.from(salt), iterations, hash: 'SHA-256' },
+        key,
+        PASSWORD_HASH_BITS,
+      );
+    },
+    randomBytes(length) {
+      const out = new Uint8Array(length);
+      globalThis.crypto.getRandomValues(out);
+      return out;
+    },
+  };
+}
+
+/** 浏览器里的账号依赖（随机 id + 当前时间）。 */
+export function browserAccountDeps(): AccountDeps {
+  return {
+    crypto: browserAccountCrypto(),
+    newUserId: () => {
+      const bytes = new Uint8Array(16);
+      globalThis.crypto.getRandomValues(bytes);
+      return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+    },
+    now: () => Date.now(),
+  };
+}
+
+/**
+ * 下发会话 Cookie（供云函数判断「是否已登录」）。
+ *
+ * **诚实说明**：这个 Cookie 是**客户端自己写的**，签名密钥在浏览器里，
+ * 所以服务器只能验证「形状对不对」，**验证不了「是不是本人」**。
+ * 它的作用是**挡住随手匿名调用高耗能接口**，不是强身份鉴权。
+ * 材料里必须这样写，不能含糊成「服务端验证了身份」。
+ */
+export function setSessionCookie(session: AccountSession): void {
+  if (typeof document === 'undefined') return;
+  const value = `${encodeURIComponent(session.userId)}.${session.at}`;
+  document.cookie = `${SESSION_COOKIE_NAME}=${value}; path=/; max-age=${SESSION_COOKIE_MAX_AGE_SECONDS}; samesite=lax`;
+}
+
+/** 清除会话 Cookie。 */
+export function clearSessionCookie(): void {
+  if (typeof document === 'undefined') return;
+  document.cookie = `${SESSION_COOKIE_NAME}=; path=/; max-age=0; samesite=lax`;
+}
