@@ -1150,13 +1150,33 @@ export function resolveServerWebSearchProviderId(preferredProviderId?: string): 
  * Opt-in concurrency for parallel scene-content generation (#572).
  *
  * Returns the server-configured `PARALLEL_SCENE_CONCURRENCY`, clamped to
- * [0, 10]. `0` (the default) means the client keeps the original serial
- * generation loop; a value `> 1` enables the hybrid two-phase path. Kept
- * server-side because many deployments use API keys with low per-key
- * concurrency quotas, where a bursty default would surface as 429s.
+ * [0, 10]. `0` means the client keeps the original serial generation loop;
+ * a value `> 1` enables the hybrid two-phase path. Kept server-side because
+ * many deployments use API keys with low per-key concurrency quotas, where a
+ * bursty default would surface as 429s.
+ *
+ * ## 为什么 Makers 托管时默认 4
+ *
+ * 上游默认 0（串行）是为了照顾「低配额 Key」。本项目托管在 EdgeOne 上、
+ * 模型全部走 Makers 网关（`MAKERS_MODELS_KEY`），实测 4 路并发稳定；
+ * 而串行下逐场景内容生成实测 60–82 秒/场，一个 15 场景的课堂要 20 分钟以上，
+ * 学生等到的是「一直在生成」。所以这里按**部署形态**给默认值：
+ *
+ * - 有 `MAKERS_MODELS_KEY`（本项目形态）→ 默认 4；
+ * - 其它部署 → 仍按上游默认 0，不改变别人的行为。
+ *
+ * 显式设置 `PARALLEL_SCENE_CONCURRENCY`（包括显式 `0`）时以显式值为准——
+ * 现场想关掉并行，设 0 即可，不用改代码。
  */
+export const DEFAULT_MAKERS_PARALLEL_SCENE_CONCURRENCY = 4;
+
 export function getParallelSceneConcurrency(): number {
-  const raw = Number.parseInt(process.env.PARALLEL_SCENE_CONCURRENCY ?? '', 10);
+  const rawValue = process.env.PARALLEL_SCENE_CONCURRENCY;
+  const raw = Number.parseInt(rawValue ?? '', 10);
+  if (rawValue === undefined || rawValue.trim() === '') {
+    // 未显式配置：Makers 托管默认开并行，其余保持上游的串行默认。
+    return process.env.MAKERS_MODELS_KEY ? DEFAULT_MAKERS_PARALLEL_SCENE_CONCURRENCY : 0;
+  }
   if (!Number.isFinite(raw) || raw <= 0) return 0;
   return Math.min(raw, 10);
 }
