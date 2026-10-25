@@ -3,6 +3,7 @@
   "buildCommand": "node scripts/sync-maic-importer.mjs && EDGEONE=1 pnpm build",
   "outputDirectory": ".next",
   "cloudFunctions": {
+    "maxDuration": 120,
     "regions": {
       "mainland": [],
       "overseas": ["ap-singapore"]

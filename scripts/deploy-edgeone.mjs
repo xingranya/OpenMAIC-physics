@@ -36,6 +36,7 @@
  * 只有被 `node` 直接执行时才跑部署流程（见文件末尾的 `isDirectInvocation`）。
  */
 import { spawnSync } from 'node:child_process';
+import { setDefaultResultOrder } from 'node:dns';
 import {
   cpSync,
   existsSync,
@@ -51,6 +52,13 @@ import {
 import { homedir } from 'node:os';
 import path, { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+// Node 默认「IPv6 优先」。在 IPv6 路由不通的网络里，`fetch` 会先在 AAAA 记录上
+// 等到 connect timeout（实测 10.5 秒，报 `UND_ERR_CONNECT_TIMEOUT` / fetch failed），
+// 而同一个地址 `curl` 秒回——curl 有 Happy Eyeballs，会自动回退到 IPv4。
+// 表现是「加速区域核对未通过（fetch failed）」，看起来像令牌或接口坏了，其实只是
+// 解析顺序。部署脚本全程要连腾讯云 API，这里统一改成 IPv4 优先。
+setDefaultResultOrder('ipv4first');
 
 const ROOT = process.cwd();
 const EDGEONE_DIR = join(ROOT, '.edgeone');
@@ -416,15 +424,32 @@ export async function ensureOverseasProject(options = {}) {
   }
 
   const call = async (action, data) => {
-    const response = await fetchImpl(api, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ Action: action, ...data }),
-    });
-    const json = await response.json();
-    const error = json?.Data?.Response?.Error;
-    if (error) throw new Error(`${action} 失败：${error.Code} ${error.Message}`);
-    return json?.Data?.Response ?? json?.Response ?? json;
+    // 网络层重试：这条链路上的失败几乎都是「连接被掐断」（fetch failed /
+    // terminated / ECONNRESET），而不是接口返回业务错误。实测同一秒内
+    // 单发一次会失败、连发三次全 200——不重试的话，一次抖动就会被包装成
+    // 「加速区域核对未通过」，让人以为是令牌或项目配置坏了。
+    // **只重试网络失败**：接口明确回了 Error 就立刻抛，重试没有意义。
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        const response = await fetchImpl(api, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ Action: action, ...data }),
+        });
+        const json = await response.json();
+        const error = json?.Data?.Response?.Error;
+        if (error) throw new Error(`${action} 失败：${error.Code} ${error.Message}`);
+        return json?.Data?.Response ?? json?.Response ?? json;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const transient =
+          error instanceof TypeError ||
+          /fetch failed|terminated|ECONN|ETIMEDOUT|socket/i.test(message);
+        if (!transient || attempt >= 3) throw error;
+        log(`[deploy-edgeone] ${action} 网络抖动（${message}），第 ${attempt}/3 次重试…`);
+        await new Promise((resolve) => setTimeout(resolve, attempt * 800));
+      }
+    }
   };
 
   /** 在项目列表里按名字找项目。 */
@@ -540,6 +565,47 @@ export function assertBundleHasNoEnvLeak(bundlePath, options = {}) {
 }
 
 /**
+ * `edgeone.json` 里的函数超时（`cloudFunctions.maxDuration`）必须够用。
+ *
+ * 为什么 fail-closed：生成课堂的三个接口实测 **30–33 秒**，而平台默认上限正好
+ * **30 秒**（官方文档：`cloudFunctions.maxDuration` 范围 10–120 秒，默认 30 秒）。
+ * 配置一旦丢失，平台会**静默**退回 30 秒，症状是生成流程 504——看起来像代码坏了，
+ * 实际只是少了一个数字。宁可拒绝部署，也不要带着 30 秒上限上线。
+ *
+ * @param {string} manifestPath edgeone.json 路径
+ * @param {number} minimumSeconds 低于这个值就拒绝（本项目生成接口需要 >33 秒）
+ * @returns {number} 实际配置的秒数
+ */
+export function assertFunctionMaxDuration(manifestPath, minimumSeconds = 60) {
+  if (!existsSync(manifestPath)) {
+    throw new Error(`缺少 ${manifestPath}，无法确认函数超时上限。`);
+  }
+  let manifest;
+  try {
+    manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+  } catch (error) {
+    throw new Error(`${manifestPath} 不是合法 JSON：${error.message}`);
+  }
+  const value = manifest?.cloudFunctions?.maxDuration;
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error(
+      'edgeone.json 未设置 cloudFunctions.maxDuration：平台会退回默认 30 秒，' +
+        '生成课堂必然 504。请设为 120（官方范围 10–120）。',
+    );
+  }
+  if (value > 120) {
+    throw new Error(`cloudFunctions.maxDuration=${value} 超过平台上限 120 秒，部署会被平台拒绝。`);
+  }
+  if (value < minimumSeconds) {
+    throw new Error(
+      `cloudFunctions.maxDuration=${value} 太小：本项目生成接口实测 30–33 秒，` +
+        `至少需要 ${minimumSeconds} 秒。建议 120。`,
+    );
+  }
+  return value;
+}
+
+/**
  * 本地 `.env*` 里出现的**变量名**（只读键名，不读值）。
  *
  * 用途：产物泄露门禁报错时，能直接指出「这个变量是从本地 .env 进去的」，
@@ -562,6 +628,10 @@ async function main() {
   // 加速区域白名单：**在构建之前**就 fail-fast，
   // 免得白等一次十几分钟的构建才发现环境变量填错了。
   assertOverseasArea(PROJECT_AREA, 'EDGEONE_PROJECT_AREA');
+
+  // 函数超时也要在构建前 fail-fast：平台默认 30 秒，而生成接口实测 30–33 秒。
+  const maxDurationSeconds = assertFunctionMaxDuration(join(ROOT, 'edgeone.json'));
+  console.log(`[deploy-edgeone] 函数最大执行时长 = ${maxDurationSeconds}s（平台范围 10–120）`);
 
   // ---------------------------------------------------------------- 1. 构建
   if (!SKIP_BUILD) {
@@ -710,7 +780,15 @@ async function main() {
     // 鉴权令牌只在**部署这一步**透传，不进 CLEAN_ENV_KEYS：
     // 构建子进程的 env 会被 CLI 内联进 edge 产物（已实测），
     // 把令牌放进白名单等于把令牌写进产物。
-    const deployEnv = {};
+    const deployEnv = {
+      // 子进程不继承上面的 setDefaultResultOrder（那是本进程的 dns 模块状态）。
+      // CLI 自己也要调 DescribePagesProjects：IPv6 先试会超时，CLI 就把「查不到项目」
+      // 当成「项目不存在」，接着 CreatePagesProject 撞上 `Makers project name exists`
+      // ——一个网络问题被伪装成「项目重名」。必须把 DNS 顺序一起传下去。
+      NODE_OPTIONS: [process.env.NODE_OPTIONS, '--dns-result-order=ipv4first']
+        .filter(Boolean)
+        .join(' '),
+    };
     if (process.env.EDGEONE_PAGES_API_TOKEN) {
       deployEnv.EDGEONE_PAGES_API_TOKEN = process.env.EDGEONE_PAGES_API_TOKEN;
     }

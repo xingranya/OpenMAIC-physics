@@ -642,6 +642,19 @@ export async function POST(req: NextRequest) {
                 `Outlines stream error detail (attempt ${attempt}/${MAX_STREAM_RETRIES + 1}): ${lastError}`,
               );
 
+              // 已经解析出大纲之后再出错（网关提前关闭连接、输出被截断等）：
+              // 这些大纲是**可用的**，不该整批丢掉重来。
+              // 重试的代价是「把已经花掉的时间再花一遍」，而边缘函数有硬上限
+              // （EdgeOne `cloudFunctions.maxDuration` 最大 120 秒，见 edgeone.json），
+              // 重试几乎必然把两次生成一起撞死在同一个请求里，最后连这 12 个
+              // 可用大纲都拿不到。收尾返回已有结果，比 504 好。
+              if (parsedOutlines.length > 0) {
+                log.warn(
+                  `保留已解析的 ${parsedOutlines.length} 个大纲并收尾（不重试，避免撞函数时长上限）`,
+                );
+                break;
+              }
+
               if (attempt <= MAX_STREAM_RETRIES) {
                 log.warn(
                   `Stream error (attempt ${attempt}/${MAX_STREAM_RETRIES + 1}), retrying...`,

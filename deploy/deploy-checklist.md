@@ -2,7 +2,7 @@
 
 > 逐项打勾。带 ⚠️ 的项目在评委现场可能致命，**必须**全部通过。
 
-## 0. 本次验收记录（2026-10-24 · 账号系统 + 模型额度 · 部署 `dpf93bvrdv5z`）
+## 0. 本次验收记录（2026-10-25 · 函数超时 120 秒 · 部署 `dpt4xvgrhx64`）
 
 > 只勾**当天真正实测过**的项目。没实测的保持空着——靠推断打勾比不打勾更危险。
 
@@ -30,8 +30,11 @@
 | 退出后重登同账号 | 退出 → 重登 | 落地正确，userId 一致 |
 | 13 个视图逐页渲染 | 学生 8 + 教师 5 | **8/8 + 5/5**，0 console error |
 | 预置课堂包导入 | 首页点「牛顿运动定律与圆周运动」 | 进入 `/classroom/stage-preset-mechanics-03-1` |
-| 模型供给 | `curl https://dun.xran.uk/api/server-providers` | `providers.openai.models = ["@makers/deepseek-v4-flash"]` |
-| AI 课堂生成 | 首页输入需求 → 进入课堂 | **部分通过**：大纲 200、智能体 200、逐场景内容 **504**（边缘 30s 上限，见 `deploy/README.md` §8.1g） |
+| 模型供给 | `curl https://dun.xran.uk/api/server-providers` | `providers.openai.models = ["minimax/minimax-m3"]` |
+| 函数超时上限 | `edgeone.json` → `cloudFunctions.maxDuration` | **120 秒**（平台默认 30 秒；部署脚本构建前 fail-closed 校验） |
+| AI 课堂生成 · 大纲 | `POST /api/generate/scene-outlines-stream` | **200**，78.5 s，15 个场景，收到 `done` 事件 |
+| AI 课堂生成 · 单场景 | `POST /api/generate/scene-content` | **200**，103.1 s（修复前 504 @ 32.5 s） |
+| AI 课堂生成 · 整堂走完 | 首页输入需求 → 进入课堂 → 播放 | **未做**：15 个场景 × 约 100 s ≈ 25 分钟，未在本次验收窗口内跑完 |
 
 ## A. 平台与配置
 

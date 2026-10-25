@@ -886,22 +886,34 @@ curl -s https://dun.xran.uk/api/server-providers
    内联进 edge 函数，被产物泄露门禁拦下（报错信息已改进为直接指出「来自本地 .env」）。
    凭据只放平台环境变量，本地 `.env` 不要留。
 
-**生成链路的实测边界（别写成「生成完全可用」）**：
+**生成链路的超时边界（2026-10-25 已修复）**：
 
-| 阶段 | 接口 | 实测 |
-| --- | --- | --- |
-| 课堂大纲 | `/api/generate/scene-outlines-stream` | **200**，约 15–24 s |
-| 智能体角色 | `/api/generate/agent-profiles` | **200**，约 29–33 s |
-| 逐场景内容 | `/api/generate/scene-content` | **504 Gateway Time-out**，每次约 32.5 s |
+EdgeOne 云函数的默认单请求上限是 **30 秒**，官方可配范围 **10–120 秒**，
+配置项是 `edgeone.json` 的 `cloudFunctions.maxDuration`（见
+[官方限制与配额](https://cloud.tencent.com/document/product/1552/132789) 第 10.1 节）。
 
-原因：EdgeOne 边缘函数单请求上限约 **30 秒**，而单个场景的内容生成稳定在
-**32–33 秒**——差 2–3 秒，不是逻辑错误。已排除的假设：关掉推理
-（`reasoning_effort: none`）**对耗时没有影响**（瓶颈是输出长度），所以没拿它当解法。
+本项目在 `edgeone.json` 里设成了 **120**：
 
-**可选的三条解法**（代价从低到高）：
-1. 换更快的模型（网关 `/v1/models` 不可用，需在控制台确认可选清单）；
-2. 在 EdgeOne 控制台调高函数超时（若该版本开放此配置）；
-3. 把单场景内容拆成「骨架 + 分段补全」两次请求，让每次都在 30 秒内（改代码）。
+```json
+{ "cloudFunctions": { "maxDuration": 120 } }
+```
+
+修复前后（同一份产物、同一个模型）：
+
+| 阶段 | 接口 | 30 秒上限时 | `maxDuration: 120` 后 |
+| --- | --- | --- | --- |
+| 课堂大纲 | `/api/generate/scene-outlines-stream` | 约 32 s 被截断 | 200（不再被 30 s 掐断） |
+| 逐场景内容 | `/api/generate/scene-content` | **504**，约 32.5 s | **200**，实测 **103 s** |
+
+**这个配置不能再丢**：`scripts/deploy-edgeone.mjs` 现在会在**构建前**校验
+`cloudFunctions.maxDuration`，缺失或低于 60 秒直接中止部署（`assertFunctionMaxDuration`）。
+原因很实在——它一旦缺失，平台会**静默**退回 30 秒，症状是生成流程 504，
+看起来像代码坏了，其实只是少了一个数字。
+
+> 另一条踩过的坑：`deploy-edgeone.mjs` 里显式设了 `setDefaultResultOrder('ipv4first')`。
+> Node 默认 IPv6 优先，在 IPv6 路由不通的网络里 `fetch` 会在 AAAA 上等到
+> connect timeout（约 10 s，报 `fetch failed`），而同一个地址 `curl` 秒回。
+> 表现是「加速区域核对未通过（fetch failed）」，容易误判成令牌失效。
 
 ### 8.1i 推送即部署（GitHub → EdgeOne）
 
