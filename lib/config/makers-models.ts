@@ -46,13 +46,17 @@ export const AI_GATEWAY_BASE_URL_ENV = 'AI_GATEWAY_BASE_URL';
 export const MAKERS_MODELS_ENV = 'MAKERS_MODELS';
 
 /**
- * 官方文档示例使用的内置模型名。
+ * 未配置白名单时的内置兜底模型。
  *
- * 平台「内置模型开箱即用：无需绑定自费厂商密钥即可调用」（132748 核心能力）。
- * 当运维既没有配置 `MAKERS_MODELS` 白名单、也没有显式配置 `DEFAULT_MODEL` 时，
- * 用它兜底，避免出现"配了 Key 却说没有可用模型"。
+ * 本项目**只用 minimax**：deepseek 经 Makers 网关时快但不稳（同一份大纲的
+ * 逐场景内容生成，一次 30 秒成功、下一次直接 500），而大纲/动作链路又依赖
+ * 稳定的 JSON 输出。所以把兜底模型固定成 `minimax/minimax-m3`，
+ * 避免「环境变量漏配 → 悄悄回落到 deepseek → 线上表现不一致」。
+ *
+ * 注意：MiniMax M3 默认把思考写进正文（`<think>…`），必须显式关掉，
+ * 见 `lib/ai/providers.ts` 的 `getCompatThinkingBodyParams`。
  */
-export const MAKERS_MODELS_BUILTIN_MODEL = '@makers/deepseek-v4-flash';
+export const MAKERS_MODELS_BUILTIN_MODEL = 'minimax/minimax-m3';
 
 /** 在 OpenMAIC 的 provider 表里，Makers Models 映射到的 provider id。 */
 export const MAKERS_MODELS_PROVIDER_ID = 'openai';

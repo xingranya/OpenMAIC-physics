@@ -944,6 +944,13 @@ deepseek 快一倍但**不稳定**（同一请求第二次 500），所以没有
 只保留并行这个不改变输出质量的杠杆。想试的话可用 `MODEL_ROUTES` 单独路由
 `scene-content`，别改全局默认模型。
 
+> **本项目只用 minimax**：内置兜底模型（`MAKERS_MODELS_BUILTIN_MODEL`）已从
+> `@makers/deepseek-v4-flash` 改成 `minimax/minimax-m3`。这样即使平台漏配
+> `MAKERS_MODELS`，也不会悄悄回落到 deepseek —— 两个模型的表现差异（速度、稳定性、
+> 是否输出 `<think>`）会让线上问题极难复现。要换模型就同时改
+> `lib/config/makers-models.ts` 与 `scripts/makers-models.constants.mjs`
+> （`tests/physics/makers-models.test.ts` 会盯着两处一致）。
+
 **净对比（4 个不同场景，只打 `/api/generate/scene-content`，本地直连网关）**：
 
 | 方式 | 各场景耗时 | 总墙钟 |

@@ -8,4 +8,4 @@
 export const MAKERS_MODELS_BASE_URL = 'https://ai-gateway.edgeone.link/v1';
 export const MAKERS_MODELS_PROVIDER_ID = 'openai';
 export const MAKERS_MODELS_KEY_ENV = 'MAKERS_MODELS_KEY';
-export const MAKERS_MODELS_BUILTIN_MODEL = '@makers/deepseek-v4-flash';
+export const MAKERS_MODELS_BUILTIN_MODEL = 'minimax/minimax-m3';
