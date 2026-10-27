@@ -32,7 +32,7 @@ import { ownerNotFound } from '@/lib/server/agent-runtime/route-response';
 export const runtime = 'nodejs';
 // Self-hosted `next start` ignores maxDuration; Vercel's adapter can still use
 // it. The 25s heartbeat keeps this sparse stream active through idle periods.
-export const maxDuration = 300;
+export const maxDuration = 120;
 
 /** How often the stream re-checks the stage's revision. */
 export const STAGE_FRESHNESS_POLL_INTERVAL_MS = 5_000;

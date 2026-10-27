@@ -41,7 +41,7 @@ import {
 
 const log = createLogger('Pi Chat API');
 
-export const maxDuration = 300;
+export const maxDuration = 120;
 
 export async function POST(req: NextRequest) {
   if (!isPiChatEnabled()) {

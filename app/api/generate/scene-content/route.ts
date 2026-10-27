@@ -36,7 +36,7 @@ import { generatePBLV2Project } from '@/lib/pbl/v2/agents/planner';
 
 const log = createLogger('Scene Content API');
 
-export const maxDuration = 300;
+export const maxDuration = 120;
 
 /**
  * Aggregate budget for the WHOLE resolve-with-refill phase, reused from the

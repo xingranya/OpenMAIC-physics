@@ -21,5 +21,10 @@ export default defineConfig({
   test: {
     include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'],
     setupFiles: ['tests/setup-env.ts'],
+    // 默认 5 秒会让一批**要 import 整条生成链路**的用例假红：
+    // 它们本身不慢，慢的是首次 transform（冷缓存下单文件 import 就要 3–13 秒）。
+    // 假红比不跑更糟——真回归会淹没在「反正一直有红的」里。
+    testTimeout: 20_000,
+    hookTimeout: 20_000,
   },
 });

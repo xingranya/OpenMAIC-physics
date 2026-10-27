@@ -15,6 +15,18 @@ export function generateStaticParams() {
   return STUDENT_VIEW_IDS.map((view) => ({ view }));
 }
 
+/**
+ * 未列出的视图一律 404。
+ *
+ * 没有这一行时，`/physics/not-a-view` 会返回 **200**：服务端先渲染
+ * 「正在加载工作台…」，客户端再跳回首页。用户拿到的是一个「正常但不对」的
+ * 页面，比 404 更困惑，爬虫也会把它当成有效页面收录。
+ *
+ * 加了这个之后，非法视图在**服务端**就被拒掉，`workbench.tsx` 里那套
+ * 角色跳转仍然保留——它对直接渲染 Shell 的场景（单测）依旧是必要的。
+ */
+export const dynamicParams = false;
+
 /** 学生端物理工作台：按 [view] 渲染 8 个视图之一。 */
 export default function StudentViewPage() {
   return (

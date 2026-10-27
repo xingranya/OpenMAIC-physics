@@ -148,9 +148,11 @@ export interface PersistedClassroomData {
   reserved?: boolean;
 }
 
-export function isValidClassroomId(id: string): boolean {
-  return /^[a-zA-Z0-9_-]+$/.test(id);
-}
+/**
+ * 形状校验的真身在 `lib/classroom/id.ts`——页面也要用它，而本文件 `import fs`，
+ * 页面引不了。这里转出去，保持既有 import 路径不变。
+ */
+export { isValidClassroomId } from '@/lib/classroom/id';
 
 /**
  * Resolve the on-disk JSON path for a classroom id, asserting the result stays

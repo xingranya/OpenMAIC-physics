@@ -42,7 +42,7 @@ import { resolveVisionImagesForPrompt } from '@/lib/persistence/resolve-vision-i
 import { resolveVocationalActive } from '@/lib/config/feature-flags';
 const log = createLogger('Outlines Stream');
 
-export const maxDuration = 300;
+export const maxDuration = 120;
 
 /**
  * Extract the languageDirective from the streamed wrapper JSON.

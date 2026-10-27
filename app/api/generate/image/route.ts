@@ -40,7 +40,7 @@ const log = createLogger('ImageGeneration API');
 // (e.g. Vercel) kill the request ~4 min before the adapter finishes. 300s is
 // the practical ceiling on most managed platforms and matches the poll budget.
 // (Self-hosted Node servers ignore this value entirely.)
-export const maxDuration = 300;
+export const maxDuration = 120;
 
 export async function POST(request: NextRequest) {
   try {

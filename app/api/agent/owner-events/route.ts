@@ -18,7 +18,7 @@ import { getAgentSessionStore } from '@/lib/server/agent-runtime/store';
 export const runtime = 'nodejs';
 // Self-hosted `next start` ignores maxDuration; Vercel's adapter can still use
 // it. The 25s heartbeat keeps this sparse stream active through idle periods.
-export const maxDuration = 300;
+export const maxDuration = 120;
 
 // LISTEN/NOTIFY supplies low latency. This is deliberately retained as a
 // correctness fallback because NOTIFY is lossy across listener disconnects.

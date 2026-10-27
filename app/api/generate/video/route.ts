@@ -35,7 +35,7 @@ import { withMediaProviderFetch } from '@/lib/server/media-provider-fetch';
 
 const log = createLogger('VideoGeneration API');
 
-export const maxDuration = 300;
+export const maxDuration = 120;
 
 export async function POST(request: NextRequest) {
   try {

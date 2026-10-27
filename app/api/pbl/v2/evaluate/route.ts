@@ -40,7 +40,7 @@ import {
 } from '@/lib/pbl/v2/agents/evaluator';
 import type { PBLProjectV2 } from '@/lib/pbl/v2/types';
 
-export const maxDuration = 300;
+export const maxDuration = 120;
 
 const log = createLogger('PBL v2 Evaluate API');
 

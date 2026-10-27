@@ -8,6 +8,9 @@ export function generateStaticParams() {
   return TEACHER_VIEW_IDS.map((view) => ({ view }));
 }
 
+/** 未列出的教师视图一律 404（理由同学生端）。 */
+export const dynamicParams = false;
+
 /** 教师端工作台：按 [view] 渲染 5 个视图之一。 */
 export default function TeacherViewPage() {
   return (
