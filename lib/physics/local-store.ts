@@ -3,6 +3,7 @@ import type {
   AbilityPoint,
   AbilityTier,
   AppState,
+  ArtifactVersion,
   ChatMessage,
   DemoAccount,
   DiagnosisResult,
@@ -12,6 +13,7 @@ import type {
   InClassErrorKind,
   InClassExchange,
   LabRecord,
+  PeerReview,
   PostClassRecord,
   PreClassPlan,
   Project,
@@ -35,10 +37,13 @@ export type { StorageLike } from './types';
  * 持久化版本。
  *
  * v2：加入「三诊」字段（`preClass` / `inClass` / `postClass`）。
- * 旧包络（v1）读进来仍然有效——`normaliseState` 会逐字段补齐缺失的部分，
+ * v3：加入证据链字段（`versions` / `peerReviews`），支撑量化评价表里
+ *     「作品版本」「匿名互评」两类证据与四项核验指标。
+ *
+ * 旧包络（v1 / v2）读进来仍然有效——`normaliseState` 会逐字段补齐缺失的部分，
  * 所以升级不需要写迁移函数，也不会把已有学习数据丢掉。
  */
-export const STORAGE_VERSION = 2;
+export const STORAGE_VERSION = 3;
 export const PERSISTENCE_VERSION = STORAGE_VERSION;
 /** 继续使用原型键，升级后的包络格式不会丢失已有学习数据。 */
 export const PHYSICS_STORAGE_KEY = 'physicsAISystem';
@@ -90,6 +95,8 @@ export function createInitialState(): AppState {
     localProjects: [],
     inClass: [],
     scoreSheet: {},
+    versions: [],
+    peerReviews: [],
   };
 }
 
@@ -526,6 +533,57 @@ function normaliseScoreSheet(value: unknown): Record<string, ScoreEntry> {
   return result;
 }
 
+/** 作品版本：缺 id / label 的条目直接丢掉，不猜。 */
+function normaliseVersions(value: unknown): ArtifactVersion[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const result: ArtifactVersion[] = [];
+  value.forEach((item) => {
+    if (!item || typeof item !== 'object') return;
+    const source = item as Partial<ArtifactVersion>;
+    if (typeof source.id !== 'string' || !source.id) return;
+    if (typeof source.label !== 'string' || !source.label.trim()) return;
+    if (seen.has(source.id)) return;
+    seen.add(source.id);
+    result.push({
+      id: source.id,
+      label: source.label,
+      note: typeof source.note === 'string' ? source.note : '',
+      at: typeof source.at === 'string' ? source.at : '',
+    });
+  });
+  return result;
+}
+
+/** 互评：分数夹到 0–100，被评对象缺失的条目丢掉。 */
+function normalisePeerReviews(value: unknown): PeerReview[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const result: PeerReview[] = [];
+  value.forEach((item) => {
+    if (!item || typeof item !== 'object') return;
+    const source = item as Partial<PeerReview>;
+    if (typeof source.id !== 'string' || !source.id) return;
+    if (typeof source.targetId !== 'string' || !source.targetId) return;
+    if (seen.has(source.id)) return;
+    seen.add(source.id);
+    const clamp = (input: unknown): number =>
+      typeof input === 'number' && Number.isFinite(input)
+        ? Math.max(0, Math.min(100, Math.round(input)))
+        : 0;
+    result.push({
+      id: source.id,
+      targetId: source.targetId,
+      targetName: typeof source.targetName === 'string' ? source.targetName : source.targetId,
+      contribution: clamp(source.contribution),
+      cooperation: clamp(source.cooperation),
+      note: typeof source.note === 'string' ? source.note : '',
+      at: typeof source.at === 'string' ? source.at : '',
+    });
+  });
+  return result;
+}
+
 /** 将本地数据限制在已知字段，避免旧版本或手工篡改数据污染页面。 */
 export function normaliseState(value: unknown): AppState {
   const base = createInitialState();
@@ -576,6 +634,8 @@ export function normaliseState(value: unknown): AppState {
     inClass: normaliseInClass(source.inClass),
     postClass: normalisePostClass(source.postClass),
     scoreSheet: normaliseScoreSheet(source.scoreSheet),
+    versions: normaliseVersions(source.versions),
+    peerReviews: normalisePeerReviews(source.peerReviews),
   };
 }
 
@@ -801,6 +861,8 @@ export function resetStudentProgress(state: AppState): AppState {
     preClass: undefined,
     inClass: [],
     postClass: undefined,
+    versions: [],
+    peerReviews: [],
   });
 }
 

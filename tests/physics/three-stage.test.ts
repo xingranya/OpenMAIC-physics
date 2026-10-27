@@ -270,8 +270,8 @@ describe('课后过程性评价', () => {
 });
 
 describe('持久化兼容', () => {
-  it('版本号已升到 2', () => {
-    expect(STORAGE_VERSION).toBe(2);
+  it('版本号已升到 3（三诊 + 证据链）', () => {
+    expect(STORAGE_VERSION).toBe(3);
   });
 
   it('旧包络（v1，没有三诊字段）读进来不报错，补齐默认值', () => {

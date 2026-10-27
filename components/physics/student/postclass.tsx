@@ -20,10 +20,21 @@
  */
 
 import * as React from 'react';
-import { RefreshCw, TrendingUp } from 'lucide-react';
+import { GitBranch, Plus, RefreshCw, Trash2, TrendingUp } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Slider } from '@/components/ui/slider';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { usePhysicsState } from '@/components/physics/state-provider';
 import { useSharedReviewSync } from '@/components/physics/use-shared-review-sync';
 import {
@@ -40,16 +51,23 @@ import {
   StageLoop,
   formatDateTime,
 } from '@/components/physics/shared';
-import { publishPostClass } from '@/lib/physics/submissions';
+import { buildEvidence, publishEvidence, publishPostClass } from '@/lib/physics/submissions';
 import { levelLabelOf } from '@/lib/physics/quant-rubric';
+import {
+  groupMembersOf,
+  peerReviewCoverage,
+  validatePeerReview,
+  type GroupMember,
+} from '@/lib/physics/peer-review';
 import {
   ABILITY_HINTS,
   ABILITY_LABELS,
   buildPostClassRecord,
   gradeOf,
   overallScore,
+  tierFromDiagnosis,
 } from '@/lib/physics/stages';
-import type { FourAbility } from '@/lib/physics/types';
+import type { AbilityPoint, ArtifactVersion, FourAbility } from '@/lib/physics/types';
 
 const ABILITIES: readonly FourAbility[] = [
   'knowledge',
@@ -57,6 +75,85 @@ const ABILITIES: readonly FourAbility[] = [
   'innovation',
   'collaboration',
 ];
+
+/** 四条线的区分不靠色相，靠不透明度——深浅主题下都不会有一条线消失。 */
+const ABILITY_OPACITY: Readonly<Record<FourAbility, number>> = {
+  knowledge: 1,
+  application: 0.72,
+  innovation: 0.48,
+  collaboration: 0.28,
+};
+
+/**
+ * 能力梯度轨迹图。
+ *
+ * 表格能看数值，看不出「在往上走还是在原地打转」。申请书要的是
+ * 「按时间顺序呈现出各个能力梯度发展的轨迹图」，所以这一块必须是图。
+ */
+function TrajectoryChart({ points }: { points: readonly AbilityPoint[] }) {
+  if (points.length < 2) {
+    return (
+      <p className="text-[12px] text-muted-foreground">
+        再生成一次评价，这里才会出现轨迹线（至少两次才能比较）。
+      </p>
+    );
+  }
+  const width = 100;
+  const height = 40;
+  const step = points.length > 1 ? width / (points.length - 1) : width;
+  const y = (value: number) => height - (Math.max(0, Math.min(100, value)) / 100) * (height - 6) - 3;
+
+  return (
+    <figure className="m-0">
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        preserveAspectRatio="none"
+        role="img"
+        aria-label="四阶能力梯度轨迹"
+        className="h-[120px] w-full"
+      >
+        {[0, 25, 50, 75, 100].map((tick) => (
+          <line
+            key={tick}
+            x1={0}
+            x2={width}
+            y1={y(tick)}
+            y2={y(tick)}
+            className="stroke-border"
+            strokeWidth={0.25}
+          />
+        ))}
+        {ABILITIES.map((ability) => (
+          <polyline
+            key={ability}
+            fill="none"
+            className="stroke-primary"
+            strokeWidth={1}
+            strokeOpacity={ABILITY_OPACITY[ability]}
+            points={points
+              .map((point, index) => `${index * step},${y(point.scores[ability])}`)
+              .join(' ')}
+          />
+        ))}
+      </svg>
+      <ul className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+        {ABILITIES.map((ability) => (
+          <li key={ability} className="flex items-center gap-1.5">
+            <span
+              aria-hidden="true"
+              className="inline-block h-[2px] w-4 rounded bg-primary"
+              style={{ opacity: ABILITY_OPACITY[ability] }}
+            />
+            {ABILITY_LABELS[ability]}
+          </li>
+        ))}
+      </ul>
+      <p className="mt-1 text-[11px] text-muted-foreground">
+        横轴为评价次序：{points[0]?.label} → {points.at(-1)?.label}。
+      </p>
+    </figure>
+  );
+}
 
 const CONTRIBUTION_LABELS: Readonly<Record<'preClass' | 'inClass' | 'task' | 'teamwork', string>> = {
   preClass: '课前诊断',
@@ -82,6 +179,7 @@ export function StudentPostClass() {
     const next = buildPostClassRecord({ state });
     update({ postClass: next });
     publishPostClass({ studentId, studentName, record: next });
+    publishEvidence({ studentId, studentName, evidence: buildEvidence(state) });
   };
 
   const acknowledge = (accepted: boolean, note: string) => {
@@ -92,6 +190,84 @@ export function StudentPostClass() {
     // 不写回去的话，教师只会看到自己通过了，永远不知道学生不认。
     const shared = { ...record, ack };
     publishPostClass({ studentId, studentName, record: shared });
+  };
+
+  /* ── 作品版本：创新能力「创」的证据 ── */
+  const [versionOpen, setVersionOpen] = React.useState(false);
+  const [versionLabel, setVersionLabel] = React.useState('');
+  const [versionNote, setVersionNote] = React.useState('');
+
+  const addVersion = () => {
+    const label = versionLabel.trim();
+    if (!label) return;
+    const next: ArtifactVersion = {
+      id: `v-${Date.now()}`,
+      label,
+      note: versionNote.trim(),
+      at: new Date().toISOString(),
+    };
+    const versions = [...state.versions, next];
+    update({ versions });
+    publishEvidence({ studentId, studentName, evidence: buildEvidence({ ...state, versions }) });
+    setVersionOpen(false);
+    setVersionLabel('');
+    setVersionNote('');
+  };
+
+  const removeVersion = (id: string) => {
+    const versions = state.versions.filter((item) => item.id !== id);
+    update({ versions });
+    publishEvidence({ studentId, studentName, evidence: buildEvidence({ ...state, versions }) });
+  };
+
+  /* ── 组内互评：团队合作「评」的证据 ── */
+  const tier = tierFromDiagnosis(state.diagnosis);
+  const members = groupMembersOf({
+    studentId,
+    studentName,
+    tier,
+    reviews: state.peerReviews,
+  });
+  const coverage = peerReviewCoverage(members);
+
+  const [peerTarget, setPeerTarget] = React.useState<GroupMember | null>(null);
+  const [contribution, setContribution] = React.useState(80);
+  const [cooperation, setCooperation] = React.useState(80);
+  const [peerNote, setPeerNote] = React.useState('');
+  const [peerError, setPeerError] = React.useState<string | null>(null);
+
+  const openPeer = (member: GroupMember) => {
+    const existing = state.peerReviews.find((item) => item.targetId === member.id);
+    setPeerTarget(member);
+    setContribution(existing?.contribution ?? 80);
+    setCooperation(existing?.cooperation ?? 80);
+    setPeerNote(existing?.note ?? '');
+    setPeerError(null);
+  };
+
+  const savePeer = () => {
+    if (!peerTarget) return;
+    const error = validatePeerReview({ contribution, cooperation, note: peerNote });
+    if (error) {
+      setPeerError(error);
+      return;
+    }
+    const next = {
+      id: `peer-${peerTarget.id}`,
+      targetId: peerTarget.id,
+      targetName: peerTarget.name,
+      contribution,
+      cooperation,
+      note: peerNote.trim(),
+      at: new Date().toISOString(),
+    };
+    const peerReviews = [
+      ...state.peerReviews.filter((item) => item.targetId !== peerTarget.id),
+      next,
+    ];
+    update({ peerReviews });
+    publishEvidence({ studentId, studentName, evidence: buildEvidence({ ...state, peerReviews }) });
+    setPeerTarget(null);
   };
 
   return (
@@ -216,6 +392,53 @@ export function StudentPostClass() {
             </SectionCard>
 
             <SectionCard
+              title="作品版本"
+              description="每改一版记一条。创新能力看的不是最终交了什么，而是改了几轮、每轮改了什么。"
+              action={
+                <Button size="sm" variant="outline" onClick={() => setVersionOpen(true)}>
+                  <Plus className="size-3.5" />
+                  记录新版本
+                </Button>
+              }
+            >
+              {state.versions.length === 0 ? (
+                <p className="flex items-center gap-2 text-[12.5px] text-muted-foreground">
+                  <GitBranch className="size-4" aria-hidden="true" />
+                  还没有版本记录。第一版哪怕是草稿也记一条——没有 v1 就没有「迭代」。
+                </p>
+              ) : (
+                <ul className="flex flex-col gap-2">
+                  {state.versions.map((version) => (
+                    <li
+                      key={version.id}
+                      className="flex items-start justify-between gap-2 rounded-md border border-border/70 px-2.5 py-2"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-[12.5px] font-medium">{version.label}</p>
+                        {version.note ? (
+                          <p className="mt-0.5 text-[11.5px] leading-relaxed text-muted-foreground">
+                            {version.note}
+                          </p>
+                        ) : null}
+                        <p className="mt-0.5 text-[10.5px] text-muted-foreground">
+                          {formatDateTime(version.at)}
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        aria-label={`删除版本 ${version.label}`}
+                        onClick={() => removeVersion(version.id)}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </SectionCard>
+
+            <SectionCard
               title="评价标准（四阶能力量化评价表）"
               description="每一项分数都对应到具体指标、AI 做的事、层级行为描述与证据来源。"
             >
@@ -264,7 +487,8 @@ export function StudentPostClass() {
               title="能力轨迹"
               description={`已记录 ${record.trajectory.length} 次，最多保留最近 8 次。`}
             >
-              <div className="overflow-x-auto">
+              <TrajectoryChart points={record.trajectory} />
+              <div className="mt-3 overflow-x-auto">
                 <table className="w-full border-collapse text-[12px]">
                   <caption className="sr-only">历次四阶能力评价</caption>
                   <thead>
@@ -301,6 +525,52 @@ export function StudentPostClass() {
               </p>
             </SectionCard>
 
+            <SectionCard
+              title="组内互评"
+              description={`对同组同学匿名、对教师实名。本组应评 ${coverage.total} 人，已完成 ${coverage.done} 人。`}
+            >
+              <ul className="flex flex-col gap-2">
+                {members
+                  .filter((member) => !member.isSelf)
+                  .map((member) => {
+                    const existing = state.peerReviews.find((item) => item.targetId === member.id);
+                    return (
+                      <li
+                        key={member.id}
+                        className="flex items-start justify-between gap-2 rounded-md border border-border/70 px-2.5 py-2"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-[12.5px] font-medium">
+                            {member.name}
+                            <span className="ml-1.5 text-[11px] font-normal text-muted-foreground">
+                              {member.role}
+                            </span>
+                          </p>
+                          {existing ? (
+                            <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                              贡献 {existing.contribution} · 协作 {existing.cooperation} · {existing.note}
+                            </p>
+                          ) : (
+                            <p className="mt-0.5 text-[11px] text-muted-foreground">尚未评价</p>
+                          )}
+                        </div>
+                        <Button size="sm" variant="outline" onClick={() => openPeer(member)}>
+                          {existing ? '修改' : '写互评'}
+                        </Button>
+                      </li>
+                    );
+                  })}
+              </ul>
+              {coverage.total === 0 ? (
+                <p className="mt-2 text-[11.5px] text-muted-foreground">
+                  还没有同组同学。先在「课前：诊断与配对」生成方案，分组才会定下来。
+                </p>
+              ) : null}
+              <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+                互评不是打分游戏：没有一句依据的互评在复核时没有价值，所以提交前必须写清「你看到对方做了什么」。
+              </p>
+            </SectionCard>
+
             <HintBar>
               {ABILITIES.map((ability) => (
                 <span key={ability} className="block">
@@ -311,6 +581,105 @@ export function StudentPostClass() {
           </div>
         </div>
       )}
+
+      {/* 作品版本录入 */}
+      <Dialog open={versionOpen} onOpenChange={setVersionOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>记录一个新版本</DialogTitle>
+            <DialogDescription>
+              写清这一版改了什么。教师复核创新能力时，看的就是「改了几轮、每轮动了哪里」。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-3">
+            <label className="flex flex-col gap-1.5 text-[12.5px]">
+              版本标签
+              <Input
+                value={versionLabel}
+                onChange={(event) => setVersionLabel(event.target.value)}
+                placeholder="例如：v1 · 方案初稿 / v2 · 补充误差分析"
+              />
+            </label>
+            <label className="flex flex-col gap-1.5 text-[12.5px]">
+              这一版改了什么
+              <Textarea
+                value={versionNote}
+                onChange={(event) => setVersionNote(event.target.value)}
+                rows={3}
+                placeholder="例如：把原来的匀速假设改成考虑摩擦，重算了制动距离。"
+              />
+            </label>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setVersionOpen(false)}>
+              取消
+            </Button>
+            <Button onClick={addVersion} disabled={versionLabel.trim().length === 0}>
+              保存
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 组内互评录入 */}
+      <Dialog open={peerTarget !== null} onOpenChange={(open) => !open && setPeerTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>评价 {peerTarget?.name}</DialogTitle>
+            <DialogDescription>
+              分数会与其他组员的评价一起汇总，只给教师看；同学之间看不到是谁给的。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center justify-between text-[12.5px]">
+                <span>贡献度</span>
+                <span className="tabular-nums text-muted-foreground">{contribution}</span>
+              </div>
+              <Slider
+                value={[contribution]}
+                min={0}
+                max={100}
+                step={1}
+                onValueChange={(value) => setContribution(value[0] ?? 0)}
+                aria-label="贡献度"
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center justify-between text-[12.5px]">
+                <span>协作表现</span>
+                <span className="tabular-nums text-muted-foreground">{cooperation}</span>
+              </div>
+              <Slider
+                value={[cooperation]}
+                min={0}
+                max={100}
+                step={1}
+                onValueChange={(value) => setCooperation(value[0] ?? 0)}
+                aria-label="协作表现"
+              />
+            </div>
+            <label className="flex flex-col gap-1.5 text-[12.5px]">
+              依据（必填）
+              <Textarea
+                value={peerNote}
+                onChange={(event) => setPeerNote(event.target.value)}
+                rows={3}
+                placeholder="例如：主动承担了数据采集，实验那天提前一小时到实验室调设备。"
+              />
+            </label>
+            {peerError ? (
+              <p className="text-[12px] text-[var(--school-danger)]">{peerError}</p>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setPeerTarget(null)}>
+              取消
+            </Button>
+            <Button onClick={savePeer}>提交互评</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

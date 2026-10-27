@@ -31,6 +31,8 @@
  * 教师无权改学生答了什么。
  */
 
+import { TASK_TEMPLATES } from './data';
+import { calculateTaskProgress } from './engine';
 import {
   normaliseAck,
   normaliseInClass,
@@ -46,6 +48,7 @@ import type {
   StageReview,
   StorageLike,
   StudentAck,
+  SubmissionEvidence,
 } from './types';
 
 /** 共享提交键。**不带 userId**——它本来就是跨账号的那一条通道。 */
@@ -66,6 +69,14 @@ export interface StageSubmission {
   preClass?: PreClassPlan;
   inClass: InClassExchange[];
   postClass?: PostClassRecord;
+  /**
+   * 证据快照（作品版本数、互评数、任务进度等）。
+   *
+   * 四项核验指标都要「这个学生有没有留下证据」，而教师读不到学生的分区数据，
+   * 所以让学生随提交把**计数**送过来。只送计数不送明细：明细留在学生自己的
+   * 键里，教师需要时按提交内容追问。
+   */
+  evidence?: SubmissionEvidence;
 }
 
 interface SubmissionEnvelope {
@@ -106,6 +117,7 @@ function readMap(storage: StorageLike | undefined): Record<string, StageSubmissi
       const source = value as Partial<StageSubmission>;
       const studentId = typeof source.studentId === 'string' ? source.studentId : key;
       if (!studentId) return;
+      const evidence = normaliseEvidence(source.evidence);
       result[studentId] = {
         studentId,
         studentName: typeof source.studentName === 'string' ? source.studentName : studentId,
@@ -113,6 +125,7 @@ function readMap(storage: StorageLike | undefined): Record<string, StageSubmissi
         preClass: normalisePreClass(source.preClass),
         inClass: normaliseInClass(source.inClass),
         postClass: normalisePostClass(source.postClass),
+        ...(evidence ? { evidence } : {}),
       };
     });
     return result;
@@ -133,8 +146,7 @@ function writeMap(map: Record<string, StageSubmission>, storage: StorageLike | u
   }
 }
 
-/** 读全部提交，按最近更新倒序。教师端直接用这个。 */
-export function readSubmissions(
+/** 读全部提交，按最近更新倒序。教师端直接用这个。 */export function readSubmissions(
   storage: StorageLike | undefined = getDefaultStorage(),
 ): StageSubmission[] {
   return Object.values(readMap(storage)).sort((left, right) =>
@@ -169,6 +181,23 @@ function mutate(
 
 function blankSubmission(studentId: string, studentName: string, at: string): StageSubmission {
   return { studentId, studentName, updatedAt: at, inClass: [] };
+}
+
+/** 证据快照的归一化：计数一律取非负整数，缺省 0。 */function normaliseEvidence(value: unknown): SubmissionEvidence | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const source = value as Partial<SubmissionEvidence>;
+  const count = (input: unknown): number =>
+    typeof input === 'number' && Number.isFinite(input) && input > 0 ? Math.floor(input) : 0;
+  return {
+    ...(typeof source.adoptedProjectId === 'string' && source.adoptedProjectId
+      ? { adoptedProjectId: source.adoptedProjectId }
+      : {}),
+    taskCompleted: count(source.taskCompleted),
+    taskTotal: count(source.taskTotal),
+    versionCount: count(source.versionCount),
+    peerReviewCount: count(source.peerReviewCount),
+    hasRole: source.hasRole === true,
+  };
 }
 
 /* ══════════════════════════════════════════════════════════════════════
@@ -229,6 +258,57 @@ export function publishPostClass(
     studentName,
     updatedAt: nowIso(now),
     postClass: record,
+  };
+  return writeMap(map, storage);
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+ * 学生侧：证据快照
+ *
+ * 与三诊提交分开成一个函数，是因为它的更新时机不同：三诊是「生成一次提一次」，
+ * 证据是「每加一版作品 / 每写一条互评就要更新」。合在一起会让教师端
+ * 频繁看到「刚提交」的错觉。
+ * ══════════════════════════════════════════════════════════════════════ */
+
+/**
+ * 从当前状态生成证据快照。
+ *
+ * `adoptedProjectId` 显式传入而不从 `state.projectId` 读：采用案例的那一步
+ * 刚改完 `projectId`，调用方手里的 `state` 还是旧的。让调用方说清「最终
+ * 采用哪个」，比让这个函数猜更可靠。
+ */
+export function buildEvidence(state: AppState, adoptedProjectId?: string): SubmissionEvidence {
+  const progress = calculateTaskProgress(state.taskChecks, TASK_TEMPLATES);
+  return {
+    ...(adoptedProjectId ?? state.projectId
+      ? { adoptedProjectId: adoptedProjectId ?? state.projectId ?? undefined }
+      : {}),
+    taskCompleted: progress.completed,
+    taskTotal: progress.total,
+    versionCount: state.versions.length,
+    peerReviewCount: state.peerReviews.length,
+    hasRole: Boolean(state.preClass?.groupRole),
+  };
+}
+
+export function publishEvidence(
+  input: {
+    studentId: string;
+    studentName: string;
+    evidence: SubmissionEvidence;
+    now?: number;
+  },
+  storage: StorageLike | undefined = getDefaultStorage(),
+): boolean {
+  const { studentId, studentName, evidence, now = Date.now() } = input;
+  if (!studentId) return false;
+  const map = readMap(storage);
+  const current = map[studentId] ?? blankSubmission(studentId, studentName, nowIso(now));
+  map[studentId] = {
+    ...current,
+    studentName,
+    updatedAt: nowIso(now),
+    evidence,
   };
   return writeMap(map, storage);
 }

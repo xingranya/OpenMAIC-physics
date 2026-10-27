@@ -172,6 +172,34 @@ function levelBonus(level: Project['level']): number {
   return level === '基础' ? 0 : level === '中等' ? 4 : 8;
 }
 
+/**
+ * 专业方向与知识板块的亲和关系。
+ *
+ * 申请书给专业能力配的 AI 功能写的是「**按专业与基础**推荐项目」。
+ * 原来只用了「基础」（诊断分）与学习偏好，专业这一路是空的——
+ * 机械专业和计算机专业拿到同一份推荐，那条功能描述就落不了地。
+ *
+ * 权重刻意压得比「薄弱维度」低（10 对 14）：专业决定的是**倾向**，
+ * 学情决定的是**该补什么**。让专业盖过薄弱维度，基础差的学生会被
+ * 一直推本专业的高阶案例，反而补不上短板。
+ */
+const MAJOR_AFFINITY: readonly { keywords: readonly string[]; dimensions: readonly DiagnosticDimension[] }[] = [
+  { keywords: ['机械', '机电', '车辆', '材料'], dimensions: ['力学', '实验'] },
+  { keywords: ['电子', '电气', '通信', '自动化', '电信'], dimensions: ['电磁学', '波动'] },
+  { keywords: ['计算机', '软件', '人工智能', '数据'], dimensions: ['光学', '波动'] },
+  { keywords: ['物理', '师范'], dimensions: ['近代物理', '光学'] },
+  { keywords: ['能源', '动力', '热工'], dimensions: ['热学', '力学'] },
+];
+
+/** 学生专业对应的知识板块（匹配不到返回空数组）。 */
+export function majorDimensionsOf(major: string | undefined): readonly DiagnosticDimension[] {
+  if (!major) return [];
+  const hit = MAJOR_AFFINITY.find((entry) =>
+    entry.keywords.some((keyword) => major.includes(keyword)),
+  );
+  return hit ? hit.dimensions : [];
+}
+
 /** 计算单个项目的匹配分，公式与原型中的薄弱维度、偏好和目标权重一致。 */
 export function calculateProjectMatchScore(
   project: Project,
@@ -192,6 +220,10 @@ export function calculateProjectMatchScore(
   });
   if (project.styles.includes(student.style)) score += 14;
   if (project.targets.includes(student.target)) score += 14;
+  // 专业亲和：只加一次，且低于薄弱维度的权重（见 MAJOR_AFFINITY 的说明）。
+  if (project.dims.some((dimension) => majorDimensionsOf(student.major).includes(dimension))) {
+    score += 10;
+  }
   if (diagnosis.score < 60 && project.level === '基础') score += 12;
   if (diagnosis.score >= 80 && project.level === '较高') score += 8;
   return Math.min(98, score);
@@ -257,6 +289,9 @@ export function matchProjects(
           reasons.push('覆盖当前薄弱知识维度');
         if (project.styles.includes(student.style)) reasons.push('符合学习方式偏好');
         if (project.targets.includes(student.target)) reasons.push('贴合能力目标');
+        if (project.dims.some((dimension) => majorDimensionsOf(student.major).includes(dimension))) {
+          reasons.push(`与本专业（${student.major}）方向一致`);
+        }
         if (diagnosis.score < 60 && project.level === '基础') reasons.push('适合先补强基础');
         if (diagnosis.score >= 80 && project.level === '较高') reasons.push('适合挑战进阶任务');
       } else {

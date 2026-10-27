@@ -232,6 +232,15 @@ export interface AppState {
    * 也没法演示导出。教师改过的值存在这里，刷新后仍在。
    */
   scoreSheet: Record<string, ScoreEntry>;
+  /**
+   * 作品版本记录（创新能力·创 的证据）。
+   *
+   * 与 `taskTexts` 分开存：笔记是「想了什么」，版本是「交了哪一版」，
+   * 教师复核创新能力时要看的是后者。
+   */
+  versions: ArtifactVersion[];
+  /** 组内互评（团队合作·评 的证据）。 */
+  peerReviews: PeerReview[];
 }
 
 /* ══════════════════════════════════════════════════════════════════════
@@ -250,6 +259,71 @@ export type StageScores = Readonly<Record<FourAbility, number>>;
 
 /** 一名学生在三个阶段的录入值。 */
 export type ScoreEntry = Readonly<Record<SheetStageKey, StageScores>>;
+
+/* ══════════════════════════════════════════════════════════════════════
+ * 证据链：作品版本 + 组内互评
+ *
+ * 量化评价表的「评价证据与采集时点」一列点名了四类证据：分工表、任务日志、
+ * 作品版本、匿名互评。前两类原本就有（`preClass.groupRole`、`taskChecks`），
+ * 后两类没有载体——于是「贡献证据可追溯率」这一项核验指标根本无从计算。
+ * 下面两个结构就是给那两类证据补的载体。
+ * ══════════════════════════════════════════════════════════════════════ */
+
+/**
+ * 一次作品版本。
+ *
+ * 创新能力要看的不是「最终交了什么」，而是**改了几轮、每轮改了什么**。
+ * 只留最新版，教师复核时无法判断迭代是否真实发生。
+ */
+export interface ArtifactVersion {
+  id: string;
+  /** 版本标签，如「v1 · 方案初稿」。 */
+  label: string;
+  /** 这一版改了什么（一句话）。 */
+  note: string;
+  at: string;
+}
+
+/**
+ * 一条组内互评。
+ *
+ * 互评对**同组同学**匿名，对**教师**实名——这两件事必须分开：
+ * 学生之间看得到名字，评价就会变成人情分；教师看不到名字，
+ * 就无法在复核时追问「这条为什么给这么低」。
+ */
+export interface PeerReview {
+  id: string;
+  /** 被评同学的 id。 */
+  targetId: string;
+  targetName: string;
+  /** 贡献度 0–100。 */
+  contribution: number;
+  /** 协作表现 0–100。 */
+  cooperation: number;
+  /** 一句话依据（必填：没有依据的互评在复核时没有价值）。 */
+  note: string;
+  at: string;
+}
+
+/**
+ * 提交时一并写进共享键的证据快照。
+ *
+ * 教师端读不到学生的分区数据，四项核验指标又都需要「这个学生有没有
+ * 留下证据」，所以把计数随提交一起送过去。只送计数，不送明细：
+ * 明细留在学生自己的键里，教师需要时再按提交内容追问。
+ */
+export interface SubmissionEvidence {
+  /** 学生最终采用的项目 id（算「任务匹配适切率」用）。 */
+  adoptedProjectId?: string;
+  taskCompleted: number;
+  taskTotal: number;
+  /** 作品版本条数。 */
+  versionCount: number;
+  /** 组内互评条数（本人发出的）。 */
+  peerReviewCount: number;
+  /** 是否已有组内分工（`preClass.groupRole` 非空）。 */
+  hasRole: boolean;
+}
 
 export interface StorageEnvelope<T> {
   version: number;

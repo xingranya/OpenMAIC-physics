@@ -32,7 +32,9 @@ export type TeacherView =
   | 'insights'
   | 'reviews'
   /** 成绩登记总表（与教学工作手册附表一致）。 */
-  | 'scores';
+  | 'scores'
+  /** 质量核验：四项核验指标（诊断一致率 / 匹配适切率 / 改进完成率 / 证据可追溯率）。 */
+  | 'verify';
 
 export type CommandScope = 'global' | 'student' | 'teacher';
 
@@ -308,6 +310,13 @@ const teacherShortcutSet: Array<Omit<ShortcutBinding, 'scope'>> = [
     action: { type: 'navigate', role: 'teacher', view: 'scores' },
   },
   {
+    label: '质量核验',
+    hint: 'zhi liang he yan / verify',
+    combo: 'g v',
+    requiresSession: true,
+    action: { type: 'navigate', role: 'teacher', view: 'verify' },
+  },
+  {
     label: '清空本地全部数据',
     hint: 'reset all',
     combo: '',
@@ -391,6 +400,7 @@ export const TEACHER_VIEW_IDS: readonly TeacherView[] = [
   'insights',
   'reviews',
   'scores',
+  'verify',
 ];
 
 export function findShortcutByCombo(

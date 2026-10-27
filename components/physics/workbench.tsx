@@ -18,6 +18,7 @@ import {
   ClipboardList,
   FileBarChart,
   FlaskConical,
+  Gauge,
   LayoutDashboard,
   Library,
   Lightbulb,
@@ -90,6 +91,8 @@ const TEACHER_NAV: NavItem[] = [
   { id: 'curriculum', label: '课程项目矩阵', icon: Network },
   { id: 'reviews', label: '三诊审核', icon: ShieldCheck },
   { id: 'scores', label: '成绩登记总表', icon: FileBarChart },
+  // 核验紧跟在成绩表之后：成绩表给出「是多少分」，核验回答「这个分凭什么可信」。
+  { id: 'verify', label: '质量核验', icon: Gauge },
   { id: 'evaluation', label: '评价复核', icon: ClipboardCheck },
   { id: 'insights', label: '教学洞察', icon: Lightbulb },
 ];

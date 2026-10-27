@@ -49,7 +49,8 @@ import {
   formatDateTime,
 } from '@/components/physics/shared';
 import { PROJECTS } from '@/lib/physics/data';
-import { ackStage, publishPreClass } from '@/lib/physics/submissions';
+import { EXERCISE_LEVEL_OF_TIER, exerciseReason, recommendExercises } from '@/lib/physics/exercise-bank';
+import { buildEvidence, publishEvidence, publishPreClass, ackStage } from '@/lib/physics/submissions';
 import {
   TIER_LABELS,
   TIER_PROJECT_LEVEL,
@@ -57,6 +58,7 @@ import {
   buildPreClassPlan,
   tierFromDiagnosis,
   tierReason,
+  weakDimensionsOf,
 } from '@/lib/physics/stages';
 import type { AbilityTier, Project } from '@/lib/physics/types';
 
@@ -93,6 +95,12 @@ export function StudentPreClass() {
     });
     update({ preClass: next });
     publishPreClass({ studentId, studentName, plan: next });
+    // 分工刚生成，证据快照里的「组内分工」这一格要跟着变成已具备。
+    publishEvidence({
+      studentId,
+      studentName,
+      evidence: buildEvidence({ ...state, preClass: next }),
+    });
   };
 
   const acknowledge = (accepted: boolean, note: string) => {
@@ -104,6 +112,13 @@ export function StudentPreClass() {
 
   const reviewed = plan ? plan.review.status !== 'pending' : false;
   const stale = plan !== null && diagnosis !== undefined && plan.tier !== tier;
+
+  // 练习只有 18 道，现算即可——为它加 useMemo 反而要处理数组身份变化。
+  const exercises = recommendExercises({
+    tier,
+    weakDimensions: plan?.weakDimensions ?? (diagnosis ? weakDimensionsOf(diagnosis) : []),
+    limit: 3,
+  });
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
@@ -245,6 +260,38 @@ export function StudentPreClass() {
                 </p>
               )}
             </SectionCard>
+
+            <SectionCard
+              title="分层练习"
+              description={`当前层级对应的认知动作是「${EXERCISE_LEVEL_OF_TIER[tier]}」。练习与项目分开：项目是几周的综合任务，练习是当天就能做完的一次训练。`}
+            >
+              <ol className="flex flex-col gap-3">
+                {exercises.map((exercise) => (
+                  <li key={exercise.id} className="rounded-lg border border-border/70 px-3 py-2.5">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant="outline" className="font-normal">
+                        {exercise.level}
+                      </Badge>
+                      <Badge variant="secondary" className="font-normal">
+                        {exercise.dimension}
+                      </Badge>
+                      <span className="text-[11.5px] text-muted-foreground">{exercise.anchor}</span>
+                    </div>
+                    <p className="mt-1.5 text-[12.5px] leading-relaxed">{exercise.task}</p>
+                    <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                      自查：{exercise.selfCheck.join('；')}
+                    </p>
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      {exerciseReason(exercise, tier)}
+                    </p>
+                  </li>
+                ))}
+              </ol>
+              <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+                三道题按「同层级 → 薄弱维度 → 题库原序」挑，不按匹配分排序——
+                练习要可预测，学生才知道今天做完这几道就够。
+              </p>
+            </SectionCard>
           </div>
 
           <div className="flex flex-col gap-5">
@@ -314,6 +361,13 @@ export function StudentPreClass() {
               onClick={() => {
                 if (!pendingProject) return;
                 resetProject(`采用案例「${pendingProject.title}」`, pendingProject.id);
+                // 采用结果要写进证据快照：教师端的「任务匹配适切率」正是
+                // 用「最终采用的项目是否落在 AI 推荐前 3」来算的。
+                publishEvidence({
+                  studentId,
+                  studentName,
+                  evidence: buildEvidence({ ...state, projectId: pendingProject.id }, pendingProject.id),
+                });
                 setPendingProject(null);
               }}
             >

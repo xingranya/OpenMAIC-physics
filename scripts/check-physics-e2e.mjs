@@ -74,12 +74,21 @@ function resolveExpectedBuildId() {
   return { buildId: '', source: '' };
 }
 
-/** 关键路由：每条都要返回 200，且首帧与服务端一致。 */
+/**
+ * 关键路由：每条都要返回 200，且首帧与服务端一致。
+ *
+ * 顺序与侧栏导航一致（学生 11 个视图 → 教师 8 个视图 + 首页/登录 = 21 条）。
+ * 三诊（课前/课中/课后）与「质量核验」都在这里，是因为它们各自对应申请书里
+ * 一个必须能被点开的功能点——路由可达是「功能可用」的最低门槛。
+ */
 const ROUTES = [
   { path: '/', label: '首页 · 物理学习门户' },
   { path: '/login', label: '登录页' },
   { path: '/physics/overview', label: '学生端 · 学习总览' },
   { path: '/physics/diagnosis', label: '学生端 · 学情诊断' },
+  { path: '/physics/preclass', label: '学生端 · 课前诊断与配对' },
+  { path: '/physics/inclass', label: '学生端 · 课中伴随诊断' },
+  { path: '/physics/postclass', label: '学生端 · 课后过程评价' },
   { path: '/physics/curriculum', label: '学生端 · 章节与知识图谱' },
   { path: '/physics/projects', label: '学生端 · 项目匹配' },
   { path: '/physics/tasks', label: '学生端 · 任务闯关' },
@@ -89,6 +98,9 @@ const ROUTES = [
   { path: '/teacher/dashboard', label: '教师端 · 教学驾驶舱' },
   { path: '/teacher/class', label: '教师端 · 班级画像' },
   { path: '/teacher/curriculum', label: '教师端 · 课程项目矩阵' },
+  { path: '/teacher/reviews', label: '教师端 · 三诊审核' },
+  { path: '/teacher/scores', label: '教师端 · 成绩登记总表' },
+  { path: '/teacher/verify', label: '教师端 · 质量核验' },
   { path: '/teacher/evaluation', label: '教师端 · 评价复核' },
   { path: '/teacher/insights', label: '教师端 · 教学洞察' },
 ];
