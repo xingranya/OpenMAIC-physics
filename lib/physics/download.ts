@@ -6,16 +6,30 @@
  */
 
 /**
- * 触发一次 Markdown 文件下载。
+ * 触发一次文本文件下载。
  *
- * 带 BOM 输出，Excel / WPS 直接双击打开时不会把中文识别成乱码。
+ * 统一带 BOM：Excel / WPS 双击打开 CSV 时不会把中文识别成乱码。
+ * 这一点在 Windows 上尤其明显——没有 BOM 的 UTF-8 CSV 打开就是一片锟斤拷。
  */
-export function downloadMarkdown(filename: string, content: string): void {
+export function downloadText(
+  filename: string,
+  content: string,
+  mime = 'text/plain;charset=utf-8',
+): void {
   if (typeof window === 'undefined') return;
-  const blob = new Blob(['\uFEFF' + content], { type: 'text/markdown;charset=utf-8' });
+  const blob = new Blob(['\uFEFF' + content], { type: mime });
   const anchor = document.createElement('a');
   anchor.href = URL.createObjectURL(blob);
   anchor.download = filename;
   anchor.click();
   URL.revokeObjectURL(anchor.href);
+}
+
+/**
+ * 触发一次 Markdown 文件下载。
+ *
+ * 带 BOM 输出，Excel / WPS 直接双击打开时不会把中文识别成乱码。
+ */
+export function downloadMarkdown(filename: string, content: string): void {
+  downloadText(filename, content, 'text/markdown;charset=utf-8');
 }

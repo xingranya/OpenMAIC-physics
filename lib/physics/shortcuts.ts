@@ -11,6 +11,12 @@ import type { UserRole } from './types';
 export type StudentView =
   | 'overview'
   | 'diagnosis'
+  /** 课前：分层 → 梯度配对 → 分组，提交教师审核。 */
+  | 'preclass'
+  /** 课中：伴随式判定与追问。 */
+  | 'inclass'
+  /** 课后：过程性评价与四阶能力轨迹。 */
+  | 'postclass'
   | 'curriculum'
   | 'projects'
   | 'tasks'
@@ -18,7 +24,15 @@ export type StudentView =
   | 'lab'
   | 'report';
 
-export type TeacherView = 'dashboard' | 'class' | 'curriculum' | 'evaluation' | 'insights';
+export type TeacherView =
+  | 'dashboard'
+  | 'class'
+  | 'curriculum'
+  | 'evaluation'
+  | 'insights'
+  | 'reviews'
+  /** 成绩登记总表（与教学工作手册附表一致）。 */
+  | 'scores';
 
 export type CommandScope = 'global' | 'student' | 'teacher';
 
@@ -169,6 +183,27 @@ const studentShortcutSet: Array<Omit<ShortcutBinding, 'scope'>> = [
     action: { type: 'navigate', role: 'student', view: 'diagnosis' },
   },
   {
+    label: '课前诊断与配对',
+    hint: 'ke qian / preclass',
+    combo: 'g k',
+    requiresSession: true,
+    action: { type: 'navigate', role: 'student', view: 'preclass' },
+  },
+  {
+    label: '课中伴随诊断',
+    hint: 'ke zhong ban sui / inclass',
+    combo: 'g b',
+    requiresSession: true,
+    action: { type: 'navigate', role: 'student', view: 'inclass' },
+  },
+  {
+    label: '课后过程性评价',
+    hint: 'ke hou ping jia / postclass',
+    combo: 'g j',
+    requiresSession: true,
+    action: { type: 'navigate', role: 'student', view: 'postclass' },
+  },
+  {
     label: '章节与知识图谱',
     hint: 'zhang jie',
     combo: 'g c',
@@ -259,6 +294,20 @@ const teacherShortcutSet: Array<Omit<ShortcutBinding, 'scope'>> = [
     action: { type: 'navigate', role: 'teacher', view: 'insights' },
   },
   {
+    label: '三诊审核',
+    hint: 'san zhen shen he / reviews',
+    combo: 'g r',
+    requiresSession: true,
+    action: { type: 'navigate', role: 'teacher', view: 'reviews' },
+  },
+  {
+    label: '成绩登记总表',
+    hint: 'cheng ji biao / scores',
+    combo: 'g s',
+    requiresSession: true,
+    action: { type: 'navigate', role: 'teacher', view: 'scores' },
+  },
+  {
     label: '清空本地全部数据',
     hint: 'reset all',
     combo: '',
@@ -322,6 +371,9 @@ export const shortcuts: ShortcutBinding[] = [
 export const STUDENT_VIEW_IDS: readonly StudentView[] = [
   'overview',
   'diagnosis',
+  'preclass',
+  'inclass',
+  'postclass',
   'curriculum',
   'projects',
   'tasks',
@@ -337,6 +389,8 @@ export const TEACHER_VIEW_IDS: readonly TeacherView[] = [
   'curriculum',
   'evaluation',
   'insights',
+  'reviews',
+  'scores',
 ];
 
 export function findShortcutByCombo(
