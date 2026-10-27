@@ -111,7 +111,7 @@ describe('LLM provider 的强制关闭开关', () => {
     vi.stubEnv('MAKERS_MODELS_KEY', 'mk-123');
     const { resolveApiKey, getServerProviders } = await import('@/lib/server/provider-config');
     expect(resolveApiKey('openai')).toBe('mk-123');
-    expect(getServerProviders().openai?.models).toEqual(['@makers/deepseek-v4-flash']);
+    expect(getServerProviders().openai?.models).toEqual(['minimax/minimax-m3']);
   });
 
   it('OPENAI_ENABLED=true 显式打开时覆盖 YAML 的关闭（环境变量优先）', async () => {

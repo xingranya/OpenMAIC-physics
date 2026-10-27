@@ -412,8 +412,11 @@ export function fetchStatelessChat(
   // 会话门禁：聊天要消耗模型额度，服务端要求**已登录**。
   // 未登录时先自查并给一句人话——否则调用方拿到的是一个没有上下文的 401，
   // 用户只看到「发送失败」，不知道该先去登录。
+  //
+  // 文案不再指向「右上角」：这里已经被工作台包着，而工作台本身有角色门禁，
+  // 走到这一步只可能是会话过期或被清掉，说「重新登录」比指路更准。
   if (shouldBlockForMissingSession()) {
-    toast.error('请先登录后再使用 AI 智能课堂：右上角「登录」，或用「一键进入」快速体验。');
+    toast.error('登录状态已失效，请重新登录后再使用 AI 智能课堂。');
     return Promise.resolve(
       new Response(
         JSON.stringify({

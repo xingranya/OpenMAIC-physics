@@ -82,6 +82,16 @@ import { buildPhysicsRequirement } from '@/lib/physics/prompts/physics-constrain
 import { PhysicsPortal } from '@/components/portal/physics-portal';
 import { toast } from 'sonner';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { HomeAccount } from '@/components/physics/home-account';
+import { ensureGuestSession, loginHref } from '@/lib/physics/guest';
 import { useDraftCache } from '@/lib/hooks/use-draft-cache';
 import { SpeechButton } from '@/components/audio/speech-button';
 import { useImportClassroom } from '@/lib/import/use-import-classroom';
@@ -123,6 +133,13 @@ function HomePage() {
   const showVocationalTestUi = shouldShowVocationalTestUi();
   const [form, setForm] = useState<FormState>(initialFormState);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  /**
+   * 身份确认框：未登录点「生成 / 进入课堂」时打开。
+   *
+   * 原先这里没有对话框——直接 toast 一句「右上角『登录』」就 return 了。
+   * 那句话在当时是**死路**：首页工具栏没有登录入口，用户看完提示也无处可去。
+   */
+  const [authGateOpen, setAuthGateOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<
     import('@/lib/types/settings').SettingsSection | undefined
   >(undefined);
@@ -519,19 +536,15 @@ function HomePage() {
     }));
   };
 
-  const handleGenerate = async () => {
+  /**
+   * 真正的生成流程。门禁在 `handleGenerate` 里，这里只管做事。
+   */
+  const startGenerate = async () => {
     // No model/provider guard here: generation is gated by `canGenerate`
     // (requires a usable provider), and under the #580 invariant a usable
     // provider always has a concrete model. State A (no usable provider)
     // surfaces through the toolbar's single Configure-Provider affordance.
     if (preparingGenerate) return;
-
-    // 会话门禁：生成课程要消耗模型额度，服务端要求**已登录**。
-    // 未登录时先给一句人话，而不是让调用方拿到一个没有上下文的 401。
-    if (shouldBlockForMissingSession()) {
-      toast.error('请先登录后再生成课堂：右上角「登录」，或用「一键进入」快速体验。');
-      return;
-    }
 
     if (!form.requirement.trim()) {
       setError(t('upload.requirementRequired'));
@@ -643,6 +656,40 @@ function HomePage() {
       // this is normally a no-op on the way out).
       setPreparingGenerate(false);
     }
+  };
+
+  /**
+   * 「生成 / 进入课堂」的入口：先过身份门禁，再走真正的生成流程。
+   *
+   * ## 未登录时为什么不直接报错
+   *
+   * 生成课程要消耗模型额度，服务端 `/api/generate/*` 要求会话，这是对的。
+   * 但客户端原来的做法是 `toast.error('右上角「登录」')` 然后 return——
+   * 而右上角当时只有主题与设置，**没有任何登录入口**，提示等于死路。
+   * 现在改成打开身份确认框：访客可以立刻开始，想按账号存进度的走登录页。
+   */
+  const handleGenerate = () => {
+    if (preparingGenerate) return;
+    if (shouldBlockForMissingSession()) {
+      setAuthGateOpen(true);
+      return;
+    }
+    void startGenerate();
+  };
+
+  /** 确认框里选「访客开始」：就地下发演示会话，再继续生成。 */
+  const continueAsGuest = () => {
+    ensureGuestSession('student');
+    setAuthGateOpen(false);
+    void startGenerate();
+  };
+
+  /** 确认框里选「登录 / 注册」：带上回跳地址去登录页，登录完回这里。 */
+  const goToLogin = () => {
+    setAuthGateOpen(false);
+    // 整页导航：登录页走客户端路由要拉 RSC，线上（EdgeOne）这一步实测要十几秒，
+    // 偶发还会失败。硬跳是即时的，且草稿本来就存在 localStorage 里，回来还在。
+    window.location.assign(loginHref('/'));
   };
 
   const formatDate = (timestamp: number) => {
@@ -760,6 +807,13 @@ function HomePage() {
             <Settings className="w-4 h-4 group-hover:rotate-90 transition-transform duration-500" />
           </button>
         </div>
+
+        <div className="w-[1px] h-4 bg-gray-200 dark:bg-gray-700" />
+
+        {/* 账号入口：未登录是「登录」，已登录是头像 + 菜单。
+            生成课堂要求会话，这个按钮就是那条提示指向的地方——
+            以前它不存在，用户被提示指到一个空位。 */}
+        <HomeAccount />
       </div>
       <SettingsDialog
         open={settingsOpen}
@@ -769,6 +823,32 @@ function HomePage() {
         }}
         initialSection={settingsSection}
       />
+
+      {/* ═══ 身份确认：未登录点「生成 / 进入课堂」时出现 ═══
+          两条路都必须能走到「课堂开始」，否则用户会像之前那样被卡死在这里。 */}
+      <Dialog open={authGateOpen} onOpenChange={setAuthGateOpen}>
+        <DialogContent className="max-w-[440px]">
+          <DialogHeader>
+            <DialogTitle>开始上课</DialogTitle>
+            <DialogDescription className="leading-relaxed">
+              生成课堂会调用模型，需要先确认身份。以访客身份可以直接开始；
+              登录后学习记录按账号保存，与访客记录互不干扰。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-lg bg-muted/50 px-3 py-2.5 text-[12px] leading-relaxed text-muted-foreground">
+            访客使用演示学生身份（陈思远），输入的主题与课堂记录保存在本浏览器，
+            关闭页面后仍可继续。账号同样保存在本浏览器，换设备需要重新注册。
+          </div>
+          <DialogFooter className="gap-2 sm:justify-between">
+            <Button variant="ghost" onClick={goToLogin} className="text-[13px]">
+              登录 / 注册
+            </Button>
+            <Button onClick={continueAsGuest} className="text-[13px]">
+              以访客身份开始
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ═══ Background Decor ═══ */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">

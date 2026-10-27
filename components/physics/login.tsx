@@ -17,7 +17,7 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { ArrowRight, Eye, EyeOff, GraduationCap, Sparkles, UserCog, UserPlus } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -25,6 +25,7 @@ import { Input } from '@/components/ui/input';
 import { usePhysicsState } from '@/components/physics/state-provider';
 import { BRAND_FULL_NAME, COURSE, DEMO, PLATFORM, SCHOOL } from '@/lib/school';
 import { DEMO_HINT } from '@/lib/physics/session';
+import { safeReturnTo } from '@/lib/physics/guest';
 import { routeFor } from '@/lib/physics/shortcuts';
 import type { AccountErrorCode } from '@/lib/physics/accounts';
 
@@ -48,8 +49,26 @@ const ERROR_MESSAGES: Record<AccountErrorCode, string> = {
   'storage-corrupt': '本地账号数据已损坏，已自动备份原数据。请清除本站数据后重新注册。',
 };
 
+/**
+ * 登录 / 注册 / 一键进入成功后的跳转：**整页导航**，不用 `router.replace`。
+ *
+ * ## 为什么不用客户端路由
+ *
+ * 线上（EdgeOne Pages）实测：登录页在 `<Suspense>` 边界里，
+ * `router.replace('/')` 会去拉首页的 RSC payload；首页是体积最大的
+ * 客户端页面，这次拉取在边缘节点上经常拿不到结果——表现是
+ * **cookie 已经写好，页面却停在登录页**，用户以为登录没成功。
+ * 本地 `next start` 复现不了：RSC 在本地是毫秒级。
+ *
+ * 整页导航不依赖 RSC，一定落地；而且登录本身改变了会话，
+ * 重载一次让所有客户端组件重新读会话，比局部刷新更干净。
+ */
+function navigateAfterAuth(target: string): void {
+  if (typeof window === 'undefined') return;
+  window.location.replace(target);
+}
+
 export function PhysicsLogin() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const { signIn, register, enterAsDemo, session } = usePhysicsState();
   const [tab, setTab] = React.useState<AuthTab>('login');
@@ -61,6 +80,14 @@ export function PhysicsLogin() {
   const [error, setError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
 
+  /**
+   * 登录后的回跳地址：只接受站内绝对路径，过滤规则见 `safeReturnTo`。
+   */
+  const returnTo = React.useMemo(
+    () => safeReturnTo(searchParams.get('returnTo')),
+    [searchParams],
+  );
+
   const demoRole = searchParams.get('demo');
   const autoEntered = React.useRef(false);
 
@@ -71,11 +98,14 @@ export function PhysicsLogin() {
   );
 
   React.useEffect(() => {
-    // 已有会话且没有指定演示角色时，按角色跳转。
+    // 已有会话且没有指定演示角色时，按角色跳转；带了 `returnTo` 就回原页。
     if (session && !demoHint) {
-      router.replace(routeFor(session.role, session.role === 'student' ? 'overview' : 'dashboard'));
+      navigateAfterAuth(
+        returnTo ??
+          routeFor(session.role, session.role === 'student' ? 'overview' : 'dashboard'),
+      );
     }
-  }, [router, session, demoHint]);
+  }, [session, demoHint, returnTo]);
 
   // 演示快捷入口：直接以该演示身份进入。
   // 即使当前已有其他角色的会话也要执行——访问 ?demo=teacher 本身就是
@@ -84,8 +114,10 @@ export function PhysicsLogin() {
     if (autoEntered.current || !demoHint) return;
     autoEntered.current = true;
     enterAsDemo(demoHint.role);
-    router.replace(routeFor(demoHint.role, demoHint.role === 'student' ? 'overview' : 'dashboard'));
-  }, [demoHint, router, enterAsDemo]);
+    navigateAfterAuth(
+      returnTo ?? routeFor(demoHint.role, demoHint.role === 'student' ? 'overview' : 'dashboard'),
+    );
+  }, [demoHint, enterAsDemo, returnTo]);
 
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -102,11 +134,14 @@ export function PhysicsLogin() {
         return;
       }
       // 落点按**会话里的角色**决定：教师进驾驶舱，学生进学习总览。
-      router.replace(
-        routeFor(
-          outcome.session.role,
-          outcome.session.role === 'teacher' ? 'dashboard' : 'overview',
-        ),
+      // 但若这次登录是被「生成课堂」拦下来的（带 `returnTo`），就回那一页——
+      // 用户本来要生成课程，把人送到工作台等于让他重新走一遍。
+      navigateAfterAuth(
+        returnTo ??
+          routeFor(
+            outcome.session.role,
+            outcome.session.role === 'teacher' ? 'dashboard' : 'overview',
+          ),
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : '操作失败，请重试。');
@@ -156,6 +191,11 @@ export function PhysicsLogin() {
           </div>
 
           {/* 登录 / 注册 切换 */}
+          {returnTo && (
+            <p className="mt-4 rounded-lg bg-primary/5 px-3 py-2 text-[11.5px] leading-relaxed text-primary">
+              登录或注册后将回到刚才的页面继续，已填写的内容不会丢失。
+            </p>
+          )}
           <div
             role="tablist"
             aria-label="登录或注册"
@@ -335,7 +375,7 @@ export function PhysicsLogin() {
               {DEMO_HINT.map((hint) => (
                 <Link
                   key={hint.role}
-                  href={`/login?demo=${hint.role}`}
+                  href={`/login?demo=${hint.role}${returnTo ? `&returnTo=${encodeURIComponent(returnTo)}` : ''}`}
                   className="rounded-full border border-primary/40 px-2.5 py-1 text-[11.5px] text-primary transition-colors hover:border-primary hover:bg-primary/5"
                 >
                   {hint.role === 'student' ? '学生视角' : '教师视角'}
@@ -350,7 +390,7 @@ export function PhysicsLogin() {
         </div>
 
         <div className="mt-4 flex flex-col items-center gap-2 text-center">
-          <Button variant="ghost" size="sm" onClick={() => router.push('/')}>
+          <Button variant="ghost" size="sm" onClick={() => navigateAfterAuth('/')}>
             <Sparkles className="size-3.5" />
             直接进入 AI 智能课堂
           </Button>
