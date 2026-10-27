@@ -4,7 +4,7 @@ import { WorkbenchShell } from '@/components/physics/workbench';
 import { STUDENT_VIEW_IDS } from '@/lib/physics/shortcuts';
 
 /**
- * 预渲染 8 个学生视图。
+ * 预渲染 11 个学生视图。
  *
  * 变成静态页之后，客户端路由缓存里就有它们的 RSC payload：从首页跳进
  * 工作台、以及在断网时跨页面跳转，都不必再向服务端要一次数据。
@@ -27,7 +27,7 @@ export function generateStaticParams() {
  */
 export const dynamicParams = false;
 
-/** 学生端物理工作台：按 [view] 渲染 8 个视图之一。 */
+/** 学生端物理工作台：按 [view] 渲染 11 个视图之一。 */
 export default function StudentViewPage() {
   return (
     <PhysicsStateProvider>

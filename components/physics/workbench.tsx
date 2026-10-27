@@ -11,9 +11,11 @@ import * as React from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
+  AlertTriangle,
   Atom,
   Bot,
   ClipboardCheck,
+  ClipboardList,
   FileBarChart,
   FlaskConical,
   LayoutDashboard,
@@ -21,9 +23,12 @@ import {
   Lightbulb,
   ListChecks,
   LogOut,
+  MessagesSquare,
   Network,
   RotateCcw,
+  ShieldCheck,
   Sparkles,
+  TrendingUp,
   Users,
   type LucideIcon,
 } from 'lucide-react';
@@ -66,6 +71,11 @@ interface NavItem {
 const STUDENT_NAV: NavItem[] = [
   { id: 'overview', label: '学习总览', icon: LayoutDashboard },
   { id: 'diagnosis', label: '学情诊断', icon: ClipboardCheck },
+  // 三诊：课前 → 课中 → 课后。放在诊断之后，因为课前分层正是诊断的直接产物，
+  // 学生看完诊断分数接着就能看到「我该进哪一层、配哪个案例」。
+  { id: 'preclass', label: '课前：诊断与配对', icon: ClipboardList },
+  { id: 'inclass', label: '课中：伴随诊断', icon: MessagesSquare },
+  { id: 'postclass', label: '课后：过程评价', icon: TrendingUp },
   { id: 'curriculum', label: '章节与知识图谱', icon: Network },
   { id: 'projects', label: '项目匹配', icon: Library },
   { id: 'tasks', label: '任务闯关', icon: ListChecks },
@@ -78,6 +88,8 @@ const TEACHER_NAV: NavItem[] = [
   { id: 'dashboard', label: '教学驾驶舱', icon: LayoutDashboard },
   { id: 'class', label: '班级画像', icon: Users },
   { id: 'curriculum', label: '课程项目矩阵', icon: Network },
+  { id: 'reviews', label: '三诊审核', icon: ShieldCheck },
+  { id: 'scores', label: '成绩登记总表', icon: FileBarChart },
   { id: 'evaluation', label: '评价复核', icon: ClipboardCheck },
   { id: 'insights', label: '教学洞察', icon: Lightbulb },
 ];
@@ -104,7 +116,8 @@ export function parseWorkbenchPath(
 export function WorkbenchShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { session, hydrated, signOut, reset, resetStudent, rollback, lastUndo } = usePhysicsState();
+  const { session, hydrated, signOut, reset, resetStudent, rollback, lastUndo, persistIssue } =
+    usePhysicsState();
   const [paletteOpen, setPaletteOpen] = React.useState(false);
   const [helpOpen, setHelpOpen] = React.useState(false);
   // 破坏性动作先确认再执行：命令面板一按回车就清库的体验既危险又无法撤回。
@@ -337,6 +350,15 @@ export function WorkbenchShell({ children }: { children: React.ReactNode }) {
           <div className="border-t border-white/8 px-3 py-3 text-[11px] text-[var(--school-sidebar-muted)]">
             <p className="truncate">{BRAND_FULL_NAME}</p>
             <p className="mt-0.5 truncate">演示账号 · {displayName}</p>
+            {/*
+              文件模式必须写在界面上，不能只写在文档里。
+              课堂数据落在云函数实例的临时文件系统：实例回收或换实例就读不到，
+              而「老师备好一堂课、明天上课用」正是这个平台的核心场景。
+              评审/老师看到这条才知道该当场导出，而不是第二天发现课堂不见了。
+            */}
+            <p className="mt-1 leading-snug" data-storage-mode-note>
+              演示模式：课堂数据保存在临时存储，不保证跨天保留，重要课堂请当场导出。
+            </p>
           </div>
         </aside>
 
@@ -405,6 +427,28 @@ export function WorkbenchShell({ children }: { children: React.ReactNode }) {
               </span>
             </div>
           </header>
+
+          {/*
+            存储失败必须是**常驻**横幅，不是一闪而过的 toast：
+            localStorage 写满时进度在丢，而页面看起来一切正常——
+            「看起来正常」正是这件事最危险的地方。
+          */}
+          {persistIssue ? (
+            <div
+              role="alert"
+              data-persist-issue={persistIssue}
+              className="flex items-start gap-2 border-b border-destructive/30 bg-destructive/8 px-4 py-2 text-[12px] text-destructive md:px-6"
+            >
+              <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+              <span className="min-w-0 flex-1">
+                {persistIssue === 'quota'
+                  ? '浏览器存储已满，学习进度没能保存。请清理本站数据后重试——当前页面里的进度刷新后会丢失。'
+                  : persistIssue === 'unavailable'
+                    ? '当前浏览器不允许本站写入本地存储（无痕模式或隐私设置）。这一节课可以照常进行，但刷新后进度不会保留。'
+                    : '学习进度没能保存。这一节课可以照常进行，但刷新后进度可能不会保留。'}
+              </span>
+            </div>
+          ) : null}
 
           {lastUndo ? (
             <div

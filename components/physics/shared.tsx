@@ -11,11 +11,19 @@
 import * as React from 'react';
 
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
+import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { DIAGNOSTIC_DIMENSIONS } from '@/lib/physics/data';
-import type { DiagnosticDimension, SignalQuality } from '@/lib/physics/types';
+import { LEVEL_BANDS, LEVEL_LABELS, RUBRIC_ROWS } from '@/lib/physics/quant-rubric';
+import type {
+  DiagnosticDimension,
+  SignalQuality,
+  StageReview,
+  StudentAck,
+} from '@/lib/physics/types';
 
 /** 页面标题区。 */
 export function PageHeader({
@@ -344,5 +352,262 @@ export function HintBar({ children }: { children: React.ReactNode }) {
     >
       {children}
     </p>
+  );
+}
+
+/**
+ * ISO 时间 → 「10-27 14:05」。
+ *
+ * 解析失败时返回 `—` 而不是 `Invalid Date`：审核时间是从 localStorage 读回来的，
+ * 手工改过或旧版本残留都可能不是合法时间，界面上直接印出 `Invalid Date`
+ * 比不显示更糟——它看起来像 bug，实际只是脏数据。
+ */
+export function formatDateTime(iso: string | undefined): string {
+  if (!iso) return '—';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '—';
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+ * 三诊共用：审核状态与「学生认可」
+ *
+ * 申请书把每个环节都写成三步：AI 建议 → 教师审核 → 学生认可。
+ * 这两个组件就是把后两步固定在界面上的东西——缺了它们，
+ * 「AI 建议」看起来和「最终结论」长得一模一样，学生和老师都分不清
+ * 哪一句还没被人看过。
+ * ══════════════════════════════════════════════════════════════════════ */
+
+/** 审核状态徽章。未审核时必须显眼——它表示「这条结论还没人负责」。 */
+export function ReviewBadge({ review }: { review?: StageReview }) {
+  const status = review?.status ?? 'pending';
+  const label =
+    status === 'approved' ? '教师已通过' : status === 'adjusted' ? '教师已调整' : '待教师审核';
+  const variant = status === 'pending' ? 'secondary' : 'default';
+  return (
+    <Badge variant={variant} className="font-normal" data-review-status={status}>
+      {label}
+    </Badge>
+  );
+}
+
+/** 审核意见（教师写了才显示）。 */
+export function ReviewNote({ review }: { review?: StageReview }) {
+  if (!review || review.status === 'pending' || !review.note) return null;
+  return (
+    <p className="rounded-md border border-border/70 bg-muted/40 px-2.5 py-2 text-[12px] leading-relaxed text-muted-foreground">
+      <span className="font-medium text-foreground">教师意见</span>
+      {review.by ? `（${review.by}）` : ''}：{review.note}
+    </p>
+  );
+}
+
+/**
+ * 学生认可条。
+ *
+ * 刻意做成「认可 / 有疑问」二选一而不是一个确认按钮：只给「已阅」的话，
+ * 学生点一下就过，教师端收到的全是绿色，等于没有反馈渠道。
+ * 选「有疑问」要求写一句理由——那句话正是教师下一轮要处理的东西。
+ */
+export function AckBar({
+  ack,
+  onAck,
+  disabled,
+  question = '你认可这条结论吗？',
+}: {
+  ack?: StudentAck;
+  onAck: (accepted: boolean, note: string) => void;
+  disabled?: boolean;
+  question?: string;
+}) {
+  const [note, setNote] = React.useState('');
+  const [open, setOpen] = React.useState(false);
+
+  if (ack) {
+    return (
+      <p
+        className={cn(
+          'rounded-md border px-2.5 py-2 text-[12px] leading-relaxed',
+          ack.accepted
+            ? 'border-[var(--school-success)]/40 bg-[var(--school-success)]/8 text-foreground'
+            : 'border-[var(--school-warning)]/40 bg-[var(--school-warning)]/8 text-foreground',
+        )}
+        data-student-ack={ack.accepted ? 'accepted' : 'questioned'}
+      >
+        <span className="font-medium">{ack.accepted ? '你已认可这条结论' : '你标记了疑问'}</span>
+        {ack.note ? `：${ack.note}` : ''}
+        <span className="ml-1 text-muted-foreground">教师端可见。</span>
+      </p>
+    );
+  }
+
+  return (
+    <div className="rounded-md border border-dashed border-border px-2.5 py-2">
+      <p className="text-[12px] text-muted-foreground">{question}</p>
+      {open ? (
+        <div className="mt-2 flex flex-col gap-2">
+          <Textarea
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            rows={2}
+            aria-label="疑问说明"
+            placeholder="哪一步对不上？例如：我算出来是 9.9，但不知道自己漏了哪个条件。"
+          />
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              onClick={() => onAck(false, note.trim())}
+              disabled={disabled || note.trim().length === 0}
+            >
+              提交疑问
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
+              取消
+            </Button>
+          </div>
+          <p className="text-[11px] text-muted-foreground">填一句理由再提交，教师才知道该看哪一步。</p>
+        </div>
+      ) : (
+        <div className="mt-2 flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" onClick={() => onAck(true, '')} disabled={disabled}>
+            认可
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setOpen(true)} disabled={disabled}>
+            有疑问
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * 四阶能力梯度发展量化评价表。
+ *
+ * 表格数据全部来自 `lib/physics/quant-rubric.ts`，界面不写死任何一个权重或
+ * 层级描述——文档与界面必须同源，否则改了一处另一处就悄悄过期。
+ *
+ * 七个列在窄屏上必然放不下，所以外面套一层横向滚动，而不是把内容压成
+ * 竖排或砍掉某一列：这张表的价值恰恰在「指标—AI 功能—层级—证据」四者
+ * 并列，少一列就只剩下一个看不出因果的分数表。
+ */
+export function RubricTable({ compact = false }: { compact?: boolean }) {
+  return (
+    <div className="overflow-x-auto rounded-lg border border-border/70">
+      <table className={cn('w-full border-collapse text-left', compact ? 'text-[11.5px]' : 'text-[12px]')}>
+        <caption className="sr-only">四阶能力梯度发展量化评价表</caption>
+        <thead>
+          <tr className="bg-muted/50 text-muted-foreground">
+            <th scope="col" className="min-w-[72px] border-b border-border/70 px-2 py-2 font-medium">
+              能力维度
+            </th>
+            <th scope="col" className="min-w-[150px] border-b border-border/70 px-2 py-2 font-medium">
+              量化指标及维度内权重
+            </th>
+            <th scope="col" className="min-w-[160px] border-b border-border/70 px-2 py-2 font-medium">
+              AI 功能与数据输出
+            </th>
+            {(['basic', 'applied', 'challenge'] as const).map((level) => (
+              <th
+                key={level}
+                scope="col"
+                className="min-w-[150px] border-b border-border/70 px-2 py-2 font-medium"
+              >
+                {LEVEL_LABELS[level]}
+                <span className="ml-1 font-normal text-[10px]">{LEVEL_BANDS[level].text}</span>
+              </th>
+            ))}
+            <th scope="col" className="min-w-[150px] border-b border-border/70 px-2 py-2 font-medium">
+              评价证据与采集时点
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {RUBRIC_ROWS.map((row) => (
+            <tr key={row.ability} className="align-top">
+              <th scope="row" className="border-b border-border/60 px-2 py-2 font-medium">
+                {row.label}
+              </th>
+              <td className="border-b border-border/60 px-2 py-2">
+                <ul className="flex flex-col gap-0.5">
+                  {row.indicators.map((indicator) => (
+                    <li key={indicator.label} className="flex justify-between gap-2">
+                      <span>{indicator.label}</span>
+                      <span className="shrink-0 tabular-nums text-muted-foreground">
+                        {Math.round(indicator.weight * 100)}%
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </td>
+              <td className="border-b border-border/60 px-2 py-2">
+                <ul className="flex flex-col gap-0.5">
+                  {row.aiFunctions.map((item) => (
+                    <li key={`${item.tag}-${item.text}`}>
+                      <span className="mr-1 rounded border border-border px-1 text-[10px] text-muted-foreground">
+                        {item.tag}
+                      </span>
+                      {item.text}
+                    </li>
+                  ))}
+                </ul>
+              </td>
+              {(['basic', 'applied', 'challenge'] as const).map((level) => (
+                <td
+                  key={level}
+                  className="border-b border-border/60 px-2 py-2 leading-relaxed text-muted-foreground"
+                >
+                  {row.levels[level]}
+                </td>
+              ))}
+              <td className="border-b border-border/60 px-2 py-2 text-muted-foreground">
+                <p>{row.evidence.join('、')}</p>
+                <p className="mt-1">采集：{row.collectAt}</p>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** 三步闭环的当前进度条：AI 建议 → 教师审核 → 学生认可。 */
+export function StageLoop({
+  reviewed,
+  acknowledged,
+}: {
+  reviewed: boolean;
+  acknowledged: boolean;
+}) {
+  const steps = [
+    { label: 'AI 建议', done: true },
+    { label: '教师审核', done: reviewed },
+    { label: '学生认可', done: acknowledged },
+  ];
+  return (
+    <ol className="flex flex-wrap items-center gap-1.5" aria-label="三诊闭环进度">
+      {steps.map((step, index) => (
+        <li key={step.label} className="flex items-center gap-1.5">
+          <span
+            className={cn(
+              'rounded-full border px-2 py-0.5 text-[11px]',
+              step.done
+                ? 'border-primary/40 bg-[var(--school-primary-softer)] text-foreground dark:bg-primary/10'
+                : 'border-border text-muted-foreground',
+            )}
+            aria-current={step.done ? 'step' : undefined}
+          >
+            {index + 1}. {step.label}
+          </span>
+          {index < steps.length - 1 ? (
+            <span aria-hidden="true" className="text-[10px] text-muted-foreground">
+              →
+            </span>
+          ) : null}
+        </li>
+      ))}
+    </ol>
   );
 }
