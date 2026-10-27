@@ -219,6 +219,22 @@ export function browserAccountDeps(): AccountDeps {
 }
 
 /**
+ * 会话 Cookie 的 `Secure` 属性。
+ *
+ * HTTPS 站点要带：不带的话，任何一个「先降级到 http 再跳回来」的路径
+ * 都会让这个值以明文过一次网络。
+ *
+ * 只在 HTTPS 下加，是因为**加了 `Secure` 的 Cookie 在 http:// 页面上会被
+ * 浏览器直接丢弃**——本地 `next dev`（http://localhost）会因此变成
+ * 「登录成功但下一个请求 401」，那正是本项目之前花了两轮才定位到的症状。
+ * localhost 本身被规范当作安全上下文，不需要这个属性。
+ */
+function secureCookieAttribute(): string {
+  if (typeof location === 'undefined') return '';
+  return location.protocol === 'https:' ? '; secure' : '';
+}
+
+/**
  * 下发会话 Cookie（供云函数判断「是否已登录」）。
  *
  * **诚实说明**：这个 Cookie 是**客户端自己写的**，内容就是账号 id 与
@@ -226,15 +242,19 @@ export function browserAccountDeps(): AccountDeps {
  * **验证不了「是不是本人」**。
  * 它的作用是**挡住随手匿名调用高耗能接口**，不是强身份鉴权。
  * 材料里必须这样写，不能含糊成「服务端验证了身份」。
+ *
+ * `HttpOnly` **做不到**：这个令牌本来就要被客户端读出来再放进请求头
+ * （见 `lib/physics/session-header.ts` 的 fetch 补丁），加了 `HttpOnly`
+ * 整条链路就断了。这是设计取舍，不是遗漏。
  */
 export function setSessionCookie(session: AccountSession): void {
   if (typeof document === 'undefined') return;
   const value = `${encodeURIComponent(session.userId)}.${session.at}`;
-  document.cookie = `${SESSION_COOKIE_NAME}=${value}; path=/; max-age=${SESSION_COOKIE_MAX_AGE_SECONDS}; samesite=lax`;
+  document.cookie = `${SESSION_COOKIE_NAME}=${value}; path=/; max-age=${SESSION_COOKIE_MAX_AGE_SECONDS}; samesite=lax${secureCookieAttribute()}`;
 }
 
 /** 清除会话 Cookie。 */
 export function clearSessionCookie(): void {
   if (typeof document === 'undefined') return;
-  document.cookie = `${SESSION_COOKIE_NAME}=; path=/; max-age=0; samesite=lax`;
+  document.cookie = `${SESSION_COOKIE_NAME}=; path=/; max-age=0; samesite=lax${secureCookieAttribute()}`;
 }

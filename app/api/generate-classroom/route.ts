@@ -6,6 +6,7 @@ import { type GenerateClassroomInput } from '@/lib/server/classroom-generation';
 import { runClassroomGenerationJob } from '@/lib/server/classroom-job-runner';
 import { createClassroomGenerationJob } from '@/lib/server/classroom-job-store';
 import { buildRequestOrigin } from '@/lib/server/classroom-storage';
+import { checkClassroomInput, fieldViolationResponse, readJsonBody } from '@/lib/server/generation-input-limits';
 import { createLogger } from '@/lib/logger';
 
 const log = createLogger('GenerateClassroom API');
@@ -30,9 +31,18 @@ function isValidPdfContent(value: unknown): value is PdfContent {
 export async function POST(req: NextRequest) {
   let requirementSnippet: string | undefined;
   try {
-    const rawBody = (await req.json()) as Partial<GenerateClassroomInput>;
+    // 不用 `req.json()`：它会把整个 body 读进内存再解析，`pdfContent.images`
+    // 是一串 base64，构造一个几百 MB 的 JSON 就能把函数内存打爆。
+    const parsed = await readJsonBody<Partial<GenerateClassroomInput>>(req);
+    if (!parsed.ok) return parsed.response;
+    const rawBody = parsed.body;
+
     requirementSnippet = rawBody.requirement?.substring(0, 60);
     const pdfContent = rawBody.pdfContent;
+
+    // 字段级上限：总字节合规不代表单个字段合理（一张 20 MiB 的图解码要三份内存）。
+    const violation = checkClassroomInput(rawBody);
+    if (violation) return fieldViolationResponse(violation);
 
     if (pdfContent !== undefined && !isValidPdfContent(pdfContent)) {
       return apiError(

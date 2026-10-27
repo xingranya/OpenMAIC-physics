@@ -40,6 +40,7 @@ import { resolveModelFromRequest } from '@/lib/server/resolve-model';
 import { sortDocumentImagesForVision } from '@/lib/document/bundle';
 import { resolveVisionImagesForPrompt } from '@/lib/persistence/resolve-vision-images';
 import { resolveVocationalActive } from '@/lib/config/feature-flags';
+import { readJsonBody } from '@/lib/server/generation-input-limits';
 const log = createLogger('Outlines Stream');
 
 export const maxDuration = 120;
@@ -288,7 +289,9 @@ export async function POST(req: NextRequest) {
   let requirementSnippet: string | undefined;
   let resolvedModelString: string | undefined;
   try {
-    const body = await req.json();
+    const parsed = await readJsonBody<Record<string, unknown>>(req);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.body;
 
     // Get API configuration from request headers/body
     const {

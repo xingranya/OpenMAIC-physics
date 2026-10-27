@@ -109,6 +109,55 @@ const nextConfig: NextConfig = {
     const extraAncestors = process.env.ALLOWED_FRAME_ANCESTORS?.trim();
     const frameAncestors = extraAncestors ? `'self' ${extraAncestors}` : "'self'";
 
+    /**
+     * 安全响应头的取舍（为什么是这几条、为什么**没有** script-src）。
+     *
+     * 全站有 11 处 `dangerouslySetInnerHTML`（场景内容、PBL 面板），安全性
+     * 完全押在 `lib/server/sanitize-scene-content.ts` 那层白名单上。白名单
+     * 只要漏一个标签（`sanitize-html` 历史上出过 mXSS 类问题），就没有第二道
+     * 防线。所以这里补上**不依赖 nonce**、加了也不会改变页面行为的那几条。
+     *
+     * `script-src` 的强制版**这里做不了**：Next 的引导脚本是内联的，要靠
+     * middleware 给每次请求生成 nonce 再拼进 CSP；而 EdgeOne Pages **不部署
+     * Next 中间件**（见 middleware.ts 顶部说明），线上没有生成 nonce 的地方。
+     * 硬上 `script-src 'self'` 会让整站脚本被拦、页面白屏。
+     *
+     * 所以真正的脚本来源限制走 `Content-Security-Policy-Report-Only`：
+     * 它**只报告不拦截**，用来在控制台里量出「到底有多少内联脚本会被挡」。
+     * 等 nonce 通道落地（或平台支持 middleware）再把同一份策略转成强制版。
+     * 这条不能含糊成「已上 CSP」——现在拦住脚本注入的仍然只有白名单。
+     */
+    const enforcingCsp = [
+      `frame-ancestors ${frameAncestors}`,
+      // 站内没有任何 <object>/<embed>；禁掉可以顺手掐死一类老式注入。
+      "object-src 'none'",
+      // 防 <base href> 劫持：所有相对 URL 都锚在文档自身上。
+      "base-uri 'self'",
+      // 防「注入一个 form 把数据 POST 到外部」。
+      "form-action 'self'",
+    ].join('; ');
+
+    /**
+     * 目标策略（只报告）。刻意写得比现状严格——它存在的意义就是**暴露差距**，
+     * 写得和现状一样宽就什么也测不出来。
+     */
+    const reportOnlyCsp = [
+      "default-src 'self'",
+      "script-src 'self'",
+      // Tailwind 与若干组件用内联 style 属性，这条短期内无法去掉。
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data: blob: https:",
+      "media-src 'self' blob: https:",
+      "font-src 'self' data:",
+      // 模型/搜索调用全部经由本站 API 转发，不需要放开第三方 connect 目标。
+      "connect-src 'self'",
+      "worker-src 'self' blob:",
+      "frame-src 'self'",
+      "object-src 'none'",
+      "base-uri 'self'",
+      "form-action 'self'",
+    ].join('; ');
+
     return [
       {
         source: '/(.*)',
@@ -116,9 +165,21 @@ const nextConfig: NextConfig = {
           // X-Frame-Options only supports SAMEORIGIN (no allow-list),
           // so we omit it when custom ancestors are configured.
           ...(!extraAncestors ? [{ key: 'X-Frame-Options', value: 'SAMEORIGIN' }] : []),
+          { key: 'Content-Security-Policy', value: enforcingCsp },
+          { key: 'Content-Security-Policy-Report-Only', value: reportOnlyCsp },
+          // 别让浏览器猜 MIME：`/api/classroom-media` 按 Range 吐文件，
+          // 猜错类型会让「下载下来变成 html」这类问题成立。
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          // 站点只有 HTTPS 入口。一年 + includeSubDomains，不加 preload
+          // （preload 是提交给浏览器厂商的不可逆清单，不该由配置文件替人决定）。
+          { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' },
+          // 跨站时不泄露路径与查询串（课堂 id 在路径里）。
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          // 只有麦克风是真的要用（语音输入 / 音色克隆）。相机、定位、支付、
+          // USB 全关——关掉的能力即使被注入脚本也调不起来。
           {
-            key: 'Content-Security-Policy',
-            value: `frame-ancestors ${frameAncestors}`,
+            key: 'Permissions-Policy',
+            value: 'camera=(), microphone=(self), geolocation=(), payment=(), usb=()',
           },
         ],
       },

@@ -19,7 +19,7 @@
  * **完整字面量**（`"const SESSION_COOKIE_NAME = 'physics_session';"`），
  * 注释里写同形的一行骗不过去（这是本项目吃过两次亏的地方）。
  */
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { NextRequest } from 'next/server';
@@ -27,6 +27,7 @@ import { NextRequest } from 'next/server';
 import { middleware, SESSION_REQUIRED_PREFIXES, requiresSession } from '@/middleware';
 import { SESSION_COOKIE_NAME, isSessionCookieValue } from '@/lib/physics/account-store';
 import { SESSION_HEADER_NAME } from '@/lib/physics/session-header';
+import { RATE_LIMIT_POLICY, resetRateLimits } from '@/lib/server/rate-limit';
 
 const REPO_ROOT = process.cwd();
 const PRUNE_SCRIPT = join(REPO_ROOT, 'scripts', 'prune-edgeone-function.mjs');
@@ -64,6 +65,28 @@ function request(pathname: string, cookie?: string, sessionHeader?: string): Nex
   if (cookie) headers.set('cookie', `${SESSION_COOKIE_NAME}=${cookie}`);
   if (sessionHeader) headers.set(SESSION_HEADER_NAME, sessionHeader);
   return new NextRequest(`http://localhost${pathname}`, { method: 'GET', headers });
+}
+
+/** 带方法、IP 与 body 声明的请求，用于限流与体量相关用例。 */
+function writeRequest(
+  pathname: string,
+  init: {
+    method?: string;
+    cookie?: string;
+    sessionHeader?: string;
+    ip?: string;
+    contentLength?: number;
+  } = {},
+): NextRequest {
+  const headers = new Headers();
+  if (init.cookie) headers.set('cookie', `${SESSION_COOKIE_NAME}=${init.cookie}`);
+  if (init.sessionHeader) headers.set(SESSION_HEADER_NAME, init.sessionHeader);
+  if (init.ip) headers.set('x-forwarded-for', init.ip);
+  if (init.contentLength !== undefined) headers.set('content-length', String(init.contentLength));
+  return new NextRequest(`http://localhost${pathname}`, {
+    method: init.method ?? 'POST',
+    headers,
+  });
 }
 
 describe('会话门禁 · 三处契约一致', () => {
@@ -111,6 +134,13 @@ describe('会话门禁 · 三处契约一致', () => {
     expect(matched, '没找到函数入口的前缀列表').not.toBeNull();
     const prefixes = [...(matched?.[1] ?? '').matchAll(/'([^']+)'/g)].map((m) => m[1]);
     expect(prefixes.sort()).toEqual([...SESSION_REQUIRED_PREFIXES].sort());
+  });
+
+  it('413 的错误码三处一致：`PAYLOAD_TOO_LARGE`', () => {
+    // 中间件、云函数入口、`lib/server/generation-input-limits.ts` 都会产出 413。
+    // 三处给三个不同错误码时，线上排查会把同一件事看成三件不同的事。
+    const generated = generatedLine('errorCode: status === 413 ?');
+    expect(generated).toContain('"PAYLOAD_TOO_LARGE"');
   });
 
   it('会话 Cookie 的形状判定只有一处实现（客户端与函数入口同规则）', () => {
@@ -169,5 +199,138 @@ describe('会话门禁 · 行为', () => {
     expect(requiresSession('/api/health')).toBe(false);
     expect(requiresSession('/api/materials')).toBe(false);
     expect(requiresSession('/api/server-providers')).toBe(false);
+  });
+
+  /**
+   * 线上实测过的漏网之鱼：`/api/generate-classroom` 没被 `/api/generate/` 覆盖
+   * （后者带斜杠）。而它恰恰是**唯一**会经 `after()` 拉起整条 LLM 流水线的入口，
+   * 匿名一个 POST 就能让服务器生成一整堂课。
+   */
+  it('`/api/generate-classroom` 必须要求登录', () => {
+    expect(requiresSession('/api/generate-classroom')).toBe(true);
+  });
+});
+
+describe('限流 · 中间件行为', () => {
+  beforeEach(() => {
+    resetRateLimits();
+  });
+
+  it('未登录 POST /api/generate-classroom → 401（不是 200 也不是 400）', async () => {
+    const response = await middleware(writeRequest('/api/generate-classroom', { ip: '203.0.113.1' }));
+    expect(response.status).toBe(401);
+  });
+
+  it('带合法令牌 POST /api/generate-classroom → 放行', async () => {
+    const response = await middleware(
+      writeRequest('/api/generate-classroom', { ip: '203.0.113.1', cookie: sessionValue() }),
+    );
+    expect(response.status).not.toBe(401);
+  });
+
+  it('GET 请求不受限流（否则课堂媒体的 Range 请求会被打满）', async () => {
+    for (let index = 0; index < 500; index += 1) {
+      const response = await middleware(
+        writeRequest('/api/classroom-media/abc/audio/a.mp3', { method: 'GET', ip: '203.0.113.2' }),
+      );
+      expect(response.status).not.toBe(429);
+    }
+  });
+
+  /**
+   * 带令牌时，**令牌桶才是那个更紧的桶**：200 单位/分钟 ÷ 20 = 10 次，
+   * 比 IP 桶的 400 ÷ 20 = 20 次先耗尽。所以这里断言 10 次，不是 20 次。
+   *
+   * 令牌必须**固定**。早先这行写的是 `sessionValue()`，它内部拼 `Date.now()`，
+   * 循环里时间一跳就换了个桶，于是「第几次被拒」随机漂在 11~20 之间——
+   * 那种用例红得没有信息量，绿得也没有。
+   */
+  it('写请求超速 → 429 且带 Retry-After', async () => {
+    const token = 'probe-account.1700000000000';
+    const perRequest = 20;
+    const allowed = Math.floor(
+      Math.min(RATE_LIMIT_POLICY.ipPerMinute, RATE_LIMIT_POLICY.tokenPerMinute) / perRequest,
+    );
+    expect(allowed).toBe(10);
+    for (let index = 0; index < allowed; index += 1) {
+      const response = await middleware(
+        writeRequest('/api/generate-classroom', { ip: '203.0.113.3', cookie: token }),
+      );
+      expect(response.status, `第 ${index + 1} 次不该被限`).not.toBe(429);
+    }
+    const blocked = await middleware(
+      writeRequest('/api/generate-classroom', { ip: '203.0.113.3', cookie: token }),
+    );
+    expect(blocked.status).toBe(429);
+    expect(blocked.headers.get('retry-after')).toBeTruthy();
+    const body = (await blocked.json()) as { errorCode?: string };
+    expect(body.errorCode).toBe('RATE_LIMITED');
+  });
+
+  /**
+   * 隔离 IP 桶：用一条**不要求登录**但参与限流的写接口（权重 1），
+   * 这样没有令牌桶掺进来，400 单位/分钟就是纯粹的 400 次。
+   *
+   * 这条与上面那条互补——上面证明「令牌更紧」，这条证明「IP 兜底还在」。
+   * 缺了这条，「把 tokenPerMinute 调到 0」这种把所有人锁死的改动不会被发现。
+   */
+  it('不带令牌的写请求由 IP 桶兜底：400 单位/分钟', async () => {
+    const allowed = RATE_LIMIT_POLICY.ipPerMinute;
+    for (let index = 0; index < allowed; index += 1) {
+      const response = await middleware(writeRequest('/api/quiz-grade', { ip: '203.0.113.7' }));
+      expect(response.status, `第 ${index + 1} 次不该被限`).not.toBe(429);
+    }
+    const blocked = await middleware(writeRequest('/api/quiz-grade', { ip: '203.0.113.7' }));
+    expect(blocked.status).toBe(429);
+  });
+
+  it('换令牌不能绕过 IP 桶', async () => {
+    const allowed = Math.floor(RATE_LIMIT_POLICY.ipPerMinute / 20);
+    for (let index = 0; index < allowed; index += 1) {
+      await middleware(
+        writeRequest('/api/generate-classroom', {
+          ip: '203.0.113.4',
+          cookie: `acct-${index}.${Date.now()}`,
+        }),
+      );
+    }
+    const blocked = await middleware(
+      writeRequest('/api/generate-classroom', {
+        ip: '203.0.113.4',
+        cookie: `acct-fresh.${Date.now()}`,
+      }),
+    );
+    expect(blocked.status).toBe(429);
+  });
+
+  it('声明超大的请求体 → 413，且不消耗限流配额', async () => {
+    const oversized = await middleware(
+      writeRequest('/api/generate-classroom', {
+        ip: '203.0.113.5',
+        cookie: sessionValue(),
+        contentLength: RATE_LIMIT_POLICY.maxBodyBytes + 1,
+      }),
+    );
+    expect(oversized.status).toBe(413);
+    const oversizedBody = (await oversized.json()) as { errorCode?: string };
+    expect(oversizedBody.errorCode).toBe('PAYLOAD_TOO_LARGE');
+
+    // 413 不应扣预算：紧接着的正常请求仍然放行。
+    const normal = await middleware(
+      writeRequest('/api/generate-classroom', { ip: '203.0.113.5', cookie: sessionValue() }),
+    );
+    expect(normal.status).not.toBe(413);
+    expect(normal.status).not.toBe(429);
+  });
+
+  it('/api/materials 不受生成类体量上限影响（它有自己的更大上限）', async () => {
+    const response = await middleware(
+      writeRequest('/api/materials', {
+        ip: '203.0.113.6',
+        cookie: sessionValue(),
+        contentLength: RATE_LIMIT_POLICY.maxBodyBytes * 4,
+      }),
+    );
+    expect(response.status).not.toBe(413);
   });
 });

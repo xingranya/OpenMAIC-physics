@@ -512,6 +512,163 @@ if (existsSync(bootstrapEntry)) {
  *
  * 语义与原版一致（同样的模块、同样的调用顺序），只多了日志、错误兜底与诊断。
  */
+/**
+ * 函数入口里的**限流与体量上限**实现。
+ *
+ * ## 为什么是「生成的字符串」而不是 import 一份
+ *
+ * 这段代码要跑在云函数入口（`.edgeone/cloud-functions/ssr-node/index.mjs`），
+ * 它不在 Next 的模块图里，`import '@/lib/server/rate-limit'` 解析不到。
+ * 所以只能内联——代价是它与 `lib/server/rate-limit.ts` 是**两份实现**。
+ *
+ * 两份实现靠 `tests/deploy/rate-limit-contract.test.ts` 盯：那条测试会把
+ * 这里返回的代码**真的求值一遍**，再与 TS 版跑同一组场景逐条比对结果。
+ * 只比字符串是没用的（改了逻辑但字面量没变照样绿），必须比行为。
+ *
+ * ## 为什么限流在门禁里而不是各路由里
+ *
+ * 58 个路由，逐个加必然漏。入口是**唯一**能覆盖全部请求的地方。
+ */
+export function rateLimitGateLines() {
+  return [
+    '/** 限流策略：与 lib/server/rate-limit.ts 的 RATE_LIMIT_POLICY 同源。 */',
+    'const RATE_LIMIT_POLICY = {',
+    '  ipPerMinute: 400,',
+    '  ipPerHour: 3000,',
+    '  tokenPerMinute: 200,',
+    '  tokenPerHour: 1500,',
+    '  globalDailyUnits: 20000,',
+    '  maxBodyBytes: 33554432,',
+    '};',
+    'const RATE_LIMIT_WEIGHTS = {',
+    "  '/api/generate-classroom': 20,",
+    "  '/api/generate/scene-outlines-stream': 10,",
+    "  '/api/generate/scene-content': 5,",
+    "  '/api/generate/image': 5,",
+    "  '/api/generate/video': 20,",
+    "  '/api/chat': 2,",
+    '};',
+    'const RATE_LIMIT_BODY_PREFIXES = [',
+    "  '/api/generate/',",
+    "  '/api/generate-classroom',",
+    "  '/api/chat',",
+    "  '/api/agent/',",
+    "  '/api/pbl/',",
+    "  '/api/web-search',",
+    "  '/api/quiz-grade',",
+    '];',
+    'const RATE_LIMIT_SKIP_PREFIXES = [',
+    "  '/api/health',",
+    "  '/api/classroom-media/',",
+    '];',
+    "const RATE_LIMIT_READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);",
+    'const RATE_MINUTE_MS = 60000;',
+    'const RATE_HOUR_MS = 3600000;',
+    'const RATE_DAY_MS = 86400000;',
+    'const RATE_MAX_BUCKETS = 5000;',
+    'const rateIpBuckets = new Map();',
+    'const rateTokenBuckets = new Map();',
+    'let rateGlobalBucket = { dayStart: 0, units: 0 };',
+    'let rateLastSweepAt = 0;',
+    '',
+    'function rateLimitCost(pathname) {',
+    '  let best = 0;',
+    '  let cost = 1;',
+    '  for (const prefix of Object.keys(RATE_LIMIT_WEIGHTS)) {',
+    '    if (pathname.startsWith(prefix) && prefix.length > best) {',
+    '      best = prefix.length;',
+    '      cost = RATE_LIMIT_WEIGHTS[prefix];',
+    '    }',
+    '  }',
+    '  return cost;',
+    '}',
+    '',
+    'function rateLimitApplies(method, pathname) {',
+    "  if (RATE_LIMIT_READ_METHODS.has(String(method || '').toUpperCase())) return false;",
+    '  return !RATE_LIMIT_SKIP_PREFIXES.some((prefix) => pathname.startsWith(prefix));',
+    '}',
+    '',
+    'function rateBodyLimitApplies(pathname) {',
+    '  return RATE_LIMIT_BODY_PREFIXES.some((prefix) => pathname.startsWith(prefix));',
+    '}',
+    '',
+    'function rateClientIp(request) {',
+    "  const forwarded = String(readHeaderValue(request, 'x-forwarded-for') || '');",
+    "  const candidate = (forwarded.split(',')[0] || '').trim() || String(readHeaderValue(request, 'x-real-ip') || '').trim();",
+    "  return /^[0-9a-fA-F:.]{2,64}$/.test(candidate) ? candidate : 'anon';",
+    '}',
+    '',
+    'function rateConsume(map, key, cost, perMinute, perHour, now) {',
+    '  let bucket = map.get(key);',
+    '  if (!bucket) {',
+    '    bucket = { minuteStart: now, minuteUnits: 0, hourStart: now, hourUnits: 0 };',
+    '    map.set(key, bucket);',
+    '  }',
+    '  if (now - bucket.minuteStart >= RATE_MINUTE_MS) {',
+    '    bucket.minuteStart = now;',
+    '    bucket.minuteUnits = 0;',
+    '  }',
+    '  if (now - bucket.hourStart >= RATE_HOUR_MS) {',
+    '    bucket.hourStart = now;',
+    '    bucket.hourUnits = 0;',
+    '  }',
+    '  if (bucket.minuteUnits + cost > perMinute) {',
+    '    return { ok: false, retryAfterSeconds: Math.max(1, Math.ceil((bucket.minuteStart + RATE_MINUTE_MS - now) / 1000)) };',
+    '  }',
+    '  if (bucket.hourUnits + cost > perHour) {',
+    '    return { ok: false, retryAfterSeconds: Math.max(1, Math.ceil((bucket.hourStart + RATE_HOUR_MS - now) / 1000)) };',
+    '  }',
+    '  bucket.minuteUnits += cost;',
+    '  bucket.hourUnits += cost;',
+    '  return { ok: true };',
+    '}',
+    '',
+    'function rateSweep(now) {',
+    '  if (now - rateLastSweepAt < RATE_MINUTE_MS) return;',
+    '  rateLastSweepAt = now;',
+    '  for (const map of [rateIpBuckets, rateTokenBuckets]) {',
+    '    for (const [key, bucket] of map) {',
+    '      if (now - bucket.hourStart >= RATE_HOUR_MS) map.delete(key);',
+    '    }',
+    '    while (map.size > RATE_MAX_BUCKETS) {',
+    '      const oldest = map.keys().next();',
+    '      if (oldest.done) break;',
+    '      map.delete(oldest.value);',
+    '    }',
+    '  }',
+    '}',
+    '',
+    'function checkRateBudget(ip, token, cost, now) {',
+    '  const units = Math.max(1, cost);',
+    '  rateSweep(now);',
+    '  if (now - rateGlobalBucket.dayStart >= RATE_DAY_MS) {',
+    '    rateGlobalBucket = { dayStart: now, units: 0 };',
+    '  }',
+    '  if (rateGlobalBucket.units + units > RATE_LIMIT_POLICY.globalDailyUnits) {',
+    '    return { allowed: false, retryAfterSeconds: Math.max(1, Math.ceil((rateGlobalBucket.dayStart + RATE_DAY_MS - now) / 1000)), scope: "global" };',
+    '  }',
+    '  const ipVerdict = rateConsume(rateIpBuckets, ip, units, RATE_LIMIT_POLICY.ipPerMinute, RATE_LIMIT_POLICY.ipPerHour, now);',
+    '  if (!ipVerdict.ok) return { allowed: false, retryAfterSeconds: ipVerdict.retryAfterSeconds, scope: "ip" };',
+    '  if (token) {',
+    '    const tokenVerdict = rateConsume(rateTokenBuckets, token, units, RATE_LIMIT_POLICY.tokenPerMinute, RATE_LIMIT_POLICY.tokenPerHour, now);',
+    '    if (!tokenVerdict.ok) return { allowed: false, retryAfterSeconds: tokenVerdict.retryAfterSeconds, scope: "token" };',
+    '  }',
+    '  rateGlobalBucket.units += units;',
+    '  return { allowed: true, retryAfterSeconds: 0, scope: null };',
+    '}',
+    '',
+    'function rateLimitedResponse(status, message, retryAfterSeconds) {',
+    '  const headers = { "content-type": "application/json" };',
+    '  if (retryAfterSeconds > 0) headers["retry-after"] = String(retryAfterSeconds);',
+    '  return new Response(',
+    '    JSON.stringify({ success: false, errorCode: status === 413 ? "PAYLOAD_TOO_LARGE" : "RATE_LIMITED", error: message }),',
+    '    { status, headers },',
+    '  );',
+    '}',
+    '',
+  ];
+}
+
 const indexEntry = join(FN_DIR, 'index.mjs');
 if (existsSync(indexEntry)) {
   const original = readFileSync(indexEntry, 'utf8');
@@ -519,16 +676,22 @@ if (existsSync(indexEntry)) {
   // 失败即 process.exit(1)，若沿用那个标记做守卫，新版就永远不会被写入。
   // （每次给入口加可观测能力时，同步换掉这里的标记。）
   //
-  // v9：会话门禁同时认 Cookie 与 x-physics-session；修掉正则被字符串转义
-  //     吃成 `.d{10,16}` 的致命错误（合法令牌永远匹配不上 → 线上恒 401）。
+  // v11：413 的错误码从 `INVALID_REQUEST` 改成 `PAYLOAD_TOO_LARGE`，与
+  //      `lib/server/generation-input-limits.ts` 及中间件统一——同一个条件
+  //      在三个地方给出三个不同错误码，线上排查时会以为是三件不同的事。
+  // v10：入口加**限流与请求体上限**，并补上漏掉的 `/api/generate-classroom`
+  //      前缀（`/api/generate/` 带斜杠，匹配不到它；那是唯一会拉起整条
+  //      LLM 流水线的入口，线上曾出现匿名 POST 直接进到业务层）。
+  //      v9：会话门禁同时认 Cookie 与 x-physics-session；修掉正则被字符串转义
+  //      吃成 `.d{10,16}` 的致命错误（合法令牌永远匹配不上 → 线上恒 401）。
   //     守卫和写出的标记必须是**同一个值**，否则老产物永远不会被新版覆盖。
-  const ENTRY_DIAG_VERSION = 9;
+  const ENTRY_DIAG_VERSION = 11;
   if (!original.includes(`entry-diag-version: ${ENTRY_DIAG_VERSION}`)) {
     writeFileSync(
       indexEntry,
       [
         '// EdgeOne Pages 云函数入口（opennext 生成，本文件为可观测性改写版）。',
-        '// entry-diag-version: 9',
+        '// entry-diag-version: 11',
         '// 与原版语义一致：加载 bootstrap/handler → 启动框架服务器；',
         '// 额外把启动阶段信息、失败原因与诊断文本暴露出来，便于线上排障。',
         "console.log('[ssr-node] entry start', process.version, process.platform, process.arch);",
@@ -635,6 +798,7 @@ if (existsSync(indexEntry)) {
         "  return lines.join('\\n');",
         '}',
         '',
+        ...rateLimitGateLines(),
         '/**',
         ' * 会话门禁：只有**高耗能接口**要求已登录。',
         ' *',
@@ -670,7 +834,7 @@ if (existsSync(indexEntry)) {
         ' */',
         "const SESSION_COOKIE_NAME = 'physics_session';",
         "const SESSION_HEADER_NAME = 'x-physics-session';",
-        "const SESSION_REQUIRED_PREFIXES = ['/api/generate/', '/api/chat', '/api/agent/', '/api/pbl/v2/evaluate', '/api/transcription', '/api/web-search'];",
+        "const SESSION_REQUIRED_PREFIXES = ['/api/generate/', '/api/generate-classroom', '/api/chat', '/api/agent/', '/api/pbl/v2/evaluate', '/api/transcription', '/api/web-search'];",
         'const SESSION_COOKIE_PATTERN = /^[A-Za-z0-9._-]{1,128}\\.\\d{10,16}$/;',
         '',
         'function parseCookieHeader(header) {',
@@ -809,6 +973,25 @@ if (existsSync(indexEntry)) {
         'function createSessionGate(handler) {',
         '  return async (request, context) => {',
         '    const pathname = readRequestPathname(request);',
+        '',
+        '    // 限流与体量上限：先于会话判定。体量只看一个头，最便宜，放最前。',
+        '    const method = String((request && request.method) || "GET").toUpperCase();',
+        '    if (rateLimitApplies(method, pathname)) {',
+        '      if (rateBodyLimitApplies(pathname)) {',
+        "        const declared = Number(readHeaderValue(request, 'content-length') || 0);",
+        '        if (Number.isFinite(declared) && declared > RATE_LIMIT_POLICY.maxBodyBytes) {',
+        '          return rateLimitedResponse(413, "请求体过大（上限 " + Math.floor(RATE_LIMIT_POLICY.maxBodyBytes / 1048576) + " MiB）", 0);',
+        '        }',
+        '      }',
+        '      const sessionForRate = readSessionToken(request);',
+        '      const verdict = checkRateBudget(rateClientIp(request), sessionForRate.token || "", rateLimitCost(pathname), Date.now());',
+        '      if (!verdict.allowed) {',
+        "        const message = verdict.scope === 'global' ? '今日模型调用额度已用尽，请明天再试' : '请求过于频繁，请稍后再试';",
+        '        console.warn("[ssr-node] 限流拦截：" + pathname + "（scope=" + verdict.scope + "）");',
+        '        return rateLimitedResponse(verdict.scope === "global" ? 503 : 429, message, verdict.retryAfterSeconds);',
+        '      }',
+        '    }',
+        '',
         '    const required = SESSION_REQUIRED_PREFIXES.some((prefix) => pathname.startsWith(prefix));',
         '    if (!required) return handler(request, context);',
         '    const session = readSessionToken(request);',

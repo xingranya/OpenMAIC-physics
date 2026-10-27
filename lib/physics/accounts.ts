@@ -305,18 +305,55 @@ export async function verifyPassword(
 }
 
 /**
+ * 账号表的写锁名。
+ *
+ * `navigator.locks` 是**按源共享**的，两个标签页看到的是同一把锁——
+ * 这正是这里需要的：两个标签页同时注册，`list()` 都读到 N 条，
+ * 各自 `save([...N, 新账号])`，后写的把先写的那条抹掉。
+ */
+const ACCOUNTS_LOCK_NAME = 'physics-accounts';
+
+/**
+ * 把「读—改—写」串行化。
+ *
+ * 用浏览器原生的 Web Locks API，不引第三方依赖。
+ * **没有这个 API 的环境直接执行**（Node 里的测试、老浏览器）：没有锁只是
+ * 回到原来的并发语义，不该因此让注册整个不可用。
+ *
+ * 注意锁只解决**同一浏览器内**的并发。跨设备没有共享存储，
+ * 也就没有需要串行化的写。
+ */
+async function withAccountsLock<T>(work: () => Promise<T>): Promise<T> {
+  const locks = typeof navigator === 'undefined' ? undefined : navigator.locks;
+  if (!locks || typeof locks.request !== 'function') return work();
+  return locks.request(ACCOUNTS_LOCK_NAME, work);
+}
+
+/**
  * 注册一个账号。
  *
  * 失败时给出**可区分**的错误码；成功时把账号写回仓库。
+ *
+ * 整个「读表 → 查重 → 写入」在 Web Lock 里执行：锁外读、锁内写等于没锁，
+ * 因为覆盖发生在 `save()` 那一刻，用的还是锁外读到的那份旧快照。
  */
 export async function registerAccount(
   repository: AccountRepository,
   input: { username: string; password: string; displayName?: string; role: UserRole },
   deps: AccountDeps,
 ): Promise<AccountResult<PhysicsAccount>> {
+  // 入参校验不看仓库状态，放在排队之前——早退不该等锁。
   const invalid = validateRegistration(input);
   if (invalid) return { ok: false, error: invalid };
 
+  return withAccountsLock(() => registerAccountLocked(repository, input, deps));
+}
+
+async function registerAccountLocked(
+  repository: AccountRepository,
+  input: { username: string; password: string; displayName?: string; role: UserRole },
+  deps: AccountDeps,
+): Promise<AccountResult<PhysicsAccount>> {
   const username = normalizeUsername(input.username);
   let accounts: PhysicsAccount[];
   try {

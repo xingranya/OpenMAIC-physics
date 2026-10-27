@@ -32,6 +32,7 @@ import { modelAuthorizationResponse, apiError, apiSuccess } from '@/lib/server/a
 import { validateClientBaseUrl } from '@/lib/server/ssrf-guard';
 import { withMediaProviderFetch } from '@/lib/server/media-provider-fetch';
 import { resolveImageSize } from '@/lib/server/image-sizing';
+import { readJsonBody } from '@/lib/server/generation-input-limits';
 
 const log = createLogger('ImageGeneration API');
 
@@ -44,7 +45,9 @@ export const maxDuration = 120;
 
 export async function POST(request: NextRequest) {
   try {
-    const body = (await request.json()) as ImageGenerationOptions;
+    const parsed = await readJsonBody<ImageGenerationOptions>(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.body;
 
     if (!body.prompt) {
       return apiError('MISSING_REQUIRED_FIELD', 400, 'Missing prompt');

@@ -32,6 +32,7 @@ import { createLogger } from '@/lib/logger';
 import { modelAuthorizationResponse, apiError, apiSuccess } from '@/lib/server/api-response';
 import { validateClientBaseUrl } from '@/lib/server/ssrf-guard';
 import { withMediaProviderFetch } from '@/lib/server/media-provider-fetch';
+import { readJsonBody } from '@/lib/server/generation-input-limits';
 
 const log = createLogger('VideoGeneration API');
 
@@ -39,7 +40,9 @@ export const maxDuration = 120;
 
 export async function POST(request: NextRequest) {
   try {
-    const body = (await request.json()) as VideoGenerationOptions;
+    const parsed = await readJsonBody<VideoGenerationOptions>(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.body;
 
     if (!body.prompt) {
       return apiError('MISSING_REQUIRED_FIELD', 400, 'Missing prompt');

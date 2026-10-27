@@ -2,6 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { SESSION_COOKIE_NAME, isSessionCookieValue } from '@/lib/physics/account-store';
 import { SESSION_HEADER_NAME, sessionTokenFromCookieHeader } from '@/lib/physics/session-header';
+import {
+  RATE_LIMIT_POLICY,
+  bodyLimitApplies,
+  checkRequestBudget,
+  clientIpFromHeaders,
+  rateLimitApplies,
+  rateLimitedBody,
+  requestCost,
+} from '@/lib/server/rate-limit';
 
 /**
  * 会话门禁：只有**高耗能接口**要求已登录。
@@ -48,6 +57,10 @@ import { SESSION_HEADER_NAME, sessionTokenFromCookieHeader } from '@/lib/physics
  */
 export const SESSION_REQUIRED_PREFIXES = [
   '/api/generate/',
+  // 注意：`/api/generate-classroom` **不**被上面的前缀覆盖（`generate/` 带斜杠）。
+  // 漏掉它的后果最严重——那是唯一会经 `after()` 拉起整条 LLM 流水线的入口，
+  // 线上实测曾出现「匿名 POST 直接进到业务层」。
+  '/api/generate-classroom',
   '/api/chat',
   '/api/agent/',
   '/api/pbl/v2/evaluate',
@@ -74,12 +87,45 @@ export function readSessionToken(request: NextRequest): string | null {
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const token = readSessionToken(request);
+
+  // ---- 限流与体量：先于会话判定 ----
+  //
+  // 顺序是刻意的。体量检查最便宜（只看一个头，不读 body），放最前；
+  // 限流次之；会话判定最后。这样「超大请求」不会先消耗掉一个配额单位。
+  if (rateLimitApplies(request.method, pathname)) {
+    if (bodyLimitApplies(pathname)) {
+      const declared = Number(request.headers.get('content-length') ?? '');
+      if (Number.isFinite(declared) && declared > RATE_LIMIT_POLICY.maxBodyBytes) {
+        return NextResponse.json(
+          {
+            success: false,
+            errorCode: 'PAYLOAD_TOO_LARGE',
+            error: `请求体过大（上限 ${Math.floor(RATE_LIMIT_POLICY.maxBodyBytes / 1024 / 1024)} MiB）`,
+          },
+          { status: 413 },
+        );
+      }
+    }
+
+    const decision = checkRequestBudget({
+      ip: clientIpFromHeaders((name) => request.headers.get(name)),
+      token,
+      cost: requestCost(pathname),
+    });
+    if (!decision.allowed) {
+      return NextResponse.json(rateLimitedBody(decision.scope ?? 'ip'), {
+        status: decision.scope === 'global' ? 503 : 429,
+        headers: { 'retry-after': String(decision.retryAfterSeconds) },
+      });
+    }
+  }
 
   if (!requiresSession(pathname)) {
     return NextResponse.next();
   }
 
-  if (readSessionToken(request)) {
+  if (token) {
     return NextResponse.next();
   }
 

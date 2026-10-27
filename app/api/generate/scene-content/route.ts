@@ -33,6 +33,7 @@ import {
   type VisionPromptImage,
 } from '@/lib/persistence/resolve-vision-images';
 import { generatePBLV2Project } from '@/lib/pbl/v2/agents/planner';
+import { readJsonBody } from '@/lib/server/generation-input-limits';
 
 const log = createLogger('Scene Content API');
 
@@ -60,7 +61,9 @@ export async function POST(req: NextRequest) {
   let outlineTitle: string | undefined;
   let resolvedModelString: string | undefined;
   try {
-    const body = await req.json();
+    const parsed = await readJsonBody<Record<string, unknown>>(req);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.body;
     const {
       outline: rawOutline,
       allOutlines,
