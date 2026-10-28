@@ -107,6 +107,32 @@ describe('组内成员推导', () => {
     expect(members).toHaveLength(1);
   });
 
+  it('演示名册下本组至少 3 人，且本人排第一', () => {
+    // 名册只有 6 人分 4 组，纯哈希会让有些组一个人都没有；
+    // 演示模式要补到 3 人，否则课后页会显示「还没有同组同学」。
+    const members = groupMembersOf({ studentId: 'acc-1', studentName: '我', tier: 'applied' });
+    expect(members.length).toBeGreaterThanOrEqual(3);
+    expect(members[0]?.isSelf).toBe(true);
+    const again = groupMembersOf({ studentId: 'acc-1', studentName: '我', tier: 'applied' });
+    expect(again.map((item) => item.id)).toEqual(members.map((item) => item.id));
+  });
+
+  it('注入真实名册时不补人', () => {
+    const members = groupMembersOf({
+      studentId: 's1',
+      studentName: '甲',
+      tier: 'basic',
+      roster: [{ id: 's1', name: '甲' }],
+    });
+    expect(members).toHaveLength(1);
+  });
+
+  it('组内分工不重复', () => {
+    const members = groupMembersOf({ studentId: 'acc-2', studentName: '我', tier: 'basic' });
+    const roles = members.map((item) => item.role);
+    expect(new Set(roles).size).toBe(roles.length);
+  });
+
   it('已评过的成员会被标出来', () => {
     const members = groupMembersOf({ studentId: 's1', studentName: '甲', tier: 'applied', roster });
     const peer = members.find((item) => !item.isSelf);

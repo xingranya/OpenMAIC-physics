@@ -189,6 +189,17 @@ export function assignGroup(
   };
 }
 
+/**
+ * 某一层的组内分工模板（只读）。
+ *
+ * 互评页要按组内顺序给每个人分一个**不重复**的分工：如果直接用
+ * `assignGroup().groupRole`，三个人可能都拿到「数据分析与可视化」，
+ * 界面上一眼就是假的。
+ */
+export function groupRolesOf(tier: AbilityTier): readonly string[] {
+  return GROUP_ROLES[tier];
+}
+
 /** 生成课前方案。 */
 export function buildPreClassPlan(input: {
   diagnosis?: DiagnosisResult;

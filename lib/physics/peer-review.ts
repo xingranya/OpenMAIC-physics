@@ -22,10 +22,17 @@
  * 名册稳定推导，刷新不变，教师也不用额外操作。代价是：**跨真实班级时
  * 这套推导不成立**，需要在服务端接入教务名单才能换掉——这条边界写在
  * 页面提示里，不假装已经支持。
+ *
+ * ## 演示名册会补人，真实名册不会
+ *
+ * 演示名册只有 6 人，却要分到 4 个组里，纯靠哈希有相当概率「本组除我之外
+ * 没人」——界面会显示「还没有同组同学」，看着像坏掉。所以**只在调用方没传
+ * `roster` 时**按组号确定性地补到 3 人；传了真实名单就照名单来，一个人都
+ * 不编。编出来的同组同学比一个空列表更糟，这条界线不能糊。
  */
 
 import { DEMO_STUDENTS } from './data';
-import { assignGroup } from './stages';
+import { assignGroup, groupRolesOf } from './stages';
 import type { AbilityTier, PeerReview } from './types';
 
 export interface GroupMember {
@@ -39,9 +46,20 @@ export interface GroupMember {
 }
 
 /**
+ * 一个小组最少要有几个人（含本人）。
+ *
+ * 演示名册只有 6 人，却要分到 4 个组里：纯靠哈希推导，
+ * 有相当概率「本组除我之外一个人都没有」，界面上就显示
+ * 「还没有同组同学」——看着像坏掉，其实是名册太小。
+ * 所以演示模式（调用方没传 roster）下补足到 3 人。
+ */
+const MIN_GROUP_SIZE = 3;
+
+/**
  * 推导当前学生所在小组的成员。
  *
- * `roster` 可注入，便于测试与将来接真实名单。
+ * `roster` 可注入，便于测试与将来接真实名单。**注入名单时不补人**：
+ * 真实班级有多少人就是多少人，编出来的同学比空列表更糟。
  */
 export function groupMembersOf(input: {
   studentId: string;
@@ -51,35 +69,59 @@ export function groupMembersOf(input: {
   roster?: readonly { id: string; name: string }[];
 }): GroupMember[] {
   const { studentId, studentName, tier, reviews = [], roster } = input;
+  const self = assignGroup(tier, studentId);
+  const roles = groupRolesOf(tier);
   // 演示名册只带姓名，没有账号 id（那是真实登录才有的东西）。这里用
   // `demo:<姓名>` 造一个**稳定**的合成 id：分组哈希与「是否已评」都要一个
   // 跨刷新不变的键，而姓名在名册内唯一，正好够用。等接入真实名单后，
   // 调用方传 `roster` 就能整体换掉这段推导。
-  const people =
+  const demoMode = roster === undefined;
+  const base =
     roster ??
     [
       { id: studentId, name: studentName },
       ...DEMO_STUDENTS.map((student) => ({ id: `demo:${student.name}`, name: student.name })),
     ];
-  const selfGroup = assignGroup(tier, studentId).groupId;
+
+  const sameGroup = base.filter((person) => assignGroup(tier, person.id).groupId === self.groupId);
+  const people = [...sameGroup];
+
+  if (demoMode && people.length < MIN_GROUP_SIZE) {
+    // 按组号确定性地补人：同一组号每次补到的是同一批人，
+    // 换一个组号补到的是另一批——刷新多少次都不会变。
+    const groupNo = Number(/(\d+)/.exec(self.groupId)?.[1] ?? '1');
+    const pool = base.filter((person) => !people.some((item) => item.id === person.id));
+    if (pool.length > 0) {
+      const offset = ((groupNo - 1) * (MIN_GROUP_SIZE - 1)) % pool.length;
+      const rotated = [...pool.slice(offset), ...pool.slice(0, offset)];
+      people.push(...rotated.slice(0, MIN_GROUP_SIZE - people.length));
+    }
+  }
+
+  // 名册里同一个 id 出现两次（手抄名单常见）只算一个人。
+  const seen = new Set<string>();
+  const unique = people.filter((person) => {
+    if (seen.has(person.id)) return false;
+    seen.add(person.id);
+    return true;
+  });
+
+  // 本人排第一：界面上「我」永远在最上面，后面的才是要评的人。
+  unique.sort((left, right) =>
+    left.id === studentId ? -1 : right.id === studentId ? 1 : 0,
+  );
+
+  // 分工按组内顺序错开，避免三个人拿到同一个分工。
+  const selfRoleIndex = Math.max(0, roles.indexOf(self.groupRole));
   const reviewedIds = new Set(reviews.map((item) => item.targetId));
 
-  const members: GroupMember[] = [];
-  const seen = new Set<string>();
-  people.forEach((person) => {
-    if (seen.has(person.id)) return;
-    const { groupId, groupRole } = assignGroup(tier, person.id);
-    if (groupId !== selfGroup) return;
-    seen.add(person.id);
-    members.push({
-      id: person.id,
-      name: person.name,
-      role: groupRole,
-      isSelf: person.id === studentId,
-      reviewed: reviewedIds.has(person.id),
-    });
-  });
-  return members;
+  return unique.map((person, index) => ({
+    id: person.id,
+    name: person.name,
+    role: roles[(selfRoleIndex + index) % roles.length] ?? self.groupRole,
+    isSelf: person.id === studentId,
+    reviewed: reviewedIds.has(person.id),
+  }));
 }
 
 /** 互评填写的校验。返回 null 表示通过。 */

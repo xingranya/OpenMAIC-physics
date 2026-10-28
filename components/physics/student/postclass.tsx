@@ -121,6 +121,7 @@ function TrajectoryChart({ points }: { points: readonly AbilityPoint[] }) {
             y2={y(tick)}
             className="stroke-border"
             strokeWidth={0.25}
+            vectorEffect="non-scaling-stroke"
           />
         ))}
         {ABILITIES.map((ability) => (
@@ -129,6 +130,8 @@ function TrajectoryChart({ points }: { points: readonly AbilityPoint[] }) {
             fill="none"
             className="stroke-primary"
             strokeWidth={1}
+            /* viewBox 只有 100×40 却被拉满整宽，不关掉描边缩放会把线拉成粗细不均。 */
+            vectorEffect="non-scaling-stroke"
             strokeOpacity={ABILITY_OPACITY[ability]}
             points={points
               .map((point, index) => `${index * step},${y(point.scores[ability])}`)
@@ -201,7 +204,9 @@ export function StudentPostClass() {
     const label = versionLabel.trim();
     if (!label) return;
     const next: ArtifactVersion = {
-      id: `v-${Date.now()}`,
+      // 只用时间戳做 id，同一毫秒内连加两条会撞号，而撞号的那条会被
+      // `normaliseVersions` 当重复丢掉——所以再拼一个序号。
+      id: `v-${Date.now()}-${state.versions.length + 1}`,
       label,
       note: versionNote.trim(),
       at: new Date().toISOString(),

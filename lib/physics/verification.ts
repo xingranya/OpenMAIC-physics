@@ -113,7 +113,10 @@ export function buildVerification(
   let improved = 0;
   usable.forEach((item) => {
     const byQuestion = new Map<string, typeof item.inClass>();
-    item.inClass.forEach((exchange) => {
+    // `inClass` 在正常读取路径上一定被归一化成数组，但本函数是纯函数、
+    // 也会被测试与将来的服务端直接调用——缺字段时按「没有问答」处理，
+    // 让核验页少一条数据，而不是整页崩掉。
+    (item.inClass ?? []).forEach((exchange) => {
       const list = byQuestion.get(exchange.questionId);
       if (list) list.push(exchange);
       else byQuestion.set(exchange.questionId, [exchange]);
