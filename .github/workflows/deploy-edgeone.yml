@@ -22,9 +22,6 @@ name: Deploy to EdgeOne
 # 手动触发（workflow_dispatch）则直接失败——人在现场就该看见问题。
 
 on:
-  push:
-    branches:
-      - feature/physics-ai-classroom
   workflow_dispatch:
 
 concurrency:
